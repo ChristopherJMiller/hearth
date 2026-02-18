@@ -1,0 +1,195 @@
+# modules/agent.nix — NixOS module for the hearth-agent systemd service
+#
+# The agent is the primary on-device daemon. It runs as a systemd system service,
+# communicates with the Hearth control plane, manages user environment activation,
+# and exposes a Unix socket API for the greeter.
+{ config, lib, pkgs, ... }:
+
+let
+  cfg = config.services.hearth.agent;
+  settingsFormat = pkgs.formats.toml { };
+
+  # Build the agent.toml configuration from module options
+  agentConfig = settingsFormat.generate "agent.toml" {
+    server.url = cfg.serverUrl;
+    machine = {
+      id = cfg.machineId;
+    };
+    agent = {
+      poll_interval_secs = cfg.pollInterval;
+      socket_path = cfg.socketPath;
+    };
+    cache = lib.optionalAttrs (cfg.binaryCacheUrl != null) {
+      url = cfg.binaryCacheUrl;
+    };
+    role_mapping = cfg.roleMapping;
+  };
+in
+{
+  options.services.hearth.agent = {
+    enable = lib.mkEnableOption "Hearth fleet management agent";
+
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = pkgs.hearth-agent;
+      defaultText = lib.literalExpression "pkgs.hearth-agent";
+      description = "The hearth-agent package to use.";
+    };
+
+    serverUrl = lib.mkOption {
+      type = lib.types.str;
+      example = "https://api.hearth.example.com";
+      description = "URL of the Hearth control plane API endpoint.";
+    };
+
+    machineId = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      example = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+      description = ''
+        Machine UUID assigned during enrollment. If empty, the agent will
+        attempt to read it from /var/lib/hearth/machine-id on first boot.
+      '';
+    };
+
+    pollInterval = lib.mkOption {
+      type = lib.types.int;
+      default = 60;
+      description = "Interval in seconds between control plane polling cycles.";
+    };
+
+    socketPath = lib.mkOption {
+      type = lib.types.str;
+      default = "/run/hearth/agent.sock";
+      description = "Path to the Unix domain socket for greeter-agent IPC.";
+    };
+
+    binaryCacheUrl = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "https://cache.hearth.example.com/fleet-prod";
+      description = "Attic binary cache URL for closure pulls. Null to use system defaults.";
+    };
+
+    roleMapping = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { default = "default"; };
+      example = {
+        engineering = "developer";
+        design = "designer";
+        it-admin = "admin";
+        default = "default";
+      };
+      description = ''
+        Mapping of identity provider groups to Hearth role profile names.
+        The first matching group wins. The "default" key is used as a fallback.
+      '';
+    };
+
+    logLevel = lib.mkOption {
+      type = lib.types.enum [ "trace" "debug" "info" "warn" "error" ];
+      default = "info";
+      description = "Log level for the hearth-agent process.";
+    };
+
+    metricsPath = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/prometheus-node-exporter/hearth.prom";
+      description = "Path for Prometheus textfile metrics export.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    # Create the hearth system user and group
+    users.users.hearth = {
+      isSystemUser = true;
+      group = "hearth";
+      home = "/var/lib/hearth";
+      description = "Hearth fleet agent service user";
+    };
+    users.groups.hearth = { };
+
+    # Generate the agent configuration file
+    environment.etc."hearth/agent.toml" = {
+      source = agentConfig;
+      mode = "0640";
+      user = "root";
+      group = "hearth";
+    };
+
+    # Ensure the nix CLI is available for store operations
+    environment.systemPackages = [ pkgs.nix ];
+
+    # The agent systemd service
+    systemd.services.hearth-agent = {
+      description = "Hearth Fleet Management Agent";
+      documentation = [ "https://github.com/hearth-os/hearth" ];
+
+      after = [ "network-online.target" "nss-lookup.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+
+      environment = {
+        RUST_LOG = "hearth_agent=${cfg.logLevel}";
+        HEARTH_CONFIG = "/etc/hearth/agent.toml";
+        HEARTH_METRICS_PATH = cfg.metricsPath;
+      };
+
+      serviceConfig = {
+        Type = "notify";
+        ExecStart = "${cfg.package}/bin/hearth-agent";
+        Restart = "always";
+        RestartSec = 5;
+        WatchdogSec = 120;
+
+        # Directories
+        RuntimeDirectory = "hearth";
+        RuntimeDirectoryMode = "0750";
+        StateDirectory = "hearth";
+        StateDirectoryMode = "0750";
+
+        # The agent needs root to create home directories and run activation
+        # scripts as arbitrary users, but we still apply hardening where possible
+        ProtectSystem = "strict";
+        ReadWritePaths = [
+          "/nix/var"
+          "/nix/store"
+          "/var/lib/hearth"
+          "/home"
+          "/run/hearth"
+          (builtins.dirOf cfg.metricsPath)
+        ];
+        ProtectHome = false; # needs to manage /home
+        PrivateTmp = true;
+        NoNewPrivileges = false; # must setuid for activation scripts
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictSUIDSGID = false; # activation scripts may need this
+        LockPersonality = true;
+
+        # Logging
+        StandardOutput = "journal";
+        StandardError = "journal";
+        SyslogIdentifier = "hearth-agent";
+      };
+    };
+
+    # Ensure the metrics directory exists for prometheus node-exporter textfile
+    systemd.tmpfiles.rules = [
+      "d ${builtins.dirOf cfg.metricsPath} 0755 root root -"
+    ];
+
+    # The agent only makes outbound connections — no firewall ports to open
+    # But ensure the socket directory has correct permissions for greeter access
+    systemd.tmpfiles.settings."10-hearth" = {
+      "/run/hearth" = {
+        d = {
+          user = "root";
+          group = "hearth";
+          mode = "0750";
+        };
+      };
+    };
+  };
+}
