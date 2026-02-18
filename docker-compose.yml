@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: ghcr.io/cloudnative-pg/postgresql:16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: hearth
+      POSTGRES_PASSWORD: hearth
+      POSTGRES_DB: hearth
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hearth"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  attic:
+    image: ghcr.io/zhaofengli/attic:latest
+    ports: ["8080:8080"]
+    volumes:
+      - attic-data:/var/lib/attic
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  attic-data:

@@ -1,0 +1,28 @@
+# Rust
+target/
+
+# Node
+node_modules/
+
+# Nix
+result
+result-*
+
+# SQLx offline metadata (checked in for CI, but regenerated locally)
+# .sqlx/
+
+# Environment
+.env
+.env.local
+.direnv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
