@@ -107,16 +107,31 @@
           cargoNextestExtraArgs = "--workspace";
         });
 
+        lib = pkgs.lib;
+
+        # VM integration tests (Linux only)
+        vmTests = lib.optionalAttrs pkgs.stdenv.isLinux {
+          vm-agent-polling = import ./tests/agent-polling.nix { inherit pkgs lib; };
+          vm-desktop-baseline = import ./tests/desktop-baseline.nix { inherit pkgs lib; };
+        };
+
+        # Enrollment ISO image (Linux only)
+        enrollmentImage = lib.optionalAttrs pkgs.stdenv.isLinux {
+          enrollment-iso = (import ./lib/mk-enrollment-image.nix {
+            inherit self nixpkgs system;
+          }).config.system.build.isoImage;
+        };
+
       in {
         checks = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api;
           inherit workspaceClippy workspaceFmt workspaceTests;
-        };
+        } // vmTests;
 
         packages = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api;
           default = hearth-agent;
-        };
+        } // enrollmentImage;
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
@@ -219,5 +234,16 @@
       lib.mkFleetHost = import ./lib/mk-fleet-host.nix {
         inherit self nixpkgs;
       };
+
+      # --- Example fleet host (uncomment to test) ---
+      # nixosConfigurations.example-workstation = self.lib.mkFleetHost {
+      #   hostname = "ws-example";
+      #   role = "developer";
+      #   machineId = "00000000-0000-0000-0000-000000000000";
+      #   serverUrl = "https://api.hearth.example.com";
+      #   homeFlakeRef = "github:myorg/fleet-config";
+      #   hardware = null;
+      #   extraModules = [ ];
+      # };
     };
 }

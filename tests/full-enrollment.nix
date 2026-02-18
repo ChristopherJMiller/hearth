@@ -22,7 +22,7 @@
 
 { pkgs, lib, ... }:
 
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "hearth-full-enrollment";
 
   nodes = {
@@ -36,10 +36,24 @@ pkgs.nixosTest {
 
             class Handler(BaseHTTPRequestHandler):
                 def do_GET(self):
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'status': 'ok'}).encode())
+                    if self.path == '/health' or self.path == '/api/v1/health':
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'status': 'ok'}).encode())
+                    elif '/enroll' in self.path and '/status' in self.path:
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'enrollment_id': 'test-enroll-001',
+                            'status': 'pending_approval'
+                        }).encode())
+                    else:
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'status': 'ok'}).encode())
 
                 def do_POST(self):
                     if '/enroll' in self.path:
@@ -115,16 +129,52 @@ pkgs.nixosTest {
     # Verify enrollment user exists
     device.succeed("id enrollment")
 
-    # Verify the device can reach the control plane
-    device.succeed("curl -sf http://controlplane:3000/health || true")
+    # Verify the device can reach the control plane health endpoint
+    device.succeed("curl -sf http://controlplane:3000/health")
 
-    # TODO (Phase 2+): Full enrollment flow assertions
-    # - Run hearth-enrollment in the TUI
+    # --- Enrollment API mock assertions ---
+
+    # POST to enrollment endpoint and verify response contains enrollment_id
+    device.succeed(
+        "curl -sf http://controlplane:3000/api/v1/enroll "
+        "-X POST -H 'Content-Type: application/json' "
+        "-d '{\"hardware_id\": \"test-hw-001\"}' "
+        "| grep 'enrollment_id'"
+    )
+
+    # Verify enrollment code is returned
+    device.succeed(
+        "curl -sf http://controlplane:3000/api/v1/enroll "
+        "-X POST -H 'Content-Type: application/json' "
+        "-d '{\"hardware_id\": \"test-hw-001\"}' "
+        "| grep 'ABC-123'"
+    )
+
+    # Poll enrollment status endpoint
+    device.succeed(
+        "curl -sf http://controlplane:3000/api/v1/enroll/test-enroll-001/status "
+        "| grep 'pending_approval'"
+    )
+
+    # --- Hardware detection tools ---
+    device.succeed("which dmidecode")
+    device.succeed("which lshw")
+    device.succeed("which lspci")
+    device.succeed("which lsusb")
+
+    # --- Disk utilities ---
+    device.succeed("which parted")
+    device.succeed("which cryptsetup")
+
+    # --- Enrollment TUI binary ---
+    device.succeed("which hearth-enrollment")
+    # Run the stub and verify it exits cleanly
+    device.succeed("hearth-enrollment")
+
+    # TODO (Phase 3+): Full enrollment flow with real binaries
     # - Verify hardware detection output
-    # - Verify enrollment code display
-    # - Approve enrollment via API
-    # - Verify disk partitioning
-    # - Verify NixOS installation
+    # - Verify disk partitioning on virtual disk
+    # - Verify NixOS installation from mock cache
     # - Verify reboot into installed system
   '';
 }

@@ -43,7 +43,7 @@ in
 
     # Networking: DHCP on all interfaces
     networking = {
-      useDHCP = true;
+      useDHCP = lib.mkDefault true;
       hostName = "hearth-enrollment";
       # Enable NetworkManager for WiFi support during enrollment
       networkmanager.enable = cfg.wifiSupport;
@@ -139,7 +139,6 @@ in
 
     # --- Disable unnecessary services for a minimal enrollment image ---
     services.xserver.enable = false;
-    sound.enable = false;
     security.polkit.enable = true;
 
     # --- Console configuration ---
@@ -161,7 +160,7 @@ in
     boot.loader.grub.enable = lib.mkDefault false;
 
     # Ensure enough tmpfs space for enrollment operations
-    boot.tmpOnTmpfs = true;
-    boot.tmpOnTmpfsSize = "4G";
+    boot.tmp.useTmpfs = true;
+    boot.tmp.tmpfsSize = "4G";
   };
 }

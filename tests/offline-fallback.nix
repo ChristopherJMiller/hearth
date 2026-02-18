@@ -41,7 +41,7 @@
 
 { pkgs, lib, ... }:
 
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "hearth-offline-fallback";
 
   nodes = {

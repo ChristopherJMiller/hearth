@@ -9,11 +9,11 @@
 #   - GNOME-related services are active
 #   - PipeWire is running
 #   - Base packages are installed
-#   - dconf defaults are in place
+#   - dconf is enabled (user-level settings managed by home-manager)
 
 { pkgs, lib, ... }:
 
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "hearth-desktop-baseline";
 
   nodes.machine = { config, pkgs, ... }: {
@@ -80,19 +80,11 @@ pkgs.nixosTest {
     machine.succeed("which firefox")
     machine.succeed("which nautilus")
 
-    # --- Verify dconf defaults were installed ---
-    machine.succeed("test -f /etc/dconf/db/hearth.d/00-hearth-defaults")
-    machine.succeed("grep 'prefer-dark' /etc/dconf/db/hearth.d/00-hearth-defaults")
-
-    # --- Verify dconf profile is configured ---
-    machine.succeed("test -f /etc/dconf/profile/user")
-    machine.succeed("grep 'system-db:hearth' /etc/dconf/profile/user")
+    # --- Verify dconf is available (user-level settings via home-manager) ---
+    machine.succeed("which dconf")
 
     # --- Verify greeter configuration ---
     machine.succeed("test -f /etc/hearth/greeter.toml")
-
-    # --- Verify X server / GNOME desktop is configured ---
-    machine.succeed("systemctl list-unit-files | grep -i gnome || true")
 
     # --- Verify GDM is NOT running (we use greetd) ---
     machine.fail("systemctl is-active gdm.service")
@@ -100,10 +92,10 @@ pkgs.nixosTest {
     # --- Verify printing service is enabled ---
     machine.succeed("systemctl list-unit-files | grep cups")
 
-    # --- Verify font configuration ---
-    machine.succeed("fc-list | grep -i 'Noto' || true")
+    # --- Verify Noto fonts are installed ---
+    machine.succeed("fc-list | grep -i 'Noto'")
 
-    # --- Basic sanity: system is still healthy ---
-    machine.succeed("systemctl is-system-running || true")
+    # --- Basic sanity: system has finished startup (degraded is acceptable in VM) ---
+    machine.succeed("systemctl is-system-running --wait || test \"$(systemctl is-system-running)\" = degraded")
   '';
 }

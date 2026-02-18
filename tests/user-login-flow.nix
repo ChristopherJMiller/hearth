@@ -23,7 +23,7 @@
 
 { pkgs, lib, ... }:
 
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "hearth-user-login-flow";
 
   nodes.machine = { config, pkgs, ... }: {

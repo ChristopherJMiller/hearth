@@ -104,7 +104,7 @@ in
     };
 
     # Disable GDM since we use greetd
-    services.xserver.displayManager.gdm.enable = lib.mkForce false;
+    services.displayManager.gdm.enable = lib.mkForce false;
 
     # Generate greeter configuration
     environment.etc."hearth/greeter.toml" = {

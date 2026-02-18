@@ -22,6 +22,9 @@ let
     cache = lib.optionalAttrs (cfg.binaryCacheUrl != null) {
       url = cfg.binaryCacheUrl;
     };
+    home = lib.optionalAttrs (cfg.homeFlakeRef != null) {
+      flake_ref = cfg.homeFlakeRef;
+    };
     role_mapping = cfg.roleMapping;
   };
 in
@@ -96,6 +99,17 @@ in
       type = lib.types.str;
       default = "/var/lib/prometheus-node-exporter/hearth.prom";
       description = "Path for Prometheus textfile metrics export.";
+    };
+
+    homeFlakeRef = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "github:myorg/fleet-config";
+      description = ''
+        Flake reference used for user environment activation via
+        `home-manager switch --flake <ref>`. Null to disable
+        home-manager based user environment management.
+      '';
     };
   };
 

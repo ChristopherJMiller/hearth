@@ -17,15 +17,15 @@
 let
   serverPort = 3000;
 in
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "hearth-agent-polling";
 
   nodes = {
     server = { config, pkgs, ... }: {
-      # Apply the Hearth overlay so pkgs.hearth-api is available
+      # Stub API server — lightweight mock for testing module wiring
       nixpkgs.overlays = [
         (final: prev: {
-          hearth-api = pkgs.hearth-api or (prev.writeShellScriptBin "hearth-api" ''
+          hearth-api = prev.writeShellScriptBin "hearth-api" ''
             # Stub API server for testing — returns 200 on /health
             ${prev.python3}/bin/python3 -c "
             from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -52,7 +52,7 @@ pkgs.nixosTest {
 
             HTTPServer(('0.0.0.0', ${toString serverPort}), Handler).serve_forever()
             "
-          '');
+          '';
         })
       ];
 
@@ -70,9 +70,10 @@ pkgs.nixosTest {
     };
 
     client = { config, pkgs, ... }: {
+      # Stub agent — lightweight mock for testing module wiring
       nixpkgs.overlays = [
         (final: prev: {
-          hearth-agent = pkgs.hearth-agent or (prev.writeShellScriptBin "hearth-agent" ''
+          hearth-agent = prev.writeShellScriptBin "hearth-agent" ''
             # Stub agent for testing — polls server and creates socket
             SOCKET_PATH="/run/hearth/agent.sock"
             mkdir -p "$(dirname "$SOCKET_PATH")"
@@ -90,7 +91,7 @@ pkgs.nixosTest {
                 || echo "Check-in failed"
               sleep 5
             done
-          '');
+          '';
         })
       ];
 
@@ -116,8 +117,9 @@ pkgs.nixosTest {
     server.wait_for_unit("hearth-api.service")
     server.wait_for_open_port(${toString serverPort})
 
-    # Verify the API server health endpoint
+    # Verify the API server health endpoint (mock serves both /health and /api/v1/health)
     server.succeed("curl -sf http://localhost:${toString serverPort}/health")
+    server.succeed("curl -sf http://localhost:${toString serverPort}/api/v1/health")
 
     # Wait for the agent to start on the client
     client.wait_for_unit("hearth-agent.service")

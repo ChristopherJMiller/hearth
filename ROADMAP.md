@@ -112,15 +112,17 @@ Self-service catalog prioritized per user request.
 - [x] **hearth-agent:** Offline resilience — SQLite-backed event queue (`rusqlite`), enqueue on API failure, drain-and-replay on reconnect, re-queue on replay failure
 - [x] **hearth-common:** Enrollment request/response types, user env upsert types, `HearthApiClient` trait extended with `enroll`, `get_enrollment_status`, `report_user_env`, `report_user_login`; trait futures now `Send`-bounded for `tokio::spawn`
 - [x] **hearth-common:** `AgentConfig` extended with `role_mapping` and `home_flake_ref` fields
-- [ ] **NixOS:** Home-manager profiles with real content, enrollment.nix netboot image, mk-fleet-host.nix parameterized builder
-- [ ] **Integration test:** Full enrollment flow in VM
+- [x] **NixOS:** Home-manager profiles with real content, enrollment ISO image builder (`lib/mk-enrollment-image.nix` → `packages.enrollment-iso`), mk-fleet-host.nix refined with `homeFlakeRef` param + `extraConfig` fix, deprecated options fixed across modules
+- [x] **Integration test:** VM tests wired into `nix flake check` (agent-polling, desktop-baseline), full-enrollment test expanded with API mock assertions + hardware tool checks
 
 ### Stats
 - **hearth-api:** 2 new route files (enrollment.rs, environments.rs), repo.rs (+7 query functions), db.rs (+UserEnvStatusDb + UserEnvironmentRow), main.rs (+2 route groups)
 - **hearth-enrollment:** Full rewrite — 8 source files (main.rs, app.rs, ui.rs, hw.rs, screens/{welcome,hardware,network,enroll,status}.rs), ~600 lines
 - **hearth-agent:** 1 new file (queue.rs, ~115 lines), ipc.rs rewritten with real activation, poller.rs with queue integration, +rusqlite dependency
 - **hearth-common:** api_types.rs (+4 types), api_client.rs (+4 trait methods + impls, `Send`-bounded futures), config.rs (+2 fields)
-- **Tests:** 12 passing (9 agent including 2 new queue tests, 3 common)
+- **Nix:** New `lib/mk-enrollment-image.nix` (ISO builder), agent.nix +`homeFlakeRef` option, mk-fleet-host.nix +`homeFlakeRef`/`extraConfig` fix, deprecated options fixed in enrollment.nix/desktop.nix/pam.nix/greeter.nix, dconf moved to home-manager
+- **Tests:** 12 Rust tests passing, 2 VM integration tests in `nix flake check` (agent-polling, desktop-baseline), full-enrollment expanded with 12+ assertions
+- **Packages:** `enrollment-iso` builds a bootable NixOS ISO for device enrollment
 
 ---
 
@@ -190,7 +192,8 @@ hearth/
 │   └── admin.nix
 ├── overlays/                   # Nix overlays
 ├── lib/
-│   └── mk-fleet-host.nix      # Parameterized host builder
+│   ├── mk-fleet-host.nix      # Parameterized host builder
+│   └── mk-enrollment-image.nix # Bootable enrollment ISO builder
 ├── data/                       # Static assets (CSS, SVG)
 ├── tests/                      # NixOS VM tests (CI, hermetic)
 │   ├── agent-polling.nix
@@ -207,9 +210,9 @@ hearth/
 
 ## CI Pipeline
 
-Every PR: `nix flake check` + `cargo clippy` + `cargo nextest run` + `cargo fmt --check` + `sqlx prepare --check`
+Every PR: `nix flake check` (includes Rust builds, clippy, fmt, nextest, and VM integration tests on Linux) + `sqlx prepare --check`
 
-Merges to main: additionally run NixOS VM tests and push to Attic.
+Merges to main: additionally push to Attic.
 
 ---
 

@@ -84,9 +84,7 @@ in
       makeHomeDir = cfg.enableMkhomedir;
     };
 
-    # --- pam_mkhomedir configuration ---
-    security.pam.enableOddjobHomeDirectoryCreation = lib.mkIf cfg.enableMkhomedir true;
-
+    # --- Home directory skeleton ---
     # Ensure the home directory skeleton has sensible defaults
     environment.etc."skel/.bashrc" = lib.mkIf cfg.enableMkhomedir {
       text = ''

@@ -172,7 +172,7 @@
 
     # Fonts (ensure user-level font availability)
     noto-fonts
-    noto-fonts-emoji
+    noto-fonts-color-emoji
   ];
 
   # --- GNOME Keyring for credential management ---

@@ -28,6 +28,7 @@
 , hardware ? null
 , stateVersion ? "25.05"
 , binaryCacheUrl ? null
+, homeFlakeRef ? null
 , roleMapping ? { default = "default"; }
 , hardeningLevel ? "standard"
 , enableDesktop ? true
@@ -74,6 +75,8 @@ nixpkgs.lib.nixosSystem {
         inherit roleMapping;
       } // lib.optionalAttrs (binaryCacheUrl != null) {
         inherit binaryCacheUrl;
+      } // lib.optionalAttrs (homeFlakeRef != null) {
+        inherit homeFlakeRef;
       };
 
       # --- Hearth greeter ---
@@ -142,5 +145,5 @@ nixpkgs.lib.nixosSystem {
     ++ extraModules
 
     # --- Inline extra config ---
-    ++ lib.optional (extraConfig != { }) extraConfig;
+    ++ lib.optional (extraConfig != { }) ({ ... }: extraConfig);
 }
