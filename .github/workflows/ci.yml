@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Nix Flake Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: nix flake check
+        run: nix flake check
+
+  cargo-check:
+    name: Cargo Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: cargo fmt
+        run: nix develop --command cargo fmt --check
+
+      - name: cargo clippy
+        run: nix develop --command cargo clippy --workspace -- --deny warnings
+
+      - name: cargo test
+        run: nix develop --command cargo test --workspace
+
+  web-check:
+    name: Web Frontend Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: pnpm install
+        run: nix develop --command bash -c "cd web && pnpm install --frozen-lockfile"
+
+      - name: typecheck
+        run: nix develop --command bash -c "cd web && pnpm typecheck"
+
+      - name: build
+        run: nix develop --command bash -c "cd web && pnpm build"
