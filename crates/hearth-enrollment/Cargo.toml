@@ -1,0 +1,18 @@
+[package]
+name = "hearth-enrollment"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hearth enrollment TUI: hardware detection, network setup, device provisioning"
+
+[dependencies]
+hearth-common.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true

@@ -1,0 +1,353 @@
+//! Database model types with `sqlx::FromRow` derives, and conversions to API types.
+
+use chrono::{DateTime, Utc};
+use hearth_common::api_types;
+use uuid::Uuid;
+
+// --- PostgreSQL enum mappings ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "enrollment_status", rename_all = "snake_case")]
+pub enum EnrollmentStatusDb {
+    Pending,
+    Approved,
+    Enrolled,
+    Provisioning,
+    Active,
+    Decommissioned,
+}
+
+impl From<EnrollmentStatusDb> for api_types::EnrollmentStatus {
+    fn from(s: EnrollmentStatusDb) -> Self {
+        match s {
+            EnrollmentStatusDb::Pending => api_types::EnrollmentStatus::Pending,
+            EnrollmentStatusDb::Approved => api_types::EnrollmentStatus::Approved,
+            EnrollmentStatusDb::Enrolled => api_types::EnrollmentStatus::Enrolled,
+            EnrollmentStatusDb::Provisioning => api_types::EnrollmentStatus::Provisioning,
+            EnrollmentStatusDb::Active => api_types::EnrollmentStatus::Active,
+            EnrollmentStatusDb::Decommissioned => api_types::EnrollmentStatus::Decommissioned,
+        }
+    }
+}
+
+impl From<api_types::EnrollmentStatus> for EnrollmentStatusDb {
+    fn from(s: api_types::EnrollmentStatus) -> Self {
+        match s {
+            api_types::EnrollmentStatus::Pending => EnrollmentStatusDb::Pending,
+            api_types::EnrollmentStatus::Approved => EnrollmentStatusDb::Approved,
+            api_types::EnrollmentStatus::Enrolled => EnrollmentStatusDb::Enrolled,
+            api_types::EnrollmentStatus::Provisioning => EnrollmentStatusDb::Provisioning,
+            api_types::EnrollmentStatus::Active => EnrollmentStatusDb::Active,
+            api_types::EnrollmentStatus::Decommissioned => EnrollmentStatusDb::Decommissioned,
+        }
+    }
+}
+
+// --- Machine row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct MachineRow {
+    pub id: Uuid,
+    pub hostname: String,
+    pub hardware_fingerprint: Option<String>,
+    pub enrollment_status: EnrollmentStatusDb,
+    pub current_closure: Option<String>,
+    pub target_closure: Option<String>,
+    pub rollback_closure: Option<String>,
+    pub role: Option<String>,
+    pub tags: Vec<String>,
+    pub extra_config: Option<serde_json::Value>,
+    pub last_heartbeat: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<MachineRow> for api_types::Machine {
+    fn from(row: MachineRow) -> Self {
+        api_types::Machine {
+            id: row.id,
+            hostname: row.hostname,
+            hardware_fingerprint: row.hardware_fingerprint,
+            enrollment_status: row.enrollment_status.into(),
+            current_closure: row.current_closure,
+            target_closure: row.target_closure,
+            rollback_closure: row.rollback_closure,
+            role: row.role,
+            tags: row.tags,
+            extra_config: row.extra_config,
+            last_heartbeat: row.last_heartbeat,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+// --- Target state partial row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct TargetStateRow {
+    pub target_closure: Option<String>,
+}
+
+impl From<TargetStateRow> for api_types::TargetState {
+    fn from(row: TargetStateRow) -> Self {
+        api_types::TargetState {
+            target_closure: row.target_closure,
+            module_library_ref: None, // Phase 1: not yet tracked
+        }
+    }
+}
+
+// --- Heartbeat result row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct HeartbeatResultRow {
+    pub target_closure: Option<String>,
+}
+
+// --- User environment enums ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "user_env_status", rename_all = "snake_case")]
+pub enum UserEnvStatusDb {
+    Pending,
+    Building,
+    Ready,
+    Activating,
+    Active,
+    Failed,
+}
+
+impl From<UserEnvStatusDb> for api_types::UserEnvStatus {
+    fn from(s: UserEnvStatusDb) -> Self {
+        match s {
+            UserEnvStatusDb::Pending => api_types::UserEnvStatus::Pending,
+            UserEnvStatusDb::Building => api_types::UserEnvStatus::Building,
+            UserEnvStatusDb::Ready => api_types::UserEnvStatus::Ready,
+            UserEnvStatusDb::Activating => api_types::UserEnvStatus::Activating,
+            UserEnvStatusDb::Active => api_types::UserEnvStatus::Active,
+            UserEnvStatusDb::Failed => api_types::UserEnvStatus::Failed,
+        }
+    }
+}
+
+impl From<api_types::UserEnvStatus> for UserEnvStatusDb {
+    fn from(s: api_types::UserEnvStatus) -> Self {
+        match s {
+            api_types::UserEnvStatus::Pending => UserEnvStatusDb::Pending,
+            api_types::UserEnvStatus::Building => UserEnvStatusDb::Building,
+            api_types::UserEnvStatus::Ready => UserEnvStatusDb::Ready,
+            api_types::UserEnvStatus::Activating => UserEnvStatusDb::Activating,
+            api_types::UserEnvStatus::Active => UserEnvStatusDb::Active,
+            api_types::UserEnvStatus::Failed => UserEnvStatusDb::Failed,
+        }
+    }
+}
+
+// --- User environment row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct UserEnvironmentRow {
+    pub id: Uuid,
+    pub machine_id: Uuid,
+    pub username: String,
+    pub role: String,
+    pub current_closure: Option<String>,
+    pub target_closure: Option<String>,
+    pub status: UserEnvStatusDb,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<UserEnvironmentRow> for api_types::UserEnvironment {
+    fn from(row: UserEnvironmentRow) -> Self {
+        api_types::UserEnvironment {
+            id: row.id,
+            machine_id: row.machine_id,
+            username: row.username,
+            role: row.role,
+            current_closure: row.current_closure,
+            target_closure: row.target_closure,
+            status: row.status.into(),
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+// --- Software catalog enums ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "install_method", rename_all = "snake_case")]
+pub enum InstallMethodDb {
+    NixSystem,
+    NixUser,
+    Flatpak,
+    HomeManager,
+}
+
+impl From<InstallMethodDb> for api_types::InstallMethod {
+    fn from(m: InstallMethodDb) -> Self {
+        match m {
+            InstallMethodDb::NixSystem => api_types::InstallMethod::NixSystem,
+            InstallMethodDb::NixUser => api_types::InstallMethod::NixUser,
+            InstallMethodDb::Flatpak => api_types::InstallMethod::Flatpak,
+            InstallMethodDb::HomeManager => api_types::InstallMethod::HomeManager,
+        }
+    }
+}
+
+impl From<api_types::InstallMethod> for InstallMethodDb {
+    fn from(m: api_types::InstallMethod) -> Self {
+        match m {
+            api_types::InstallMethod::NixSystem => InstallMethodDb::NixSystem,
+            api_types::InstallMethod::NixUser => InstallMethodDb::NixUser,
+            api_types::InstallMethod::Flatpak => InstallMethodDb::Flatpak,
+            api_types::InstallMethod::HomeManager => InstallMethodDb::HomeManager,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "software_request_status", rename_all = "snake_case")]
+pub enum SoftwareRequestStatusDb {
+    Pending,
+    Approved,
+    Denied,
+    Installing,
+    Installed,
+    Failed,
+}
+
+impl From<SoftwareRequestStatusDb> for api_types::SoftwareRequestStatus {
+    fn from(s: SoftwareRequestStatusDb) -> Self {
+        match s {
+            SoftwareRequestStatusDb::Pending => api_types::SoftwareRequestStatus::Pending,
+            SoftwareRequestStatusDb::Approved => api_types::SoftwareRequestStatus::Approved,
+            SoftwareRequestStatusDb::Denied => api_types::SoftwareRequestStatus::Denied,
+            SoftwareRequestStatusDb::Installing => api_types::SoftwareRequestStatus::Installing,
+            SoftwareRequestStatusDb::Installed => api_types::SoftwareRequestStatus::Installed,
+            SoftwareRequestStatusDb::Failed => api_types::SoftwareRequestStatus::Failed,
+        }
+    }
+}
+
+impl From<api_types::SoftwareRequestStatus> for SoftwareRequestStatusDb {
+    fn from(s: api_types::SoftwareRequestStatus) -> Self {
+        match s {
+            api_types::SoftwareRequestStatus::Pending => SoftwareRequestStatusDb::Pending,
+            api_types::SoftwareRequestStatus::Approved => SoftwareRequestStatusDb::Approved,
+            api_types::SoftwareRequestStatus::Denied => SoftwareRequestStatusDb::Denied,
+            api_types::SoftwareRequestStatus::Installing => SoftwareRequestStatusDb::Installing,
+            api_types::SoftwareRequestStatus::Installed => SoftwareRequestStatusDb::Installed,
+            api_types::SoftwareRequestStatus::Failed => SoftwareRequestStatusDb::Failed,
+        }
+    }
+}
+
+// --- Catalog entry row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct CatalogEntryRow {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub install_method: InstallMethodDb,
+    pub flatpak_ref: Option<String>,
+    pub nix_attr: Option<String>,
+    pub icon_url: Option<String>,
+    pub approval_required: bool,
+    pub auto_approve_roles: Vec<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<CatalogEntryRow> for api_types::CatalogEntry {
+    fn from(row: CatalogEntryRow) -> Self {
+        api_types::CatalogEntry {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            category: row.category,
+            install_method: row.install_method.into(),
+            flatpak_ref: row.flatpak_ref,
+            nix_attr: row.nix_attr,
+            icon_url: row.icon_url,
+            approval_required: row.approval_required,
+            auto_approve_roles: row.auto_approve_roles,
+            created_at: row.created_at,
+        }
+    }
+}
+
+// --- Software request row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct SoftwareRequestRow {
+    pub id: Uuid,
+    pub catalog_entry_id: Uuid,
+    pub machine_id: Uuid,
+    pub username: String,
+    pub status: SoftwareRequestStatusDb,
+    pub requested_at: DateTime<Utc>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub resolved_by: Option<String>,
+}
+
+impl From<SoftwareRequestRow> for api_types::SoftwareRequest {
+    fn from(row: SoftwareRequestRow) -> Self {
+        api_types::SoftwareRequest {
+            id: row.id,
+            catalog_entry_id: row.catalog_entry_id,
+            machine_id: row.machine_id,
+            username: row.username,
+            status: row.status.into(),
+            requested_at: row.requested_at,
+            resolved_at: row.resolved_at,
+            resolved_by: row.resolved_by,
+        }
+    }
+}
+
+// --- Pending install row (joined request + catalog) ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct PendingInstallRow {
+    // From software_requests
+    pub request_id: Uuid,
+    pub username: String,
+    // From software_catalog (prefixed in query)
+    pub catalog_id: Uuid,
+    pub catalog_name: String,
+    pub catalog_description: Option<String>,
+    pub catalog_category: Option<String>,
+    pub catalog_install_method: InstallMethodDb,
+    pub catalog_flatpak_ref: Option<String>,
+    pub catalog_nix_attr: Option<String>,
+    pub catalog_icon_url: Option<String>,
+    pub catalog_approval_required: bool,
+    pub catalog_auto_approve_roles: Vec<String>,
+    pub catalog_created_at: DateTime<Utc>,
+}
+
+impl From<PendingInstallRow> for api_types::PendingSoftwareInstall {
+    fn from(row: PendingInstallRow) -> Self {
+        api_types::PendingSoftwareInstall {
+            request_id: row.request_id,
+            username: row.username,
+            catalog_entry: api_types::CatalogEntry {
+                id: row.catalog_id,
+                name: row.catalog_name,
+                description: row.catalog_description,
+                category: row.catalog_category,
+                install_method: row.catalog_install_method.into(),
+                flatpak_ref: row.catalog_flatpak_ref,
+                nix_attr: row.catalog_nix_attr,
+                icon_url: row.catalog_icon_url,
+                approval_required: row.catalog_approval_required,
+                auto_approve_roles: row.catalog_auto_approve_roles,
+                created_at: row.catalog_created_at,
+            },
+        }
+    }
+}

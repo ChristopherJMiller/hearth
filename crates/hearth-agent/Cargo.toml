@@ -1,0 +1,23 @@
+[package]
+name = "hearth-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hearth on-device agent: polling, heartbeats, user env activation, system updates"
+
+[dependencies]
+hearth-common.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
