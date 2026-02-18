@@ -1,0 +1,205 @@
+/*
+ * hearth.css — Minimal GTK4 CSS for Hearth branding
+ *
+ * Dark theme with warm accent colors inspired by a hearth/fireplace.
+ * Applied to hearth-greeter and can be used as a GTK4 theme overlay
+ * for other Hearth GTK applications.
+ */
+
+/* === Color palette === */
+/*
+ * --hearth-bg-dark:    #1a1a2e   Deep navy background
+ * --hearth-bg:         #16213e   Slightly lighter panel background
+ * --hearth-bg-light:   #0f3460   Card/surface background
+ * --hearth-accent:     #e94560   Warm red-orange accent (the "hearth")
+ * --hearth-accent-dim: #c73e54   Dimmed accent for hover states
+ * --hearth-text:       #eaeaea   Primary text
+ * --hearth-text-dim:   #a0a0b0   Secondary/muted text
+ * --hearth-border:     #2a2a4a   Subtle borders
+ * --hearth-success:    #4ecca3   Success/confirmation green
+ * --hearth-warning:    #f0a500   Warning amber
+ * --hearth-error:      #e94560   Error (same as accent)
+ */
+
+/* === Base window === */
+window {
+  background-color: #1a1a2e;
+  color: #eaeaea;
+}
+
+/* === Main container === */
+.hearth-greeter-main {
+  background-color: #1a1a2e;
+  padding: 48px;
+}
+
+/* === Login card === */
+.hearth-login-card {
+  background-color: #16213e;
+  border-radius: 16px;
+  padding: 48px 40px;
+  border: 1px solid #2a2a4a;
+  /* Subtle shadow for depth */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* === Logo area === */
+.hearth-logo {
+  margin-bottom: 24px;
+}
+
+.hearth-logo image {
+  min-width: 80px;
+  min-height: 80px;
+}
+
+/* === Organization name === */
+.hearth-org-name {
+  font-size: 24px;
+  font-weight: 600;
+  color: #eaeaea;
+  margin-bottom: 8px;
+}
+
+/* === Subtitle/hostname === */
+.hearth-hostname {
+  font-size: 14px;
+  color: #a0a0b0;
+  margin-bottom: 32px;
+}
+
+/* === Input fields === */
+.hearth-input entry {
+  background-color: #0f3460;
+  color: #eaeaea;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 16px;
+  min-height: 20px;
+  caret-color: #e94560;
+}
+
+.hearth-input entry:focus {
+  border-color: #e94560;
+  box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.25);
+}
+
+.hearth-input entry placeholder {
+  color: #a0a0b0;
+}
+
+/* === Login button === */
+.hearth-login-button {
+  background-color: #e94560;
+  color: white;
+  border-radius: 8px;
+  padding: 12px 32px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  min-height: 20px;
+  margin-top: 16px;
+}
+
+.hearth-login-button:hover {
+  background-color: #c73e54;
+}
+
+.hearth-login-button:active {
+  background-color: #a83345;
+}
+
+.hearth-login-button:disabled {
+  background-color: #2a2a4a;
+  color: #a0a0b0;
+}
+
+/* === Progress view === */
+.hearth-progress-container {
+  padding: 48px;
+}
+
+.hearth-progress-message {
+  font-size: 18px;
+  color: #eaeaea;
+  margin-top: 24px;
+}
+
+.hearth-progress-detail {
+  font-size: 14px;
+  color: #a0a0b0;
+  margin-top: 8px;
+}
+
+.hearth-progress-spinner {
+  min-width: 48px;
+  min-height: 48px;
+  color: #e94560;
+}
+
+progressbar trough {
+  background-color: #2a2a4a;
+  border-radius: 4px;
+  min-height: 8px;
+}
+
+progressbar progress {
+  background-color: #e94560;
+  border-radius: 4px;
+  min-height: 8px;
+}
+
+/* === Error view === */
+.hearth-error-icon {
+  color: #e94560;
+  min-width: 48px;
+  min-height: 48px;
+}
+
+.hearth-error-message {
+  font-size: 16px;
+  color: #eaeaea;
+  margin-top: 16px;
+}
+
+.hearth-error-detail {
+  font-size: 13px;
+  color: #a0a0b0;
+  margin-top: 8px;
+}
+
+.hearth-retry-button {
+  background-color: transparent;
+  color: #e94560;
+  border: 1px solid #e94560;
+  border-radius: 8px;
+  padding: 8px 24px;
+  font-size: 14px;
+  margin-top: 24px;
+}
+
+.hearth-retry-button:hover {
+  background-color: rgba(233, 69, 96, 0.1);
+}
+
+/* === Clock/time display === */
+.hearth-clock {
+  font-size: 64px;
+  font-weight: 300;
+  color: #eaeaea;
+  margin-bottom: 8px;
+}
+
+.hearth-date {
+  font-size: 18px;
+  color: #a0a0b0;
+  margin-bottom: 48px;
+}
+
+/* === Footer === */
+.hearth-footer {
+  font-size: 12px;
+  color: #a0a0b0;
+  padding: 16px;
+}

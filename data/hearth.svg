@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  hearth.svg — Hearth logo placeholder
+  A minimal fireplace/hearth icon in SVG format.
+  Warm accent color (#e94560) on transparent background.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Hearth base (fireplace arch) -->
+  <path d="M 20 100 L 20 50 Q 20 20, 64 20 Q 108 20, 108 50 L 108 100 Z"
+        fill="none"
+        stroke="#e94560"
+        stroke-width="4"
+        stroke-linejoin="round"/>
+
+  <!-- Fire flames (stylized) -->
+  <!-- Center flame -->
+  <path d="M 64 88 Q 58 70, 64 52 Q 70 70, 64 88 Z"
+        fill="#e94560"
+        opacity="0.9"/>
+
+  <!-- Left flame -->
+  <path d="M 50 90 Q 46 76, 52 62 Q 56 76, 50 90 Z"
+        fill="#e94560"
+        opacity="0.6"/>
+
+  <!-- Right flame -->
+  <path d="M 78 90 Q 74 76, 80 62 Q 84 76, 78 90 Z"
+        fill="#e94560"
+        opacity="0.6"/>
+
+  <!-- Ember glow at base -->
+  <ellipse cx="64" cy="92" rx="20" ry="4"
+           fill="#e94560"
+           opacity="0.3"/>
+
+  <!-- Hearth floor -->
+  <line x1="14" y1="100" x2="114" y2="100"
+        stroke="#e94560"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+  <!-- Text label -->
+  <text x="64" y="120"
+        text-anchor="middle"
+        font-family="sans-serif"
+        font-size="14"
+        font-weight="600"
+        fill="#eaeaea"
+        letter-spacing="2">HEARTH</text>
+</svg>
