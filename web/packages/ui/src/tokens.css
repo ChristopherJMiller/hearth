@@ -7,6 +7,10 @@
 
 @import "tailwindcss";
 
+/* Ensure Tailwind scans UI component files for class names,
+   since consuming apps' Vite roots won't include this package. */
+@source "./components";
+
 @theme {
   /* ── Backgrounds: deep, warm layers ── */
   --color-surface-base: #141726;
