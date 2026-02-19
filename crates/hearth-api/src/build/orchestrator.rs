@@ -143,12 +143,15 @@ pub async fn run_build_pipeline(
     }
 
     // Step 7: Select canary machines and set target_closure only on them.
-    let canaries = crate::rollout::select_canary_machines(pool, deployment_id, canary_size as usize)
-        .await
-        .map_err(|e| OrchestrateError::Database(match e {
-            crate::rollout::RolloutError::Database(db_err) => db_err,
-            other => sqlx::Error::Protocol(other.to_string()),
-        }))?;
+    let canaries =
+        crate::rollout::select_canary_machines(pool, deployment_id, canary_size as usize)
+            .await
+            .map_err(|e| {
+                OrchestrateError::Database(match e {
+                    crate::rollout::RolloutError::Database(db_err) => db_err,
+                    other => sqlx::Error::Protocol(other.to_string()),
+                })
+            })?;
 
     for machine_id in &canaries {
         let update_req = hearth_common::api_types::UpdateMachineRequest {

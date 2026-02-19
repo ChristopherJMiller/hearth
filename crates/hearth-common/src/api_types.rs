@@ -355,6 +355,10 @@ pub struct EnrollmentResponse {
 pub struct ApproveEnrollmentRequest {
     pub role: String,
     pub admin: String,
+    #[serde(default)]
+    pub target_closure: Option<String>,
+    #[serde(default)]
+    pub cache_url: Option<String>,
 }
 
 // --- User environment request types ---

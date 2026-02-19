@@ -36,7 +36,8 @@ pub async fn approve(
     Path(id): Path<Uuid>,
     Json(req): Json<ApproveEnrollmentRequest>,
 ) -> Result<Json<Machine>, AppError> {
-    let row = repo::approve_enrollment(&state.pool, id, &req.role).await?;
+    let row =
+        repo::approve_enrollment(&state.pool, id, &req.role, req.target_closure.as_deref()).await?;
     match row {
         Some(r) => Ok(Json(r.into())),
         None => Err(AppError::NotFound(format!(

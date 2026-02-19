@@ -564,9 +564,14 @@ pub async fn approve_enrollment(
     pool: &PgPool,
     id: Uuid,
     role: &str,
+    target_closure: Option<&str>,
 ) -> Result<Option<MachineRow>, sqlx::Error> {
     sqlx::query_as::<_, MachineRow>(
-        "UPDATE machines SET enrollment_status = 'approved', role = $2, updated_at = now()
+        "UPDATE machines SET
+            enrollment_status = 'approved',
+            role = $2,
+            target_closure = COALESCE($3, target_closure),
+            updated_at = now()
          WHERE id = $1 AND enrollment_status = 'pending'
          RETURNING id, hostname, hardware_fingerprint, enrollment_status,
                    current_closure, target_closure, rollback_closure,
@@ -575,6 +580,7 @@ pub async fn approve_enrollment(
     )
     .bind(id)
     .bind(role)
+    .bind(target_closure)
     .fetch_optional(pool)
     .await
 }

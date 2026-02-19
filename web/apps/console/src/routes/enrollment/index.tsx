@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PageHeader, Card, Select, Button, EmptyState } from '@hearth/ui';
 import { usePendingEnrollments, useApproveEnrollment } from '../../api/enrollment';
 import { formatRelativeTime } from '../../lib/time';
-import { LuUserPlus, LuFingerprint, LuClock, LuCheckCircle } from 'react-icons/lu';
+import { LuUserPlus, LuFingerprint, LuClock, LuCheckCircle, LuChevronDown } from 'react-icons/lu';
 
 const roleOptions = [
   { value: 'default', label: 'Default' },
@@ -13,10 +13,19 @@ const roleOptions = [
 
 function EnrollmentCard({ machine }: { machine: { id: string; hostname: string; hardware_fingerprint: string | null; created_at: string } }) {
   const [role, setRole] = useState('default');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [targetClosure, setTargetClosure] = useState('');
+  const [cacheUrl, setCacheUrl] = useState('');
   const approve = useApproveEnrollment();
 
   const handleApprove = () => {
-    approve.mutate({ id: machine.id, role, admin: 'console-admin' });
+    approve.mutate({
+      id: machine.id,
+      role,
+      admin: 'console-admin',
+      target_closure: targetClosure || undefined,
+      cache_url: cacheUrl || undefined,
+    });
   };
 
   return (
@@ -70,6 +79,40 @@ function EnrollmentCard({ machine }: { machine: { id: string; hostname: string; 
             {approve.isPending ? 'Approving...' : 'Approve'}
           </Button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+        >
+          <LuChevronDown size={12} className={showAdvanced ? 'rotate-180' : ''} style={{ transition: 'transform 0.2s' }} />
+          Advanced options
+        </button>
+
+        {showAdvanced && (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-[var(--color-text-secondary)]">Target Closure</label>
+              <input
+                type="text"
+                value={targetClosure}
+                onChange={(e) => setTargetClosure(e.target.value)}
+                placeholder="e.g. /nix/store/...-nixos-system-hearth"
+                className="w-full px-3 py-1.5 text-sm rounded-[var(--radius-sm)] bg-[var(--color-surface-base)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-ember)]"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-[var(--color-text-secondary)]">Cache URL</label>
+              <input
+                type="text"
+                value={cacheUrl}
+                onChange={(e) => setCacheUrl(e.target.value)}
+                placeholder="e.g. http://localhost:8080/hearth"
+                className="w-full px-3 py-1.5 text-sm rounded-[var(--radius-sm)] bg-[var(--color-surface-base)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-ember)]"
+              />
+            </div>
+          </div>
+        )}
 
         {approve.isError && (
           <p className="text-xs text-[var(--color-error)]">

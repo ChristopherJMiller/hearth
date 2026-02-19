@@ -11,7 +11,7 @@
 #   }).config.system.build.isoImage;
 #
 
-{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true }:
+{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null }:
 
 let
   lib = nixpkgs.lib;
@@ -60,7 +60,13 @@ nixpkgs.lib.nixosSystem {
       boot.loader.grub.enable = false;
 
       # Nix — needed to install the target system (enrollment module also sets this)
-      nix.settings.experimental-features = lib.mkDefault [ "nix-command" "flakes" ];
+      nix.settings = {
+        experimental-features = lib.mkDefault [ "nix-command" "flakes" ];
+        substituters = lib.optional (cacheUrl != null) cacheUrl
+          ++ [ "https://cache.nixos.org" ];
+        trusted-public-keys = lib.optional (cachePublicKey != null) cachePublicKey
+          ++ [ "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" ];
+      };
     })
   ];
 }

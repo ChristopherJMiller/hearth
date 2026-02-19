@@ -119,7 +119,15 @@
         enrollmentImage = lib.optionalAttrs pkgs.stdenv.isLinux {
           enrollment-iso = (import ./lib/mk-enrollment-image.nix {
             inherit self nixpkgs system;
+            cacheUrl = "http://10.0.2.2:8080/hearth";
           }).config.system.build.isoImage;
+        };
+
+        # Fleet dev VM (Linux only)
+        fleetVm = lib.optionalAttrs pkgs.stdenv.isLinux {
+          fleet-vm = (import ./dev/fleet-vm.nix {
+            inherit self nixpkgs system;
+          }).config.system.build.vm;
         };
 
       in {
@@ -131,7 +139,7 @@
         packages = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api;
           default = hearth-agent;
-        } // enrollmentImage;
+        } // enrollmentImage // fleetVm;
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
@@ -179,12 +187,15 @@
             # Utilities
             jq
             httpie
+            just
           ];
 
           # Environment variables for development
           DATABASE_URL = "postgres://hearth:hearth@localhost:5432/hearth";
           SQLX_OFFLINE = "true";
           RUST_LOG = "info";
+          HEARTH_ATTIC_CACHE = "hearth";
+          HEARTH_ATTIC_SERVER = "http://localhost:8080";
         };
       }
     ) // {
