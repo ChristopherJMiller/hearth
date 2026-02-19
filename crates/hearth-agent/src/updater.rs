@@ -1,14 +1,15 @@
 //! System update logic.
 //!
-//! In Phase 1 this is a stub that compares closure paths and logs what
-//! *would* happen. Phase 2 will shell out to `nix copy` and
-//! `nixos-rebuild switch`.
+//! Applies NixOS system updates by copying the target closure from a binary
+//! cache (if configured), setting the system profile, and running
+//! `switch-to-configuration switch`.
 
-use tracing::{debug, info, warn};
+use std::env;
+
+use tracing::{debug, error, info, warn};
 
 /// Errors that can occur during an update attempt.
 #[derive(Debug, thiserror::Error)]
-#[allow(dead_code)]
 pub enum UpdateError {
     #[error("update command failed: {0}")]
     CommandFailed(String),
@@ -19,8 +20,14 @@ pub enum UpdateError {
 /// Compare the current system closure with the target and, if they differ,
 /// apply the update.
 ///
-/// Returns `Ok(true)` if an update was applied (or would be applied in this
-/// stub), `Ok(false)` if no update was needed.
+/// Returns `Ok(true)` if an update was applied, `Ok(false)` if no update was
+/// needed.
+///
+/// Steps:
+/// 1. If `current_closure` equals `target_closure`, return early.
+/// 2. Optionally copy the closure from a binary cache (`HEARTH_CACHE_URL`).
+/// 3. Set the system profile to the target closure.
+/// 4. Run `switch-to-configuration switch` from the target closure.
 pub async fn check_and_apply_update(
     current_closure: Option<&str>,
     target_closure: &str,
@@ -38,32 +45,104 @@ pub async fn check_and_apply_update(
         info!(
             from = current,
             to = target_closure,
-            "update available: would switch closure"
+            "update available: switching closure"
         );
     } else {
         info!(
             to = target_closure,
-            "update available: no current closure recorded, would switch"
+            "update available: no current closure recorded, switching"
         );
     }
 
-    // --- Phase 2 will do the real work here: ---
-    // 1. nix copy --from <cache> <target_closure>
-    // 2. nix-env --profile /nix/var/nix/profiles/system --set <target_closure>
-    // 3. <target_closure>/bin/switch-to-configuration switch
-    //
-    // For now, just log and pretend it succeeded.
-    warn!(
-        target_closure,
-        "STUB: update not actually applied (Phase 1)"
-    );
+    // Validate the store path format.
+    if !hearth_common::nix_store::is_valid_store_path(target_closure) {
+        return Err(UpdateError::InvalidStorePath(target_closure.to_string()));
+    }
 
+    // Step 1: Optionally copy the closure from a binary cache.
+    let cache_url = env::var("HEARTH_CACHE_URL").ok().filter(|s| !s.is_empty());
+    if let Some(cache) = &cache_url {
+        info!(cache = %cache, closure = %target_closure, "copying closure from cache");
+        run_command("nix", &["copy", "--from", cache, target_closure]).await?;
+    } else {
+        debug!("no HEARTH_CACHE_URL set, assuming closure is already in the local store");
+    }
+
+    // Step 2: Set the system profile to the target closure.
+    info!(closure = %target_closure, "setting system profile");
+    run_command(
+        "nix-env",
+        &[
+            "--profile",
+            "/nix/var/nix/profiles/system",
+            "--set",
+            target_closure,
+        ],
+    )
+    .await?;
+
+    // Step 3: Switch to the new configuration.
+    let switch_bin = format!("{target_closure}/bin/switch-to-configuration");
+    info!(switch_bin = %switch_bin, "switching to new configuration");
+    run_command(&switch_bin, &["switch"]).await?;
+
+    info!(closure = %target_closure, "update applied successfully");
     Ok(true)
+}
+
+/// Run a command with the given arguments, logging stdout/stderr.
+///
+/// Returns `Ok(())` on success or `Err(UpdateError::CommandFailed)` if the
+/// command fails or cannot be started.
+async fn run_command(cmd: &str, args: &[&str]) -> Result<(), UpdateError> {
+    debug!(cmd = %cmd, ?args, "running command");
+
+    let output = tokio::process::Command::new(cmd)
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| UpdateError::CommandFailed(format!("failed to start {cmd}: {e}")))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !stdout.is_empty() {
+        debug!(cmd = %cmd, %stdout, "command stdout");
+    }
+    if !stderr.is_empty() {
+        if output.status.success() {
+            debug!(cmd = %cmd, %stderr, "command stderr");
+        } else {
+            error!(cmd = %cmd, %stderr, "command stderr");
+        }
+    }
+
+    if output.status.success() {
+        debug!(cmd = %cmd, "command succeeded");
+        Ok(())
+    } else {
+        let code = output
+            .status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "signal".to_string());
+        let msg = if stderr.is_empty() {
+            format!("{cmd} exited with code {code}")
+        } else {
+            format!("{cmd} exited with code {code}: {stderr}")
+        };
+        warn!(cmd = %cmd, %code, "command failed");
+        Err(UpdateError::CommandFailed(msg))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // These tests exercise the comparison / early-return logic.
+    // The actual nix commands will not run in test environments;
+    // integration tests for the full update flow are done via NixOS VM tests.
 
     #[tokio::test]
     async fn no_update_when_same() {
@@ -75,19 +154,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_when_different() {
+    async fn rejects_invalid_store_path() {
         let result =
-            check_and_apply_update(Some("/nix/store/aaaa-system"), "/nix/store/bbbb-system")
-                .await
-                .unwrap();
-        assert!(result);
-    }
-
-    #[tokio::test]
-    async fn update_when_no_current() {
-        let result = check_and_apply_update(None, "/nix/store/bbbb-system")
-            .await
-            .unwrap();
-        assert!(result);
+            check_and_apply_update(Some("/nix/store/aaaa-system"), "/tmp/not-a-store-path").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, UpdateError::InvalidStorePath(_)),
+            "expected InvalidStorePath, got: {err}"
+        );
     }
 }

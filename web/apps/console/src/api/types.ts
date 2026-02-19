@@ -1,0 +1,122 @@
+// Mirrors hearth-common api_types — keep in sync
+
+export interface Machine {
+  id: string;
+  hostname: string;
+  hardware_fingerprint: string | null;
+  enrollment_status: EnrollmentStatus;
+  current_closure: string | null;
+  target_closure: string | null;
+  rollback_closure: string | null;
+  role: string | null;
+  tags: string[];
+  extra_config: Record<string, unknown> | null;
+  last_heartbeat: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EnrollmentStatus =
+  | 'pending'
+  | 'approved'
+  | 'enrolled'
+  | 'provisioning'
+  | 'active'
+  | 'decommissioned';
+
+export interface Deployment {
+  id: string;
+  closure: string;
+  module_library_ref: string;
+  instance_data_hash: string;
+  status: DeploymentStatus;
+  target_filter: Record<string, unknown>;
+  total_machines: number;
+  succeeded: number;
+  failed: number;
+  canary_size: number;
+  batch_size: number;
+  failure_threshold: number;
+  rollback_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DeploymentStatus =
+  | 'pending'
+  | 'canary'
+  | 'rolling'
+  | 'completed'
+  | 'failed'
+  | 'rolled_back';
+
+export type MachineUpdateStatus =
+  | 'pending'
+  | 'downloading'
+  | 'switching'
+  | 'completed'
+  | 'failed'
+  | 'rolled_back';
+
+export interface DeploymentMachineStatus {
+  deployment_id: string;
+  machine_id: string;
+  status: MachineUpdateStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+}
+
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  install_method: 'nix_system' | 'nix_user' | 'flatpak' | 'home_manager';
+  flatpak_ref: string | null;
+  nix_attr: string | null;
+  icon_url: string | null;
+  approval_required: boolean;
+  auto_approve_roles: string[];
+  created_at: string;
+}
+
+export interface SoftwareRequest {
+  id: string;
+  catalog_entry_id: string;
+  machine_id: string;
+  username: string;
+  status: 'pending' | 'approved' | 'denied' | 'installing' | 'installed' | 'failed';
+  requested_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+}
+
+export interface UserEnvironment {
+  id: string;
+  machine_id: string;
+  username: string;
+  role: string;
+  current_closure: string | null;
+  target_closure: string | null;
+  status: 'pending' | 'building' | 'ready' | 'activating' | 'active' | 'failed';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  event_type: string;
+  actor: string | null;
+  machine_id: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface FleetStats {
+  total_machines: number;
+  active_machines: number;
+  pending_enrollments: number;
+  active_deployments: number;
+  pending_requests: number;
+}

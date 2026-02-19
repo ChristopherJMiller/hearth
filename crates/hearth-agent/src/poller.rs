@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use hearth_common::api_client::HearthApiClient;
-use hearth_common::api_types::HeartbeatRequest;
+use hearth_common::api_types::{HeartbeatRequest, MachineUpdateStatus};
 
 use crate::queue::OfflineQueue;
 use crate::updater;
@@ -17,10 +17,11 @@ use crate::updater;
 /// Run the main poll loop until the shutdown token is cancelled.
 ///
 /// On each tick the loop:
-/// 1. Fetches the target state for this machine.
-/// 2. Compares the target closure to the locally-tracked current closure.
-/// 3. If they differ, delegates to the updater.
-/// 4. Sends a heartbeat to the control plane.
+/// 1. Drains the offline event queue.
+/// 2. Fetches the target state for this machine.
+/// 3. Compares the target closure to the locally-tracked current closure.
+/// 4. If they differ, delegates to the updater, reporting deployment status.
+/// 5. Sends a heartbeat to the control plane.
 pub async fn run_poll_loop<C: HearthApiClient>(
     client: Arc<C>,
     machine_id: Uuid,
@@ -37,6 +38,12 @@ pub async fn run_poll_loop<C: HearthApiClient>(
     // Track the closure we believe is currently active on this machine.
     // In a future phase this will be read from the system profile symlink.
     let mut current_closure: Option<String> = None;
+
+    // Track the active deployment from the control plane.
+    let mut active_deployment_id: Option<Uuid> = None;
+
+    // Track the last update error so it can be reported in the next heartbeat.
+    let mut update_error: Option<String> = None;
 
     loop {
         // --- Drain offline queue ---
@@ -64,22 +71,69 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                 debug!(?target_state, "received target state");
 
                 if let Some(target_closure) = &target_state.target_closure {
-                    match updater::check_and_apply_update(
-                        current_closure.as_deref(),
-                        target_closure,
-                    )
-                    .await
-                    {
-                        Ok(true) => {
-                            info!(closure = %target_closure, "update applied (stub)");
-                            current_closure = Some(target_closure.clone());
+                    // Check if an update is needed (current != target).
+                    let needs_update = current_closure.as_deref() != Some(target_closure.as_str());
+
+                    if needs_update {
+                        // Report downloading status to the control plane.
+                        if let Some(deploy_id) = active_deployment_id {
+                            let _ = client
+                                .report_update_status(
+                                    deploy_id,
+                                    machine_id,
+                                    MachineUpdateStatus::Downloading,
+                                    None,
+                                )
+                                .await;
                         }
-                        Ok(false) => {
-                            debug!("no update needed");
+
+                        update_error = None;
+
+                        match updater::check_and_apply_update(
+                            current_closure.as_deref(),
+                            target_closure,
+                        )
+                        .await
+                        {
+                            Ok(true) => {
+                                info!(closure = %target_closure, "update applied successfully");
+                                current_closure = Some(target_closure.clone());
+
+                                // Report completed status.
+                                if let Some(deploy_id) = active_deployment_id {
+                                    let _ = client
+                                        .report_update_status(
+                                            deploy_id,
+                                            machine_id,
+                                            MachineUpdateStatus::Completed,
+                                            None,
+                                        )
+                                        .await;
+                                }
+                            }
+                            Ok(false) => {
+                                debug!("no update needed");
+                            }
+                            Err(e) => {
+                                let err_msg = e.to_string();
+                                error!(error = %err_msg, "update failed");
+                                update_error = Some(err_msg.clone());
+
+                                // Report failed status.
+                                if let Some(deploy_id) = active_deployment_id {
+                                    let _ = client
+                                        .report_update_status(
+                                            deploy_id,
+                                            machine_id,
+                                            MachineUpdateStatus::Failed,
+                                            Some(&err_msg),
+                                        )
+                                        .await;
+                                }
+                            }
                         }
-                        Err(e) => {
-                            error!(error = %e, "update failed");
-                        }
+                    } else {
+                        debug!("no update needed");
                     }
                 } else {
                     debug!("no target closure set for this machine");
@@ -96,10 +150,16 @@ pub async fn run_poll_loop<C: HearthApiClient>(
             current_closure: current_closure.clone(),
             os_version: None,
             uptime_seconds: None,
+            update_in_progress: None,
+            update_error: update_error.clone(),
         };
         match client.send_heartbeat(&heartbeat).await {
             Ok(resp) => {
                 debug!(?resp, "heartbeat acknowledged");
+
+                // Capture active deployment ID from response.
+                active_deployment_id = resp.active_deployment_id;
+
                 // Process pending software installs
                 for install in &resp.pending_installs {
                     let req_id = install.request_id;
@@ -139,6 +199,11 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                     error!(error = %qe, "failed to queue heartbeat");
                 }
             }
+        }
+
+        // Clear the update error after it has been reported via heartbeat.
+        if update_error.is_some() {
+            update_error = None;
         }
 
         // --- Wait for the next tick or shutdown ---

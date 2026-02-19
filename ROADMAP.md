@@ -128,11 +128,20 @@ Self-service catalog prioritized per user request.
 
 ## Phase 3: Greeter, Build Pipeline, Web Console {#phase-3}
 
-- [ ] **hearth-greeter:** GTK4 + greetd IPC, progress UI, agent socket client
-- [ ] **Build orchestrator:** nix-eval-jobs, build queue, Attic push
-- [ ] **Configuration generator:** Identity bridge query → JSON → trigger build
-- [ ] **Web console:** React + Refine + Tremor — fleet dashboard, enrollment approval, deployment management
-- [ ] **Staged rollouts:** Canary → validation → production batches, automatic rollback
+### Tasks
+
+- [x] **3A: hearth-greeter:** GTK4 fullscreen greeter with greetd IPC (length-prefixed JSON), agent Unix socket client (PrepareUserEnv/progress events), NSS group lookup, branding from `/etc/hearth/greeter.toml`, fallback session support
+- [x] **3B: Deployment API + Agent Updater:** Migration 006 (deployment_machines table, machine_update_status enum, deployment columns), full deployment CRUD routes, per-machine status tracking, deployment counters, fleet stats endpoint, audit log endpoint. Agent updater rewritten with real `nix copy`/`nix-env --set`/`switch-to-configuration` pipeline, deployment status reporting via heartbeat
+- [x] **3C: Web Console:** `@hearth/console` SPA (React 19, TanStack Router + Table + Query, Recharts) — multi-page admin dashboard with sidebar nav: fleet dashboard (stat cards + charts), machine list/detail, enrollment approval queue, deployment list/detail/create, catalog management, software request queue, audit log viewer. 10 new UI components in `@hearth/ui` (DataTable, StatCard, Sidebar, PageHeader, EmptyState, ConfirmDialog, ProgressBar, Tabs, Select, TextInput)
+- [x] **3D: Build Orchestrator:** `nix-eval-jobs` evaluator (NDJSON streaming), parallel `nix build`, Attic cache push, per-machine config generator from DB inventory (role/tag/machine_id filtering), full orchestration pipeline (evaluate → build → push → create deployment → set target_closure)
+- [x] **3E: Staged Rollouts:** Deployment FSM (pending → canary → rolling → completed, rollback/failed from any active state), batch health checker (heartbeat recency, failure rate), rolling batch controller (canary selection, batch advancement, threshold validation, rollback with closure restoration), background deployment monitor (30s poll, auto-advance canary/rolling, auto-rollback)
+
+### Stats
+- **hearth-greeter:** Full rewrite — 5 source files (main.rs, greetd.rs, agent_client.rs, ui.rs, nss.rs), GTK4 + glib + libc + async-channel
+- **hearth-api:** 7 new source files (routes/deployments.rs, routes/stats.rs, routes/audit.rs, deployment_fsm.rs, health_check.rs, rollout.rs, deployment_monitor.rs), build pipeline module (5 files: evaluator.rs, builder.rs, cache.rs, config_gen.rs, orchestrator.rs), 1 new migration
+- **hearth-agent:** updater.rs rewritten with real Nix commands, poller.rs with deployment status reporting
+- **hearth-common:** api_types.rs (+10 types), api_client.rs (+report_update_status), config.rs (+GreeterConfig/BrandingConfig/AgentConnectionConfig/SessionConfig)
+- **Frontend:** `@hearth/console` app (TanStack Router + Table + Query + Recharts), 11 pages, 10 API hooks, 10 new UI components in `@hearth/ui`, react-icons integration
 
 ---
 
@@ -175,7 +184,8 @@ hearth/
 │   ├── 002_user_environments.sql
 │   ├── 003_deployments.sql
 │   ├── 004_audit_events.sql
-│   └── 005_software_catalog.sql
+│   ├── 005_software_catalog.sql
+│   └── 006_deployment_machines.sql
 ├── modules/                    # NixOS modules
 │   ├── agent.nix
 │   ├── greeter.nix
@@ -201,6 +211,10 @@ hearth/
 │   ├── full-enrollment.nix
 │   ├── user-login-flow.nix
 │   └── offline-fallback.nix
+├── web/                        # pnpm monorepo (frontend)
+│   ├── packages/ui/            # @hearth/ui shared design system
+│   ├── apps/catalog/           # @hearth/catalog Software Center SPA
+│   └── apps/console/           # @hearth/console Admin Console SPA
 └── dev/                        # microvm.nix (interactive dev)
     ├── fleet-vm.nix
     └── enrollment-vm.nix

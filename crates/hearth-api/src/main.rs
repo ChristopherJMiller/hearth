@@ -1,12 +1,22 @@
+#[allow(dead_code)]
+mod build;
 mod db;
+#[allow(dead_code)]
+mod deployment_fsm;
+mod deployment_monitor;
 mod error;
+#[allow(dead_code)]
+mod health_check;
 mod repo;
+#[allow(dead_code)]
+mod rollout;
 mod routes;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -65,6 +75,32 @@ fn request_routes() -> Router<AppState> {
         )
 }
 
+fn deployments_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(routes::deployments::list_deployments).post(routes::deployments::create_deployment),
+        )
+        .route("/{id}", get(routes::deployments::get_deployment))
+        .route(
+            "/{id}/status",
+            put(routes::deployments::update_deployment_status),
+        )
+        .route(
+            "/{id}/rollback",
+            post(routes::deployments::rollback_deployment),
+        )
+        .route(
+            "/{id}/machines",
+            get(routes::deployments::list_deployment_machines),
+        )
+        .route(
+            "/{id}/machines/{machine_id}",
+            put(routes::deployments::update_machine_status),
+        )
+        .route("/build", post(routes::deployments::trigger_build))
+}
+
 fn enrollment_routes() -> Router<AppState> {
     Router::new()
         .route("/enroll", post(routes::enrollment::enroll))
@@ -118,6 +154,11 @@ async fn main() {
 
     let state = AppState { pool };
 
+    // Spawn deployment monitor background task
+    let cancel = CancellationToken::new();
+    let monitor_pool = state.pool.clone();
+    tokio::spawn(deployment_monitor::run(monitor_pool, cancel.clone()));
+
     // Serve the Vite-built catalog SPA from the dist directory.
     // Falls back to the SPA handler for client-side routes.
     let catalog_dist =
@@ -127,18 +168,30 @@ async fn main() {
         .fallback(get(routes::web::catalog_spa_fallback))
         .nest_service("/", ServeDir::new(&catalog_dist));
 
+    // Serve the admin console SPA.
+    let console_dist = std::env::var("HEARTH_CONSOLE_DIST")
+        .unwrap_or_else(|_| "web/apps/console/dist".to_string());
+
+    let console_spa = Router::new()
+        .fallback(get(routes::web::console_spa_fallback))
+        .nest_service("/", ServeDir::new(&console_dist));
+
     let app = Router::new()
         .route("/healthz", get(routes::health::healthz))
         .nest("/api/v1/machines", machines_routes())
         .nest("/api/v1/heartbeat", heartbeat_routes())
         .nest("/api/v1/catalog", catalog_routes())
         .nest("/api/v1/requests", request_routes())
+        .nest("/api/v1/deployments", deployments_routes())
         .nest("/api/v1", enrollment_routes())
+        .route("/api/v1/stats", get(routes::stats::fleet_stats))
+        .route("/api/v1/audit", get(routes::audit::list_audit_events))
         .nest(
             "/api/v1/machines/{machine_id}/environments",
             environments_routes(),
         )
         .nest("/catalog", catalog_spa)
+        .nest("/console", console_spa)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -148,4 +201,7 @@ async fn main() {
 
     info!("hearth-api listening on 0.0.0.0:3000");
     axum::serve(listener, app).await.expect("server error");
+
+    // Signal background tasks to stop on shutdown
+    cancel.cancel();
 }

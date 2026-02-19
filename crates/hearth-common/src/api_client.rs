@@ -65,6 +65,13 @@ pub trait HearthApiClient: Send + Sync {
         machine_id: Uuid,
         username: &str,
     ) -> impl Future<Output = Result<(), ApiError>> + Send;
+    fn report_update_status(
+        &self,
+        deployment_id: Uuid,
+        machine_id: Uuid,
+        status: MachineUpdateStatus,
+        error_message: Option<&str>,
+    ) -> impl Future<Output = Result<(), ApiError>> + Send;
 }
 
 /// Production API client using reqwest.
@@ -233,6 +240,33 @@ impl HearthApiClient for ReqwestApiClient {
             .post(self.url(&format!(
                 "/api/v1/machines/{machine_id}/environments/{username}/login"
             )))
+            .send()
+            .await?;
+        self.check_response(resp).await?;
+        Ok(())
+    }
+
+    async fn report_update_status(
+        &self,
+        deployment_id: Uuid,
+        machine_id: Uuid,
+        status: MachineUpdateStatus,
+        error_message: Option<&str>,
+    ) -> Result<(), ApiError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            status: MachineUpdateStatus,
+            error_message: Option<&'a str>,
+        }
+        let resp = self
+            .client
+            .put(self.url(&format!(
+                "/api/v1/deployments/{deployment_id}/machines/{machine_id}"
+            )))
+            .json(&Body {
+                status,
+                error_message,
+            })
             .send()
             .await?;
         self.check_response(resp).await?;

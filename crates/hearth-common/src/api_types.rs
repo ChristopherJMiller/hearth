@@ -59,12 +59,18 @@ pub struct HeartbeatRequest {
     pub current_closure: Option<String>,
     pub os_version: Option<String>,
     pub uptime_seconds: Option<u64>,
+    #[serde(default)]
+    pub update_in_progress: Option<bool>,
+    #[serde(default)]
+    pub update_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatResponse {
     pub target_closure: Option<String>,
     pub pending_installs: Vec<PendingSoftwareInstall>,
+    #[serde(default)]
+    pub active_deployment_id: Option<Uuid>,
 }
 
 // --- Target state ---
@@ -114,6 +120,10 @@ pub struct Deployment {
     pub total_machines: i32,
     pub succeeded: i32,
     pub failed: i32,
+    pub canary_size: i32,
+    pub batch_size: i32,
+    pub failure_threshold: f64,
+    pub rollback_reason: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -127,6 +137,91 @@ pub enum DeploymentStatus {
     Completed,
     Failed,
     RolledBack,
+}
+
+// --- Deployment machine tracking ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MachineUpdateStatus {
+    Pending,
+    Downloading,
+    Switching,
+    Completed,
+    Failed,
+    RolledBack,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentMachineStatus {
+    pub deployment_id: Uuid,
+    pub machine_id: Uuid,
+    pub status: MachineUpdateStatus,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDeploymentRequest {
+    pub closure: String,
+    #[serde(default)]
+    pub module_library_ref: Option<String>,
+    #[serde(default)]
+    pub instance_data_hash: Option<String>,
+    #[serde(default)]
+    pub target_filter: Option<serde_json::Value>,
+    #[serde(default = "default_canary_size")]
+    pub canary_size: i32,
+    #[serde(default = "default_batch_size")]
+    pub batch_size: i32,
+    #[serde(default = "default_failure_threshold")]
+    pub failure_threshold: f64,
+}
+
+fn default_canary_size() -> i32 {
+    1
+}
+fn default_batch_size() -> i32 {
+    5
+}
+fn default_failure_threshold() -> f64 {
+    0.1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateDeploymentStatusRequest {
+    pub status: DeploymentStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMachineUpdateStatusRequest {
+    pub status: MachineUpdateStatus,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerBuildRequest {
+    pub flake_ref: String,
+    #[serde(default)]
+    pub target_filter: Option<serde_json::Value>,
+    #[serde(default)]
+    pub canary_size: Option<i32>,
+    #[serde(default)]
+    pub batch_size: Option<i32>,
+    #[serde(default)]
+    pub failure_threshold: Option<f64>,
+}
+
+// --- Fleet stats ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FleetStats {
+    pub total_machines: i64,
+    pub active_machines: i64,
+    pub pending_enrollments: i64,
+    pub active_deployments: i64,
+    pub pending_requests: i64,
 }
 
 // --- Software catalog types ---

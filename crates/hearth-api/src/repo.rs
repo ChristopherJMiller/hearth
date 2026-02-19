@@ -1,16 +1,19 @@
 //! Repository layer: database queries for machines, heartbeats, etc.
 
+use chrono::{DateTime, Utc};
 use hearth_common::api_types::{
-    CreateCatalogEntryRequest, CreateMachineRequest, HeartbeatRequest, HeartbeatResponse,
-    TargetState, UpdateCatalogEntryRequest, UpdateMachineRequest,
+    CreateCatalogEntryRequest, CreateDeploymentRequest, CreateMachineRequest, FleetStats,
+    HeartbeatRequest, HeartbeatResponse, TargetState, UpdateCatalogEntryRequest,
+    UpdateMachineRequest,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::{
-    CatalogEntryRow, HeartbeatResultRow, InstallMethodDb, MachineRow, PendingInstallRow,
-    SoftwareRequestRow, SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb,
-    UserEnvironmentRow,
+    ActiveDeploymentRow, AuditEventRow, CatalogEntryRow, DeploymentClosureRow,
+    DeploymentMachineRow, DeploymentRow, DeploymentStatusDb, HeartbeatResultRow, InstallMethodDb,
+    MachineRow, MachineUpdateStatusDb, PendingInstallRow, SoftwareRequestRow,
+    SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb, UserEnvironmentRow,
 };
 
 pub async fn list_machines(pool: &PgPool) -> Result<Vec<MachineRow>, sqlx::Error> {
@@ -131,9 +134,37 @@ pub async fn record_heartbeat(
     match row {
         Some(r) => {
             let installs = get_pending_installs(pool, req.machine_id).await?;
+
+            // Check for active deployment assignment
+            let active_deployment = get_active_deployment_for_machine(pool, req.machine_id).await?;
+            let active_deployment_id = active_deployment.map(|d| d.deployment_id);
+
+            // If this machine has an active deployment and its current closure matches
+            // the deployment closure, mark it as completed
+            if let (Some(dep_id), Some(current_closure)) =
+                (active_deployment_id, &req.current_closure)
+            {
+                let dep_closure = get_deployment_closure(pool, dep_id).await?;
+                if let Some(dc) = dep_closure
+                    && dc.closure == *current_closure
+                {
+                    // Machine has arrived at the deployment closure -- mark completed
+                    let _ = upsert_deployment_machine(
+                        pool,
+                        dep_id,
+                        req.machine_id,
+                        MachineUpdateStatusDb::Completed,
+                        None,
+                    )
+                    .await?;
+                    increment_deployment_counter(pool, dep_id, true).await?;
+                }
+            }
+
             Ok(Some(HeartbeatResponse {
                 target_closure: r.target_closure,
                 pending_installs: installs.into_iter().map(Into::into).collect(),
+                active_deployment_id,
             }))
         }
         None => Ok(None),
@@ -546,4 +577,271 @@ pub async fn approve_enrollment(
     .bind(role)
     .fetch_optional(pool)
     .await
+}
+
+// --- Deployment queries ---
+
+const DEPLOYMENT_COLUMNS: &str = "id, closure, module_library_ref, instance_data_hash, status,
+    target_filter, total_machines, succeeded, failed, canary_size, batch_size,
+    failure_threshold, rollback_reason, created_at, updated_at";
+
+pub async fn create_deployment(
+    pool: &PgPool,
+    req: &CreateDeploymentRequest,
+) -> Result<DeploymentRow, sqlx::Error> {
+    let target_filter = req.target_filter.clone().unwrap_or(serde_json::json!({}));
+    let module_library_ref = req.module_library_ref.clone().unwrap_or_default();
+    let instance_data_hash = req.instance_data_hash.clone().unwrap_or_default();
+
+    sqlx::query_as::<_, DeploymentRow>(&format!(
+        "INSERT INTO deployments
+                (closure, module_library_ref, instance_data_hash, target_filter,
+                 canary_size, batch_size, failure_threshold)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING {DEPLOYMENT_COLUMNS}"
+    ))
+    .bind(&req.closure)
+    .bind(&module_library_ref)
+    .bind(&instance_data_hash)
+    .bind(&target_filter)
+    .bind(req.canary_size)
+    .bind(req.batch_size)
+    .bind(req.failure_threshold)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn list_deployments(
+    pool: &PgPool,
+    status: Option<DeploymentStatusDb>,
+) -> Result<Vec<DeploymentRow>, sqlx::Error> {
+    match status {
+        Some(s) => {
+            sqlx::query_as::<_, DeploymentRow>(&format!(
+                "SELECT {DEPLOYMENT_COLUMNS}
+                     FROM deployments
+                     WHERE status = $1
+                     ORDER BY created_at DESC"
+            ))
+            .bind(s)
+            .fetch_all(pool)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, DeploymentRow>(&format!(
+                "SELECT {DEPLOYMENT_COLUMNS}
+                     FROM deployments
+                     ORDER BY created_at DESC"
+            ))
+            .fetch_all(pool)
+            .await
+        }
+    }
+}
+
+pub async fn get_deployment(pool: &PgPool, id: Uuid) -> Result<Option<DeploymentRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentRow>(&format!(
+        "SELECT {DEPLOYMENT_COLUMNS}
+             FROM deployments
+             WHERE id = $1"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_deployment_status(
+    pool: &PgPool,
+    id: Uuid,
+    status: DeploymentStatusDb,
+) -> Result<Option<DeploymentRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentRow>(&format!(
+        "UPDATE deployments SET status = $2, updated_at = now()
+             WHERE id = $1
+             RETURNING {DEPLOYMENT_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(status)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn rollback_deployment(
+    pool: &PgPool,
+    id: Uuid,
+    reason: &str,
+) -> Result<Option<DeploymentRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentRow>(&format!(
+        "UPDATE deployments
+             SET status = 'rolled_back'::deployment_status,
+                 rollback_reason = $2,
+                 updated_at = now()
+             WHERE id = $1
+             RETURNING {DEPLOYMENT_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(reason)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn get_deployment_machines(
+    pool: &PgPool,
+    deployment_id: Uuid,
+) -> Result<Vec<DeploymentMachineRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentMachineRow>(
+        "SELECT deployment_id, machine_id, status, started_at, completed_at, error_message
+         FROM deployment_machines
+         WHERE deployment_id = $1
+         ORDER BY machine_id",
+    )
+    .bind(deployment_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn upsert_deployment_machine(
+    pool: &PgPool,
+    deployment_id: Uuid,
+    machine_id: Uuid,
+    status: MachineUpdateStatusDb,
+    error_message: Option<&str>,
+) -> Result<DeploymentMachineRow, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentMachineRow>(
+        "INSERT INTO deployment_machines (deployment_id, machine_id, status, started_at, error_message)
+         VALUES ($1, $2, $3, now(), $4)
+         ON CONFLICT (deployment_id, machine_id)
+         DO UPDATE SET status = $3,
+                       error_message = COALESCE($4, deployment_machines.error_message),
+                       completed_at = CASE
+                           WHEN $3 IN ('completed'::machine_update_status, 'failed'::machine_update_status, 'rolled_back'::machine_update_status)
+                           THEN now()
+                           ELSE deployment_machines.completed_at
+                       END
+         RETURNING deployment_id, machine_id, status, started_at, completed_at, error_message",
+    )
+    .bind(deployment_id)
+    .bind(machine_id)
+    .bind(status)
+    .bind(error_message)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn increment_deployment_counter(
+    pool: &PgPool,
+    deployment_id: Uuid,
+    success: bool,
+) -> Result<(), sqlx::Error> {
+    if success {
+        sqlx::query(
+            "UPDATE deployments SET succeeded = succeeded + 1, updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(deployment_id)
+        .execute(pool)
+        .await?;
+    } else {
+        sqlx::query(
+            "UPDATE deployments SET failed = failed + 1, updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(deployment_id)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn get_active_deployment_for_machine(
+    pool: &PgPool,
+    machine_id: Uuid,
+) -> Result<Option<ActiveDeploymentRow>, sqlx::Error> {
+    sqlx::query_as::<_, ActiveDeploymentRow>(
+        "SELECT dm.deployment_id
+         FROM deployment_machines dm
+         JOIN deployments d ON d.id = dm.deployment_id
+         WHERE dm.machine_id = $1
+           AND dm.status NOT IN ('completed'::machine_update_status, 'failed'::machine_update_status, 'rolled_back'::machine_update_status)
+           AND d.status NOT IN ('completed'::deployment_status, 'failed'::deployment_status, 'rolled_back'::deployment_status)
+         ORDER BY d.created_at DESC
+         LIMIT 1",
+    )
+    .bind(machine_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn get_deployment_closure(
+    pool: &PgPool,
+    deployment_id: Uuid,
+) -> Result<Option<DeploymentClosureRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentClosureRow>("SELECT closure FROM deployments WHERE id = $1")
+        .bind(deployment_id)
+        .fetch_optional(pool)
+        .await
+}
+
+// --- Audit queries ---
+
+pub async fn list_audit_events(
+    pool: &PgPool,
+    event_type: Option<&str>,
+    machine_id: Option<Uuid>,
+    actor: Option<&str>,
+    since: Option<DateTime<Utc>>,
+    limit: i64,
+) -> Result<Vec<AuditEventRow>, sqlx::Error> {
+    // Build the query dynamically based on which filters are provided.
+    // We always add all bind parameters in the same order, using a WHERE TRUE
+    // clause to simplify conditional ANDs.
+    sqlx::query_as::<_, AuditEventRow>(
+        "SELECT id, event_type, actor, machine_id, details, created_at
+         FROM audit_events
+         WHERE ($1::text IS NULL OR event_type = $1)
+           AND ($2::uuid IS NULL OR machine_id = $2)
+           AND ($3::text IS NULL OR actor = $3)
+           AND ($4::timestamptz IS NULL OR created_at >= $4)
+         ORDER BY created_at DESC
+         LIMIT $5",
+    )
+    .bind(event_type)
+    .bind(machine_id)
+    .bind(actor)
+    .bind(since)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+// --- Stats queries ---
+
+#[derive(Debug, sqlx::FromRow)]
+struct StatsRow {
+    total_machines: Option<i64>,
+    active_machines: Option<i64>,
+    pending_enrollments: Option<i64>,
+    active_deployments: Option<i64>,
+    pending_requests: Option<i64>,
+}
+
+pub async fn get_fleet_stats(pool: &PgPool) -> Result<FleetStats, sqlx::Error> {
+    let row = sqlx::query_as::<_, StatsRow>(
+        "SELECT
+            (SELECT COUNT(*) FROM machines) AS total_machines,
+            (SELECT COUNT(*) FROM machines WHERE enrollment_status = 'active') AS active_machines,
+            (SELECT COUNT(*) FROM machines WHERE enrollment_status = 'pending') AS pending_enrollments,
+            (SELECT COUNT(*) FROM deployments WHERE status IN ('pending'::deployment_status, 'canary'::deployment_status, 'rolling'::deployment_status)) AS active_deployments,
+            (SELECT COUNT(*) FROM software_requests WHERE status = 'pending') AS pending_requests",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(FleetStats {
+        total_machines: row.total_machines.unwrap_or(0),
+        active_machines: row.active_machines.unwrap_or(0),
+        pending_enrollments: row.pending_enrollments.unwrap_or(0),
+        active_deployments: row.active_deployments.unwrap_or(0),
+        pending_requests: row.pending_requests.unwrap_or(0),
+    })
 }

@@ -1,8 +1,11 @@
+pub mod audit;
 pub mod catalog;
+pub mod deployments;
 pub mod enrollment;
 pub mod environments;
 pub mod health;
 pub mod heartbeat;
 pub mod machines;
 pub mod requests;
+pub mod stats;
 pub mod web;

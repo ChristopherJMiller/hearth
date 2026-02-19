@@ -26,6 +26,36 @@ export type { FilterPillsProps } from "./components/FilterPills";
 export { ToastContainer } from "./components/Toast";
 export type { ToastContainerProps } from "./components/Toast";
 
+export { DataTable } from "./components/DataTable";
+export type { DataTableProps } from "./components/DataTable";
+
+export { StatCard } from "./components/StatCard";
+export type { StatCardProps } from "./components/StatCard";
+
+export { Sidebar } from "./components/Sidebar";
+export type { SidebarProps, SidebarItem } from "./components/Sidebar";
+
+export { PageHeader } from "./components/PageHeader";
+export type { PageHeaderProps } from "./components/PageHeader";
+
+export { EmptyState } from "./components/EmptyState";
+export type { EmptyStateProps } from "./components/EmptyState";
+
+export { ConfirmDialog } from "./components/ConfirmDialog";
+export type { ConfirmDialogProps } from "./components/ConfirmDialog";
+
+export { ProgressBar } from "./components/ProgressBar";
+export type { ProgressBarProps } from "./components/ProgressBar";
+
+export { Tabs } from "./components/Tabs";
+export type { TabsProps, Tab } from "./components/Tabs";
+
+export { Select } from "./components/Select";
+export type { SelectProps, SelectOption } from "./components/Select";
+
+export { TextInput } from "./components/TextInput";
+export type { TextInputProps } from "./components/TextInput";
+
 // Hooks
 export { useToast } from "./hooks/useToast";
 export type { ToastItem } from "./hooks/useToast";

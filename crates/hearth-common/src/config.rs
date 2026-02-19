@@ -146,3 +146,47 @@ fn default_max_connections() -> u32 {
 fn default_role() -> String {
     "default".to_string()
 }
+
+// --- Greeter configuration ---
+
+/// Greeter configuration, typically at /etc/hearth/greeter.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GreeterConfig {
+    pub branding: BrandingConfig,
+    pub agent: AgentConnectionConfig,
+    pub session: SessionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrandingConfig {
+    #[serde(default = "default_org_name")]
+    pub organization_name: String,
+    pub logo_path: Option<String>,
+    pub css_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConnectionConfig {
+    #[serde(default = "default_socket_path")]
+    pub socket_path: String,
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionConfig {
+    #[serde(default = "default_session_command")]
+    pub command: String,
+    #[serde(default = "default_session_command")]
+    pub fallback_command: String,
+}
+
+fn default_org_name() -> String {
+    "Your Organization".to_string()
+}
+fn default_timeout_secs() -> u64 {
+    120
+}
+fn default_session_command() -> String {
+    "gnome-session".to_string()
+}

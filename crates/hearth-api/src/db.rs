@@ -309,6 +309,191 @@ impl From<SoftwareRequestRow> for api_types::SoftwareRequest {
     }
 }
 
+// --- Deployment status enum ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "deployment_status", rename_all = "snake_case")]
+pub enum DeploymentStatusDb {
+    Pending,
+    Canary,
+    Rolling,
+    Completed,
+    Failed,
+    RolledBack,
+}
+
+impl From<DeploymentStatusDb> for api_types::DeploymentStatus {
+    fn from(s: DeploymentStatusDb) -> Self {
+        match s {
+            DeploymentStatusDb::Pending => api_types::DeploymentStatus::Pending,
+            DeploymentStatusDb::Canary => api_types::DeploymentStatus::Canary,
+            DeploymentStatusDb::Rolling => api_types::DeploymentStatus::Rolling,
+            DeploymentStatusDb::Completed => api_types::DeploymentStatus::Completed,
+            DeploymentStatusDb::Failed => api_types::DeploymentStatus::Failed,
+            DeploymentStatusDb::RolledBack => api_types::DeploymentStatus::RolledBack,
+        }
+    }
+}
+
+impl From<api_types::DeploymentStatus> for DeploymentStatusDb {
+    fn from(s: api_types::DeploymentStatus) -> Self {
+        match s {
+            api_types::DeploymentStatus::Pending => DeploymentStatusDb::Pending,
+            api_types::DeploymentStatus::Canary => DeploymentStatusDb::Canary,
+            api_types::DeploymentStatus::Rolling => DeploymentStatusDb::Rolling,
+            api_types::DeploymentStatus::Completed => DeploymentStatusDb::Completed,
+            api_types::DeploymentStatus::Failed => DeploymentStatusDb::Failed,
+            api_types::DeploymentStatus::RolledBack => DeploymentStatusDb::RolledBack,
+        }
+    }
+}
+
+// --- Machine update status enum ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "machine_update_status", rename_all = "snake_case")]
+pub enum MachineUpdateStatusDb {
+    Pending,
+    Downloading,
+    Switching,
+    Completed,
+    Failed,
+    RolledBack,
+}
+
+impl From<MachineUpdateStatusDb> for api_types::MachineUpdateStatus {
+    fn from(s: MachineUpdateStatusDb) -> Self {
+        match s {
+            MachineUpdateStatusDb::Pending => api_types::MachineUpdateStatus::Pending,
+            MachineUpdateStatusDb::Downloading => api_types::MachineUpdateStatus::Downloading,
+            MachineUpdateStatusDb::Switching => api_types::MachineUpdateStatus::Switching,
+            MachineUpdateStatusDb::Completed => api_types::MachineUpdateStatus::Completed,
+            MachineUpdateStatusDb::Failed => api_types::MachineUpdateStatus::Failed,
+            MachineUpdateStatusDb::RolledBack => api_types::MachineUpdateStatus::RolledBack,
+        }
+    }
+}
+
+impl From<api_types::MachineUpdateStatus> for MachineUpdateStatusDb {
+    fn from(s: api_types::MachineUpdateStatus) -> Self {
+        match s {
+            api_types::MachineUpdateStatus::Pending => MachineUpdateStatusDb::Pending,
+            api_types::MachineUpdateStatus::Downloading => MachineUpdateStatusDb::Downloading,
+            api_types::MachineUpdateStatus::Switching => MachineUpdateStatusDb::Switching,
+            api_types::MachineUpdateStatus::Completed => MachineUpdateStatusDb::Completed,
+            api_types::MachineUpdateStatus::Failed => MachineUpdateStatusDb::Failed,
+            api_types::MachineUpdateStatus::RolledBack => MachineUpdateStatusDb::RolledBack,
+        }
+    }
+}
+
+// --- Deployment row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct DeploymentRow {
+    pub id: Uuid,
+    pub closure: String,
+    pub module_library_ref: String,
+    pub instance_data_hash: String,
+    pub status: DeploymentStatusDb,
+    pub target_filter: serde_json::Value,
+    pub total_machines: i32,
+    pub succeeded: i32,
+    pub failed: i32,
+    pub canary_size: i32,
+    pub batch_size: i32,
+    pub failure_threshold: f64,
+    pub rollback_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<DeploymentRow> for api_types::Deployment {
+    fn from(row: DeploymentRow) -> Self {
+        api_types::Deployment {
+            id: row.id,
+            closure: row.closure,
+            module_library_ref: row.module_library_ref,
+            instance_data_hash: row.instance_data_hash,
+            status: row.status.into(),
+            target_filter: row.target_filter,
+            total_machines: row.total_machines,
+            succeeded: row.succeeded,
+            failed: row.failed,
+            canary_size: row.canary_size,
+            batch_size: row.batch_size,
+            failure_threshold: row.failure_threshold,
+            rollback_reason: row.rollback_reason,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+// --- Deployment machine row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct DeploymentMachineRow {
+    pub deployment_id: Uuid,
+    pub machine_id: Uuid,
+    pub status: MachineUpdateStatusDb,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub error_message: Option<String>,
+}
+
+impl From<DeploymentMachineRow> for api_types::DeploymentMachineStatus {
+    fn from(row: DeploymentMachineRow) -> Self {
+        api_types::DeploymentMachineStatus {
+            deployment_id: row.deployment_id,
+            machine_id: row.machine_id,
+            status: row.status.into(),
+            started_at: row.started_at,
+            completed_at: row.completed_at,
+            error_message: row.error_message,
+        }
+    }
+}
+
+// --- Audit event row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct AuditEventRow {
+    pub id: Uuid,
+    pub event_type: String,
+    pub actor: Option<String>,
+    pub machine_id: Option<Uuid>,
+    pub details: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<AuditEventRow> for api_types::AuditEvent {
+    fn from(row: AuditEventRow) -> Self {
+        api_types::AuditEvent {
+            id: row.id,
+            event_type: row.event_type,
+            actor: row.actor,
+            machine_id: row.machine_id,
+            details: row.details,
+            created_at: row.created_at,
+        }
+    }
+}
+
+// --- Active deployment ID row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ActiveDeploymentRow {
+    pub deployment_id: Uuid,
+}
+
+// --- Deployment closure row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct DeploymentClosureRow {
+    pub closure: String,
+}
+
 // --- Pending install row (joined request + catalog) ---
 
 #[derive(Debug, sqlx::FromRow)]
