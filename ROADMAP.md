@@ -172,15 +172,121 @@ Full identity stack using Kanidm as the enterprise IdP. Replaces SSSD-only auth 
 
 ## Phase 4: Enterprise Hardening {#phase-4}
 
-Items from `docs/pieces-to-fill-in.txt`:
+Close the gap between the development platform and something deployable into a real enterprise environment. The control plane becomes container-ready, the enrollment flow becomes a real provisioner, and per-user environments move beyond role profile fallbacks.
 
-- [ ] TPM device identity + attestation, disk encryption key escrow
-- [ ] Printing/CUPS per-location, WiFi/802.1X profile distribution
-- [ ] SIEM/log forwarding (journald → Loki), compliance modules (STIG/CIS mapping)
-- [ ] Device decommissioning (remote wipe, Headscale revocation)
-- [ ] Proxy/corporate network config, user data backup, multi-monitor handling
-- [ ] Headscale mesh integration, performance at 500+ scale
-- [ ] Application updates separate from system updates (Flatpak for fast CVE patching)
+### 4A: Secure Provisioning Pipeline
+
+Complete the enrollment flow — currently the TUI registers the device but doesn't install NixOS.
+
+- [ ] **disko integration in enrollment:** Declarative disk partitioning during provisioning. The control plane generates a disko config (encrypted LUKS + EFI partition) as part of the machine's NixOS configuration. The enrollment agent runs `disko` to partition, pulls the closure from cache, and installs NixOS to disk.
+- [ ] **Lanzaboote Secure Boot:** The module library includes Lanzaboote configuration for supported hardware. Secure Boot keys are enrolled during first boot. Fleet devices boot with a verified chain: UEFI → Lanzaboote stub → signed kernel + initrd.
+- [ ] **TPM-backed full disk encryption:** `systemd-cryptenroll` with TPM2 for LUKS. PCR-bound unlock so the disk auto-decrypts only when booting the expected NixOS configuration. Key escrow to the control plane for IT recovery.
+- [ ] **Hardware profile library:** Reusable NixOS modules for 3–4 common enterprise laptops (ThinkPad T14s, Framework 13/16, Dell Latitude). Each profile imports from `nixos-hardware` and adds Hearth-specific tweaks. The `hardware_profile` DB field selects which module to include at build time.
+
+### 4B: Per-User Environment Generation
+
+The Configuration Generator — the most novel component in the architecture. Completes the home-manager #5244 solution by building real per-user closures on the control plane.
+
+- [ ] **Configuration Generator:** When the agent reports a first login (`POST /machines/{id}/user-login`), the API handler queries Kanidm for the user's groups/attributes, resolves groups → role, exports user instance data as JSON, and queues a build via the build orchestrator using `lib.buildUserEnv`. The resulting closure path is stored on the UserEnvironment record.
+- [ ] **Agent per-user closure activation:** The agent checks for a per-user closure (from the control plane) before falling back to the role profile. On subsequent logins, the per-user closure is activated directly from the local Nix store (<1s). If the control plane has a newer version, the agent pulls the delta from cache.
+- [ ] **Identity sync job:** Periodic background job (configurable interval, default 5 min) that queries Kanidm's API for all users and groups, diffs against the DB, and triggers UserEnvironment rebuilds for users whose group memberships changed. Runs as a background task in the API server.
+
+### 4C: Build Worker Separation
+
+Extract the build orchestrator into a standalone worker process for container deployment.
+
+- [ ] **Build worker process:** The API server enqueues build jobs (machine configs, user environments) into a PostgreSQL-backed queue. A separate `hearth-build-worker` process dequeues and executes (`nix-eval-jobs` → `nix build` → `attic push`). Multiple workers can run in parallel. The API server no longer needs `nix` in its container image.
+- [ ] **Container images:** OCI images for hearth-api (stateless web server), hearth-build-worker (needs Nix + large store volume), and a combined docker-compose / Helm chart for the full control plane stack (api + worker + PostgreSQL + Attic).
+
+### 4D: Console & API Hardening
+
+- [ ] **RBAC for web console:** Three roles — viewer (read fleet state), operator (approve enrollments, trigger deployments, manage catalog), admin (everything including user management and settings). Roles map to Kanidm groups. The API middleware checks group membership from JWT claims. Console UI hides/disables actions the user can't perform.
+- [ ] **Remote actions:** Lock, restart, trigger rebuild, run-command via a `pending_actions` field in the heartbeat response. The agent picks up actions on its next poll cycle and executes them. The console provides buttons on the machine detail page. Actions are recorded in the audit log.
+- [ ] **`extra_config` structured forms:** The console exposes per-machine overrides (static IP, extra packages, custom mounts) as structured forms with validation, not raw JSON editing. Validation happens in the console (schema) and during Nix evaluation (module type system).
+- [ ] **Basic reporting pages:** Deployment history timeline, fleet compliance posture (current vs target closure match rates), enrollment timeline. These read existing DB data — no new backend work beyond API endpoints.
+
+### 4E: Observability
+
+Hearth ships its own observability stack as part of the control plane deployment.
+
+- [ ] **API server metrics:** Prometheus `/metrics` endpoint on hearth-api — request latency histograms, active machines gauge, deployment status counters, build queue depth, heartbeat recency distribution.
+- [ ] **Structured logging:** JSON log output from all control plane components. Configurable via `RUST_LOG` + `LOG_FORMAT=json`. Compatible with any log aggregator (Loki, CloudWatch, Datadog).
+- [ ] **hearth-agent Prometheus textfile exporter:** Agent writes metrics to `/var/lib/prometheus-node-exporter/hearth.prom` — current generation, closure drift (0/1), last heartbeat age, update status, user environment count. Orgs running node_exporter on fleet devices get Hearth metrics in their existing Grafana.
+- [ ] **Control plane Grafana dashboards:** Ship pre-built Grafana dashboard JSON for the control plane metrics — fleet overview, deployment progress, build pipeline health, heartbeat coverage. Bundled in the Helm chart / docker-compose as an optional sidecar.
+- [ ] **Loki for fleet log aggregation:** Optional Loki + Promtail deployment in the control plane stack. Fleet devices forward journald logs via Promtail (configured in the Hearth NixOS module). Enables centralized log search across the fleet from the console or Grafana.
+
+### 4F: Fleet Agent Metrics on Endpoints
+
+- [ ] **VictoriaMetrics vmagent NixOS module option:** Optional `services.hearth.metrics.enable` that deploys vmagent on fleet devices with disk-backed buffering. Scrapes the local node_exporter (including Hearth textfile metrics) and pushes via `remote_write` to the control plane's metrics endpoint. Handles intermittent connectivity — buffered metrics flush automatically on reconnect. Configured declaratively via the Hearth NixOS module.
+
+---
+
+## Phase 5: Scale & Advanced Features {#phase-5}
+
+### 5A: Headscale Mesh
+
+Optional VPN overlay for direct device access and secure fleet communication.
+
+- [ ] **Headscale server deployment:** Add Headscale to the control plane docker-compose / Helm chart. Configure as the coordination server for the fleet mesh.
+- [ ] **Enrollment integration:** The control plane generates a one-time Headscale pre-auth key during enrollment approval, included in the machine's provisioned NixOS config. Fleet devices join the mesh automatically on first boot.
+- [ ] **Direct device SSH:** IT can SSH into any enrolled device via its Headscale address. The console shows Headscale addresses on the machine detail page.
+- [ ] **Agent communication over mesh (optional):** For environments where fleet devices cannot reach the control plane over the public internet, the agent can be configured to communicate over the Headscale mesh instead.
+
+### 5B: Compliance Engine
+
+- [ ] **Config drift detection API:** Endpoint returning fleet-wide drift status (machines where `current_closure != target_closure`). Console dashboard widget showing compliance percentage and drill-down to drifted machines.
+- [ ] **Nix assertion policies:** Define compliance policies as Nix expressions evaluated at build time on the control plane. Example: "all machines must have firewall enabled" → assert `networking.firewall.enable == true` in the evaluated config. Policies stored in the DB, results recorded per-deployment.
+- [ ] **SBOM generation:** The build worker produces an SBOM (via `sbomnix`) alongside each closure. Stored with the deployment record. API endpoint to retrieve the SBOM for any machine's current closure. Enables downstream vulnerability scanning (Grype, Trivy) without Hearth owning the scanner.
+- [ ] **STIG/CIS NixOS module library:** NixOS modules implementing specific DISA STIG and CIS controls. Each module carries metadata (control ID, severity, description) that the control plane can extract at evaluation time to generate compliance reports from the Nix evaluation itself — no on-device scanner needed.
+
+### 5C: User Environment Polish
+
+- [ ] **Closure pre-warming:** When a machine enrolls or changes role, the control plane enumerates likely users (from Kanidm group membership for the assigned role) and queues pre-builds of their per-user closures. Reduces first-login latency from "1–3 minute build" to "15–60 second cache pull."
+- [ ] **WiFi/802.1X certificate distribution:** The control plane provisions 802.1X machine certificates as part of enrollment secrets. The NixOS module configures `wpa_supplicant` or `iwd` with the certificate and network profile. Certificates rotate via the control plane's secret management.
+
+### 5D: Scale
+
+- [ ] **PXE/iPXE boot service:** Control plane serves boot images based on device identity — unknown devices get the enrollment image, known devices boot from local disk, reprovisioning devices get a fresh installer. Uses iPXE chain-loading from an HTTP endpoint. Enables zero-touch provisioning of 50+ machines simultaneously.
+- [ ] **gRPC/SSE push notifications:** Optional push channel from control plane to agent for latency-sensitive deployments. Agent maintains a long-lived connection over the Headscale mesh (or direct HTTPS). Control plane wakes the agent immediately when a new target closure is set, rather than waiting for the next 60-second poll cycle.
+
+---
+
+## Icebox {#icebox}
+
+Items that are valuable but not currently prioritized. May be promoted to a phase based on user demand or strategic need.
+
+### Conditional Access
+Integrate compliance state with Kanidm's OAuth2 claims pipeline. Non-compliant devices (missed updates, failed attestation, config drift) get restricted OAuth2 tokens that block access to sensitive resources. Requires the compliance engine (Phase 5B) to exist first, and depends on Kanidm's claims-based access control maturing upstream.
+
+### Multi-Tenancy
+Multiple organizations sharing a single control plane deployment with isolated fleet views, RBAC boundaries, and separate Attic cache tenants. Relevant for SaaS deployment or MSP use cases. Not needed for self-hosted single-org deployments.
+
+### Per-User Environment Customizations
+A framework for individual users to express preferences (editor, shell, extra packages) via the console or a self-service portal. Preferences are merged with role profiles during per-user closure generation. Requires the Configuration Generator (Phase 4B) and a UI for preference management.
+
+### Fleet/osquery Integration
+Deploy Fleet + osquery alongside the control plane for SQL-queryable endpoint telemetry. Custom osquery extension for Nix store package inventory. Integration layer syncing device state between Fleet and Hearth. Large integration surface — most of the value is already covered by heartbeat data and the Prometheus metrics pipeline.
+
+### Application Updates Separate from System Updates
+Flatpak for fast CVE patching of user-facing applications (browsers, office suites) on a faster cadence than full NixOS system updates. The agent already supports Flatpak installs via the software catalog — this extends it with automatic Flatpak update scheduling independent of system deployment cycles.
+
+---
+
+## Demo Environment {#demo-environment}
+
+A reference deployment showcasing Hearth with the full enterprise integration stack. Not part of the Hearth product itself — these are components the org's NixOS module library would configure, packaged as a turnkey demo.
+
+### Included in the demo stack (docker-compose + fleet VMs)
+- **Control plane:** hearth-api + hearth-build-worker + PostgreSQL + Attic + Kanidm
+- **Observability:** Prometheus + Grafana + Loki (with pre-built dashboards)
+- **Fleet devices:** 2–3 NixOS VMs (microvm.nix) with hearth-agent, hearth-greeter, node_exporter, Promtail
+- **Network storage:** NFS server with pam_mount-triggered home directory mounts
+- **Printing:** CUPS server with per-location printer assignment via dconf
+- **Proxy/network:** HTTP proxy + corporate CA certificate distribution
+- **User data backup:** Restic backup to S3 (Garage) on a timer
+
+### Purpose
+Demonstrates the full end-to-end workflow: enrollment → first login → user environment activation → software request → deployment rollout → log search → monitoring dashboards. Provides a starting point for orgs evaluating Hearth and a reference for configuring enterprise integrations in their own module library.
 
 ---
 
@@ -242,6 +348,9 @@ hearth/
 │   ├── packages/ui/            # @hearth/ui shared design system
 │   ├── apps/catalog/           # @hearth/catalog Software Center SPA
 │   └── apps/console/           # @hearth/console Admin Console SPA
+├── deploy/                     # Container deployment (Phase 4+)
+│   ├── docker-compose.prod.yml # Production docker-compose
+│   └── helm/                   # Helm chart for k8s deployment
 └── dev/                        # microvm.nix (interactive dev)
     ├── fleet-vm.nix
     ├── enrollment-vm.nix
