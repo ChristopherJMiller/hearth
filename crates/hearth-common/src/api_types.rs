@@ -71,6 +71,10 @@ pub struct HeartbeatResponse {
     pub pending_installs: Vec<PendingSoftwareInstall>,
     #[serde(default)]
     pub active_deployment_id: Option<Uuid>,
+    #[serde(default)]
+    pub cache_url: Option<String>,
+    #[serde(default)]
+    pub cache_token: Option<String>,
 }
 
 // --- Target state ---

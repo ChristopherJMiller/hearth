@@ -5,6 +5,7 @@
 //! `switch-to-configuration switch`.
 
 use std::env;
+use std::path::Path;
 
 use tracing::{debug, error, info, warn};
 
@@ -31,6 +32,7 @@ pub enum UpdateError {
 pub async fn check_and_apply_update(
     current_closure: Option<&str>,
     target_closure: &str,
+    cache_url: Option<&str>,
 ) -> Result<bool, UpdateError> {
     // If we already have the target closure, nothing to do.
     if let Some(current) = current_closure {
@@ -60,12 +62,19 @@ pub async fn check_and_apply_update(
     }
 
     // Step 1: Optionally copy the closure from a binary cache.
-    let cache_url = env::var("HEARTH_CACHE_URL").ok().filter(|s| !s.is_empty());
-    if let Some(cache) = &cache_url {
+    let effective_cache_url = cache_url
+        .map(String::from)
+        .or_else(|| env::var("HEARTH_CACHE_URL").ok().filter(|s| !s.is_empty()));
+    if let Some(cache) = &effective_cache_url {
         info!(cache = %cache, closure = %target_closure, "copying closure from cache");
-        run_command("nix", &["copy", "--from", cache, target_closure]).await?;
+        let netrc_path = Path::new("/run/hearth/netrc");
+        let mut args = vec!["copy", "--from", cache, target_closure];
+        if netrc_path.exists() {
+            args.extend_from_slice(&["--option", "netrc-file", "/run/hearth/netrc"]);
+        }
+        run_command("nix", &args).await?;
     } else {
-        debug!("no HEARTH_CACHE_URL set, assuming closure is already in the local store");
+        debug!("no cache URL configured, assuming closure is already in the local store");
     }
 
     // Step 2: Set the system profile to the target closure.
@@ -147,7 +156,7 @@ mod tests {
     #[tokio::test]
     async fn no_update_when_same() {
         let result =
-            check_and_apply_update(Some("/nix/store/aaaa-system"), "/nix/store/aaaa-system")
+            check_and_apply_update(Some("/nix/store/aaaa-system"), "/nix/store/aaaa-system", None)
                 .await
                 .unwrap();
         assert!(!result);
@@ -156,7 +165,8 @@ mod tests {
     #[tokio::test]
     async fn rejects_invalid_store_path() {
         let result =
-            check_and_apply_update(Some("/nix/store/aaaa-system"), "/tmp/not-a-store-path").await;
+            check_and_apply_update(Some("/nix/store/aaaa-system"), "/tmp/not-a-store-path", None)
+                .await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(

@@ -45,6 +45,10 @@ pub async fn run_poll_loop<C: HearthApiClient>(
     // Track the last update error so it can be reported in the next heartbeat.
     let mut update_error: Option<String> = None;
 
+    // Cache credentials from heartbeat — refreshed every cycle.
+    let mut cache_url: Option<String> = None;
+    let mut last_cache_token: Option<String> = None;
+
     loop {
         // --- Drain offline queue ---
         match queue.drain() {
@@ -92,6 +96,7 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                         match updater::check_and_apply_update(
                             current_closure.as_deref(),
                             target_closure,
+                            cache_url.as_deref(),
                         )
                         .await
                         {
@@ -160,6 +165,23 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                 // Capture active deployment ID from response.
                 active_deployment_id = resp.active_deployment_id;
 
+                // Write cache credentials to netrc if the token has changed.
+                if let (Some(url), Some(token)) = (&resp.cache_url, &resp.cache_token) {
+                    let token_changed = last_cache_token.as_deref() != Some(token.as_str());
+                    if token_changed {
+                        match write_netrc(url, token) {
+                            Ok(()) => {
+                                info!("wrote cache credentials to /run/hearth/netrc");
+                                cache_url = Some(url.clone());
+                                last_cache_token = Some(token.clone());
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "failed to write cache netrc");
+                            }
+                        }
+                    }
+                }
+
                 // Process pending software installs
                 for install in &resp.pending_installs {
                     let req_id = install.request_id;
@@ -215,6 +237,25 @@ pub async fn run_poll_loop<C: HearthApiClient>(
             }
         }
     }
+}
+
+/// Write a netrc file with bearer credentials for the given cache URL.
+fn write_netrc(cache_url: &str, token: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Extract hostname from URL (e.g. "http://cache.example.com:8080/foo" -> "cache.example.com")
+    let host = cache_url
+        .split("://")
+        .nth(1)
+        .unwrap_or(cache_url)
+        .split('/')
+        .next()
+        .unwrap_or(cache_url)
+        .split(':')
+        .next()
+        .unwrap_or(cache_url);
+    let content = format!("machine {host}\nlogin bearer\npassword {token}\n");
+    let path = std::path::Path::new("/run/hearth/netrc");
+    std::fs::write(path, content)?;
+    Ok(())
 }
 
 async fn replay_event<C: HearthApiClient>(

@@ -165,6 +165,8 @@ pub async fn record_heartbeat(
                 target_closure: r.target_closure,
                 pending_installs: installs.into_iter().map(Into::into).collect(),
                 active_deployment_id,
+                cache_url: None,
+                cache_token: None,
             }))
         }
         None => Ok(None),
