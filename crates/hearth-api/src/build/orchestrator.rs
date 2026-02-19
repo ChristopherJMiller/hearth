@@ -27,6 +27,7 @@ pub enum OrchestrateError {
 #[derive(Debug)]
 pub struct OrchestrateResult {
     pub deployment_id: uuid::Uuid,
+    pub closure: String,
     pub total_machines: usize,
     pub closures_built: usize,
     pub closures_pushed: usize,
@@ -189,6 +190,7 @@ pub async fn run_build_pipeline(
 
     Ok(OrchestrateResult {
         deployment_id,
+        closure: primary_closure,
         total_machines,
         closures_built: successful_builds.len(),
         closures_pushed: pushed,

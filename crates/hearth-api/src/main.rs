@@ -1,147 +1,8 @@
-pub mod auth;
-mod build;
-mod cache_token;
-mod db;
-mod deployment_fsm;
-mod deployment_monitor;
-pub mod error;
-mod health_check;
-pub mod repo;
-mod rollout;
-mod routes;
-
-use auth::AuthConfig;
-use axum::Router;
-use axum::routing::{get, post, put};
-use sqlx::PgPool;
+use hearth_api::auth::AuthConfig;
+use hearth_api::{AppState, build_router};
 use sqlx::postgres::PgPoolOptions;
-use std::path::Path;
 use tokio_util::sync::CancellationToken;
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
 use tracing::info;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub pool: PgPool,
-    pub auth_config: AuthConfig,
-}
-
-fn machines_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/",
-            get(routes::machines::list_machines).post(routes::machines::create_machine),
-        )
-        .route(
-            "/{id}",
-            get(routes::machines::get_machine)
-                .put(routes::machines::update_machine)
-                .delete(routes::machines::delete_machine),
-        )
-        .route(
-            "/{id}/target-state",
-            get(routes::machines::get_target_state),
-        )
-}
-
-fn heartbeat_routes() -> Router<AppState> {
-    Router::new().route("/", post(routes::heartbeat::record_heartbeat))
-}
-
-fn catalog_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/",
-            get(routes::catalog::list_catalog).post(routes::catalog::create_catalog_entry),
-        )
-        .route(
-            "/{id}",
-            get(routes::catalog::get_catalog_entry)
-                .put(routes::catalog::update_catalog_entry)
-                .delete(routes::catalog::delete_catalog_entry),
-        )
-        .route("/{id}/request", post(routes::catalog::request_software))
-}
-
-fn request_routes() -> Router<AppState> {
-    Router::new()
-        .route("/", get(routes::requests::list_requests))
-        .route("/{id}/approve", post(routes::requests::approve_request))
-        .route("/{id}/deny", post(routes::requests::deny_request))
-        .route("/{id}/claim", post(routes::requests::claim_install))
-        .route(
-            "/{id}/result",
-            post(routes::requests::report_install_result),
-        )
-}
-
-fn deployments_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/",
-            get(routes::deployments::list_deployments).post(routes::deployments::create_deployment),
-        )
-        .route("/{id}", get(routes::deployments::get_deployment))
-        .route(
-            "/{id}/status",
-            put(routes::deployments::update_deployment_status),
-        )
-        .route(
-            "/{id}/rollback",
-            post(routes::deployments::rollback_deployment),
-        )
-        .route(
-            "/{id}/machines",
-            get(routes::deployments::list_deployment_machines),
-        )
-        .route(
-            "/{id}/machines/{machine_id}",
-            put(routes::deployments::update_machine_status),
-        )
-        .route("/build", post(routes::deployments::trigger_build))
-}
-
-fn role_closure_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/",
-            get(routes::role_closures::list).put(routes::role_closures::upsert),
-        )
-        .route(
-            "/{role}",
-            get(routes::role_closures::get).delete(routes::role_closures::delete),
-        )
-}
-
-fn enrollment_routes() -> Router<AppState> {
-    Router::new()
-        .route("/enroll", post(routes::enrollment::enroll))
-        .route("/machines/{id}/approve", post(routes::enrollment::approve))
-        .route(
-            "/machines/{id}/enrollment-status",
-            get(routes::enrollment::enrollment_status),
-        )
-}
-
-fn environments_routes() -> Router<AppState> {
-    Router::new()
-        .route("/", get(routes::environments::list_environments))
-        .route(
-            "/{username}",
-            get(routes::environments::get_environment)
-                .put(routes::environments::upsert_environment),
-        )
-        .route(
-            "/{username}/login",
-            post(routes::environments::record_login),
-        )
-}
-
-fn auth_me_route() -> Router<AppState> {
-    Router::new().route("/me", get(routes::auth_me::me))
-}
 
 #[tokio::main]
 async fn main() {
@@ -181,49 +42,18 @@ async fn main() {
     // Spawn deployment monitor background task
     let cancel = CancellationToken::new();
     let monitor_pool = state.pool.clone();
-    tokio::spawn(deployment_monitor::run(monitor_pool, cancel.clone()));
+    tokio::spawn(hearth_api::deployment_monitor_run(
+        monitor_pool,
+        cancel.clone(),
+    ));
 
-    // Serve the Vite-built catalog SPA from the dist directory.
     let catalog_dist =
         std::env::var("HEARTH_WEB_DIST").unwrap_or_else(|_| "web/apps/catalog/dist".to_string());
 
-    let catalog_spa = ServeDir::new(&catalog_dist)
-        .not_found_service(ServeFile::new(Path::new(&catalog_dist).join("index.html")));
-
-    // Serve the admin console SPA.
     let console_dist = std::env::var("HEARTH_CONSOLE_DIST")
         .unwrap_or_else(|_| "web/apps/console/dist".to_string());
 
-    let console_spa = ServeDir::new(&console_dist)
-        .not_found_service(ServeFile::new(Path::new(&console_dist).join("index.html")));
-
-    // CORS: allow the console SPA origin (dev: localhost:5173)
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    let app = Router::new()
-        .route("/healthz", get(routes::health::healthz))
-        .nest("/api/v1/machines", machines_routes())
-        .nest("/api/v1/heartbeat", heartbeat_routes())
-        .nest("/api/v1/catalog", catalog_routes())
-        .nest("/api/v1/requests", request_routes())
-        .nest("/api/v1/deployments", deployments_routes())
-        .nest("/api/v1/role-closures", role_closure_routes())
-        .nest("/api/v1", enrollment_routes())
-        .nest("/api/v1/auth", auth_me_route())
-        .route("/api/v1/stats", get(routes::stats::fleet_stats))
-        .route("/api/v1/audit", get(routes::audit::list_audit_events))
-        .nest(
-            "/api/v1/machines/{machine_id}/environments",
-            environments_routes(),
-        )
-        .nest_service("/catalog", catalog_spa)
-        .nest_service("/console", console_spa)
-        .layer(cors)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let app = build_router(state, &catalog_dist, &console_dist);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await

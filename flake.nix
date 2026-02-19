@@ -92,6 +92,49 @@
           cargoExtraArgs = "-p hearth-api";
         });
 
+        hearth-build-worker = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+          cargoExtraArgs = "-p hearth-build-worker";
+        });
+
+        # OCI container images (Linux only)
+        ociImages = lib.optionalAttrs pkgs.stdenv.isLinux {
+          hearth-api-image = pkgs.dockerTools.buildLayeredImage {
+            name = "hearth-api";
+            tag = "latest";
+            contents = [ hearth-api pkgs.cacert ];
+            config = {
+              Cmd = [ "${hearth-api}/bin/hearth-api" ];
+              Env = [
+                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              ];
+              ExposedPorts = { "3000/tcp" = {}; };
+            };
+          };
+
+          hearth-build-worker-image = pkgs.dockerTools.buildLayeredImage {
+            name = "hearth-build-worker";
+            tag = "latest";
+            contents = [
+              hearth-build-worker
+              pkgs.nix
+              pkgs.nix-eval-jobs
+              pkgs.attic-client
+              pkgs.cacert
+              pkgs.coreutils
+              pkgs.bash
+              pkgs.gitMinimal
+            ];
+            config = {
+              Cmd = [ "${hearth-build-worker}/bin/hearth-build-worker" ];
+              Env = [
+                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "NIX_CONFIG=experimental-features = nix-command flakes"
+              ];
+            };
+          };
+        };
+
         # Workspace-wide checks
         workspaceClippy = craneLib.cargoClippy (commonArgs // {
           inherit cargoArtifacts;
@@ -161,14 +204,14 @@
 
       in {
         checks = {
-          inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api;
+          inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api hearth-build-worker;
           inherit workspaceClippy workspaceFmt workspaceTests;
         } // vmTests;
 
         packages = {
-          inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api;
+          inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api hearth-build-worker;
           default = hearth-agent;
-        } // enrollmentImage // fleetVm // roleTemplates;
+        } // enrollmentImage // fleetVm // roleTemplates // ociImages;
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
@@ -240,6 +283,7 @@
         hearth-greeter = self.packages.${prev.system}.hearth-greeter;
         hearth-enrollment = self.packages.${prev.system}.hearth-enrollment;
         hearth-api = self.packages.${prev.system}.hearth-api;
+        hearth-build-worker = self.packages.${prev.system}.hearth-build-worker;
       };
 
       # --- NixOS Modules ---

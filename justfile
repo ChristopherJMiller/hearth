@@ -52,17 +52,26 @@ setup:
     echo "=== Setup complete! ==="
     echo ""
     echo "  just dev       — Start API server"
+    echo "  just worker    — Start build worker"
     echo "  just enroll    — Boot enrollment ISO in QEMU"
     echo "  just fleet-vm  — Run pre-built fleet VM"
     echo "  just check     — Run all checks"
 
-# Start the API server (with auto-reload)
+# Start the API server
 dev:
     cargo run -p hearth-api
 
 # Start API server with file watching
 dev-watch:
     cargo watch -x 'run -p hearth-api'
+
+# Start a build worker
+worker:
+    cargo run -p hearth-build-worker
+
+# Start build worker with file watching
+worker-watch:
+    cargo watch -x 'run -p hearth-build-worker'
 
 # Start infrastructure services
 infra:

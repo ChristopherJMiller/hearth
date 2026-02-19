@@ -162,54 +162,42 @@ pub async fn update_machine_status(
     Ok(Json(row.into()))
 }
 
-/// Trigger a build pipeline as a background task.
+/// Enqueue a build job for the build worker.
 ///
 /// POST /api/v1/deployments/build
 ///
-/// This evaluates the flake, builds derivations, pushes to the cache,
-/// and creates a deployment. Runs as a background tokio task.
+/// Creates a build job in the PostgreSQL queue. A build worker process
+/// will pick it up and execute the full pipeline (eval, build, cache push,
+/// deployment creation).
 pub async fn trigger_build(
     State(state): State<AppState>,
     Json(req): Json<TriggerBuildRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    let pool = state.pool.clone();
-    let flake_ref = req.flake_ref.clone();
-    let target_filter = req.target_filter.clone();
     let canary_size = req.canary_size.unwrap_or(1);
     let batch_size = req.batch_size.unwrap_or(5);
     let failure_threshold = req.failure_threshold.unwrap_or(0.1);
 
-    // Spawn the build pipeline as a background task.
-    tokio::spawn(async move {
-        match crate::build::orchestrator::run_build_pipeline(
-            &pool,
-            &flake_ref,
-            target_filter.as_ref(),
-            canary_size,
-            batch_size,
-            failure_threshold,
-        )
-        .await
-        {
-            Ok(result) => {
-                tracing::info!(
-                    deployment_id = %result.deployment_id,
-                    machines = result.total_machines,
-                    built = result.closures_built,
-                    pushed = result.closures_pushed,
-                    "build pipeline completed"
-                );
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "build pipeline failed");
-            }
-        }
-    });
+    let job = repo::enqueue_build_job(
+        &state.pool,
+        &req.flake_ref,
+        req.target_filter.as_ref(),
+        canary_size,
+        batch_size,
+        failure_threshold,
+    )
+    .await?;
+
+    tracing::info!(
+        job_id = %job.id,
+        flake_ref = %req.flake_ref,
+        "build job enqueued"
+    );
 
     Ok((
         StatusCode::ACCEPTED,
         Json(serde_json::json!({
-            "message": "build pipeline started",
+            "message": "build job enqueued",
+            "job_id": job.id,
             "flake_ref": req.flake_ref,
         })),
     ))

@@ -191,12 +191,13 @@ The Configuration Generator — the most novel component in the architecture. Co
 - [ ] **Agent per-user closure activation:** The agent checks for a per-user closure (from the control plane) before falling back to the role profile. On subsequent logins, the per-user closure is activated directly from the local Nix store (<1s). If the control plane has a newer version, the agent pulls the delta from cache.
 - [ ] **Identity sync job:** Periodic background job (configurable interval, default 5 min) that queries Kanidm's API for all users and groups, diffs against the DB, and triggers UserEnvironment rebuilds for users whose group memberships changed. Runs as a background task in the API server.
 
-### 4C: Build Worker Separation
+### 4C: Build Worker Separation ✓
 
 Extract the build orchestrator into a standalone worker process for container deployment.
 
-- [ ] **Build worker process:** The API server enqueues build jobs (machine configs, user environments) into a PostgreSQL-backed queue. A separate `hearth-build-worker` process dequeues and executes (`nix-eval-jobs` → `nix build` → `attic push`). Multiple workers can run in parallel. The API server no longer needs `nix` in its container image.
-- [ ] **Container images:** OCI images for hearth-api (stateless web server), hearth-build-worker (needs Nix + large store volume), and a combined docker-compose / Helm chart for the full control plane stack (api + worker + PostgreSQL + Attic).
+- [x] **Build worker process:** The API server enqueues build jobs into a PostgreSQL-backed queue (`build_jobs` table with `build_job_status` enum). A separate `hearth-build-worker` process polls for pending jobs using `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrent claiming. Workers execute the full pipeline (`nix-eval-jobs` → `nix build` → `attic push` → deployment creation) and update job status throughout. Multiple workers can run in parallel. The API server no longer needs `nix` in its container image.
+- [x] **Container images:** OCI images for hearth-api (stateless web server) and hearth-build-worker (with Nix, nix-eval-jobs, attic-client) via `dockerTools.buildLayeredImage` in the flake. REST endpoints for job status: `GET /api/v1/build-jobs` (list with status filter), `GET /api/v1/build-jobs/{id}`.
+- [x] **Library extraction:** hearth-api split into lib.rs + main.rs so the build worker can reuse the build pipeline, DB types, and repo layer without duplicating code.
 
 ### 4D: Console & API Hardening
 
@@ -309,7 +310,8 @@ hearth/
 │   ├── hearth-agent/           # On-device agent (systemd service)
 │   ├── hearth-greeter/         # GTK4 greetd greeter
 │   ├── hearth-enrollment/      # Enrollment TUI (ratatui)
-│   └── hearth-api/             # Control plane REST API (Axum)
+│   ├── hearth-api/             # Control plane REST API (Axum)
+│   └── hearth-build-worker/    # Standalone build worker (job queue consumer)
 ├── migrations/                 # SQL migration files
 │   ├── 001_machines.sql
 │   ├── 002_user_environments.sql
@@ -317,7 +319,8 @@ hearth/
 │   ├── 004_audit_events.sql
 │   ├── 005_software_catalog.sql
 │   ├── 006_deployment_machines.sql
-│   └── 008_identity.sql
+│   ├── 008_identity.sql
+│   └── 009_build_jobs.sql
 ├── modules/                    # NixOS modules
 │   ├── agent.nix
 │   ├── greeter.nix
@@ -376,6 +379,7 @@ Merges to main: additionally push to Attic.
 - Attic → port 8080 (binary cache, local FS storage)
 - Kanidm → port 8443 (identity provider, self-signed TLS)
 - API server runs natively via `cargo run -p hearth-api`
+- Build worker runs natively via `cargo run -p hearth-build-worker`
 
 ### nix develop Shell
 Rust stable, cargo, clippy, rustfmt, rust-analyzer, sqlx-cli, GTK4 dev libs, pkg-config, nix-eval-jobs, attic-client, cargo-nextest, cargo-watch, docker-compose, jq, httpie

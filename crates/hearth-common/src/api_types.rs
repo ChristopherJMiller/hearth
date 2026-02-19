@@ -448,3 +448,52 @@ pub enum AuthIdentity {
     /// A machine (agent) authenticated via a machine token.
     Machine { machine_id: Uuid },
 }
+
+// --- Build job types ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildJobStatus {
+    Pending,
+    Claimed,
+    Evaluating,
+    Building,
+    Pushing,
+    Deploying,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildJob {
+    pub id: Uuid,
+    pub status: BuildJobStatus,
+    pub flake_ref: String,
+    pub target_filter: Option<serde_json::Value>,
+    pub canary_size: i32,
+    pub batch_size: i32,
+    pub failure_threshold: f64,
+    pub worker_id: Option<String>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub deployment_id: Option<Uuid>,
+    pub closure: Option<String>,
+    pub closures_built: Option<i32>,
+    pub closures_pushed: Option<i32>,
+    pub total_machines: Option<i32>,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBuildJobRequest {
+    pub flake_ref: String,
+    #[serde(default)]
+    pub target_filter: Option<serde_json::Value>,
+    #[serde(default)]
+    pub canary_size: Option<i32>,
+    #[serde(default)]
+    pub batch_size: Option<i32>,
+    #[serde(default)]
+    pub failure_threshold: Option<f64>,
+}

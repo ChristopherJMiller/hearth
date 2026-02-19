@@ -550,6 +550,98 @@ pub struct DeploymentClosureRow {
     pub closure: String,
 }
 
+// --- Build job status enum ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "build_job_status", rename_all = "snake_case")]
+pub enum BuildJobStatusDb {
+    Pending,
+    Claimed,
+    Evaluating,
+    Building,
+    Pushing,
+    Deploying,
+    Completed,
+    Failed,
+}
+
+impl From<BuildJobStatusDb> for api_types::BuildJobStatus {
+    fn from(s: BuildJobStatusDb) -> Self {
+        match s {
+            BuildJobStatusDb::Pending => api_types::BuildJobStatus::Pending,
+            BuildJobStatusDb::Claimed => api_types::BuildJobStatus::Claimed,
+            BuildJobStatusDb::Evaluating => api_types::BuildJobStatus::Evaluating,
+            BuildJobStatusDb::Building => api_types::BuildJobStatus::Building,
+            BuildJobStatusDb::Pushing => api_types::BuildJobStatus::Pushing,
+            BuildJobStatusDb::Deploying => api_types::BuildJobStatus::Deploying,
+            BuildJobStatusDb::Completed => api_types::BuildJobStatus::Completed,
+            BuildJobStatusDb::Failed => api_types::BuildJobStatus::Failed,
+        }
+    }
+}
+
+impl From<api_types::BuildJobStatus> for BuildJobStatusDb {
+    fn from(s: api_types::BuildJobStatus) -> Self {
+        match s {
+            api_types::BuildJobStatus::Pending => BuildJobStatusDb::Pending,
+            api_types::BuildJobStatus::Claimed => BuildJobStatusDb::Claimed,
+            api_types::BuildJobStatus::Evaluating => BuildJobStatusDb::Evaluating,
+            api_types::BuildJobStatus::Building => BuildJobStatusDb::Building,
+            api_types::BuildJobStatus::Pushing => BuildJobStatusDb::Pushing,
+            api_types::BuildJobStatus::Deploying => BuildJobStatusDb::Deploying,
+            api_types::BuildJobStatus::Completed => BuildJobStatusDb::Completed,
+            api_types::BuildJobStatus::Failed => BuildJobStatusDb::Failed,
+        }
+    }
+}
+
+// --- Build job row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct BuildJobRow {
+    pub id: Uuid,
+    pub status: BuildJobStatusDb,
+    pub flake_ref: String,
+    pub target_filter: Option<serde_json::Value>,
+    pub canary_size: i32,
+    pub batch_size: i32,
+    pub failure_threshold: f64,
+    pub worker_id: Option<String>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub deployment_id: Option<Uuid>,
+    pub closure: Option<String>,
+    pub closures_built: Option<i32>,
+    pub closures_pushed: Option<i32>,
+    pub total_machines: Option<i32>,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<BuildJobRow> for api_types::BuildJob {
+    fn from(row: BuildJobRow) -> Self {
+        api_types::BuildJob {
+            id: row.id,
+            status: row.status.into(),
+            flake_ref: row.flake_ref,
+            target_filter: row.target_filter,
+            canary_size: row.canary_size,
+            batch_size: row.batch_size,
+            failure_threshold: row.failure_threshold,
+            worker_id: row.worker_id,
+            claimed_at: row.claimed_at,
+            deployment_id: row.deployment_id,
+            closure: row.closure,
+            closures_built: row.closures_built,
+            closures_pushed: row.closures_pushed,
+            total_machines: row.total_machines,
+            error_message: row.error_message,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
 // --- Pending install row (joined request + catalog) ---
 
 #[derive(Debug, sqlx::FromRow)]

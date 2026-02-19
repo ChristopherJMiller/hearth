@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod auth_me;
+pub mod build_jobs;
 pub mod catalog;
 pub mod deployments;
 pub mod enrollment;

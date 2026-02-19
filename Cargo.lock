@@ -1062,6 +1062,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "hearth-build-worker"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hearth-api",
+ "hearth-common",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "hearth-common"
 version = "0.1.0"
 dependencies = [

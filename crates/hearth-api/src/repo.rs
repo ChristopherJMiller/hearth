@@ -10,10 +10,11 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::{
-    ActiveDeploymentRow, AuditEventRow, CatalogEntryRow, DeploymentClosureRow,
-    DeploymentMachineRow, DeploymentRow, DeploymentStatusDb, HeartbeatResultRow, InstallMethodDb,
-    MachineRow, MachineUpdateStatusDb, PendingInstallRow, RoleClosureRow, SoftwareRequestRow,
-    SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb, UserEnvironmentRow, UserRow,
+    ActiveDeploymentRow, AuditEventRow, BuildJobRow, BuildJobStatusDb, CatalogEntryRow,
+    DeploymentClosureRow, DeploymentMachineRow, DeploymentRow, DeploymentStatusDb,
+    HeartbeatResultRow, InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingInstallRow,
+    RoleClosureRow, SoftwareRequestRow, SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb,
+    UserEnvironmentRow, UserRow,
 };
 
 const MACHINE_COLUMNS: &str = "id, hostname, hardware_fingerprint, enrollment_status,
@@ -957,4 +958,154 @@ pub async fn get_fleet_stats(pool: &PgPool) -> Result<FleetStats, sqlx::Error> {
         active_deployments: row.active_deployments.unwrap_or(0),
         pending_requests: row.pending_requests.unwrap_or(0),
     })
+}
+
+// --- Build job queries ---
+
+const BUILD_JOB_COLUMNS: &str = "id, status, flake_ref, target_filter, canary_size, batch_size,
+    failure_threshold, worker_id, claimed_at, deployment_id, closure, closures_built,
+    closures_pushed, total_machines, error_message, created_at, updated_at";
+
+pub async fn enqueue_build_job(
+    pool: &PgPool,
+    flake_ref: &str,
+    target_filter: Option<&serde_json::Value>,
+    canary_size: i32,
+    batch_size: i32,
+    failure_threshold: f64,
+) -> Result<BuildJobRow, sqlx::Error> {
+    sqlx::query_as::<_, BuildJobRow>(&format!(
+        "INSERT INTO build_jobs (flake_ref, target_filter, canary_size, batch_size, failure_threshold)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING {BUILD_JOB_COLUMNS}"
+    ))
+    .bind(flake_ref)
+    .bind(target_filter)
+    .bind(canary_size)
+    .bind(batch_size)
+    .bind(failure_threshold)
+    .fetch_one(pool)
+    .await
+}
+
+/// Claim the next pending build job using `FOR UPDATE SKIP LOCKED`.
+/// Returns `None` if no jobs are available.
+pub async fn claim_build_job(
+    pool: &PgPool,
+    worker_id: &str,
+) -> Result<Option<BuildJobRow>, sqlx::Error> {
+    sqlx::query_as::<_, BuildJobRow>(&format!(
+        "UPDATE build_jobs SET
+            status = 'claimed'::build_job_status,
+            worker_id = $1,
+            claimed_at = now(),
+            updated_at = now()
+         WHERE id = (
+            SELECT id FROM build_jobs
+            WHERE status = 'pending'::build_job_status
+            ORDER BY created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+         )
+         RETURNING {BUILD_JOB_COLUMNS}"
+    ))
+    .bind(worker_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_build_job_status(
+    pool: &PgPool,
+    id: Uuid,
+    status: BuildJobStatusDb,
+) -> Result<Option<BuildJobRow>, sqlx::Error> {
+    sqlx::query_as::<_, BuildJobRow>(&format!(
+        "UPDATE build_jobs SET status = $2, updated_at = now()
+         WHERE id = $1
+         RETURNING {BUILD_JOB_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(status)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn complete_build_job(
+    pool: &PgPool,
+    id: Uuid,
+    deployment_id: Uuid,
+    closure: &str,
+    closures_built: i32,
+    closures_pushed: i32,
+    total_machines: i32,
+) -> Result<Option<BuildJobRow>, sqlx::Error> {
+    sqlx::query_as::<_, BuildJobRow>(&format!(
+        "UPDATE build_jobs SET
+            status = 'completed'::build_job_status,
+            deployment_id = $2,
+            closure = $3,
+            closures_built = $4,
+            closures_pushed = $5,
+            total_machines = $6,
+            updated_at = now()
+         WHERE id = $1
+         RETURNING {BUILD_JOB_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(deployment_id)
+    .bind(closure)
+    .bind(closures_built)
+    .bind(closures_pushed)
+    .bind(total_machines)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn fail_build_job(
+    pool: &PgPool,
+    id: Uuid,
+    error_message: &str,
+) -> Result<Option<BuildJobRow>, sqlx::Error> {
+    sqlx::query_as::<_, BuildJobRow>(&format!(
+        "UPDATE build_jobs SET
+            status = 'failed'::build_job_status,
+            error_message = $2,
+            updated_at = now()
+         WHERE id = $1
+         RETURNING {BUILD_JOB_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(error_message)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn get_build_job(pool: &PgPool, id: Uuid) -> Result<Option<BuildJobRow>, sqlx::Error> {
+    sqlx::query_as::<_, BuildJobRow>(&format!(
+        "SELECT {BUILD_JOB_COLUMNS} FROM build_jobs WHERE id = $1"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn list_build_jobs(
+    pool: &PgPool,
+    status: Option<BuildJobStatusDb>,
+) -> Result<Vec<BuildJobRow>, sqlx::Error> {
+    match status {
+        Some(s) => sqlx::query_as::<_, BuildJobRow>(&format!(
+            "SELECT {BUILD_JOB_COLUMNS} FROM build_jobs WHERE status = $1 ORDER BY created_at DESC"
+        ))
+        .bind(s)
+        .fetch_all(pool)
+        .await,
+        None => {
+            sqlx::query_as::<_, BuildJobRow>(&format!(
+                "SELECT {BUILD_JOB_COLUMNS} FROM build_jobs ORDER BY created_at DESC"
+            ))
+            .fetch_all(pool)
+            .await
+        }
+    }
 }
