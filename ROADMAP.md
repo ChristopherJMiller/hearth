@@ -145,6 +145,31 @@ Self-service catalog prioritized per user request.
 
 ---
 
+## Phase 3.5: Identity & Authentication (Kanidm) {#phase-3-5}
+
+Full identity stack using Kanidm as the enterprise IdP. Replaces SSSD-only auth with native Kanidm integration across all layers.
+
+### Tasks
+
+- [x] **3.5A: Kanidm dev stack** — Kanidm container in docker-compose (`ghcr.io/kanidm/server:latest`), idempotent bootstrap script (groups: hearth-users/admins/developers/designers, test users, service account, OAuth2 clients for console + enrollment), dev `.env` generation
+- [x] **3.5B: Identity database schema** — Migration 008: `users` table (kanidm_sub, username, email, groups, timestamps), `enrolled_by` FK + `machine_token_hash` on machines table
+- [x] **3.5C: API authentication middleware** — Axum extractors: `UserIdentity` (JWKS/RS256), `MachineIdentity` (HS256), `OptionalIdentity`, `AdminIdentity`. JWKS fetching with 15-min TTL cache. `AuthConfig` from env vars. Dev mode bypass when OIDC issuer unset. `/api/v1/auth/me` endpoint
+- [x] **3.5D: API client auth + agent tokens** — Bearer token support in `ReqwestApiClient` (`Arc<RwLock<Option<String>>>`), `new_with_token`/`set_token`/`authed_*` helpers, machine token read from disk at startup, token refresh via heartbeat response, `machineTokenPath` in agent config + NixOS module
+- [x] **3.5E: Authenticated enrollment** — OAuth2 Device Authorization Grant (RFC 8628) in enrollment TUI: QR code display (Unicode half-blocks), device code polling, JWT username extraction. Enrollment submits user token. `enrollment_status` mints HS256 machine token on first post-approval poll, stores hash. Machine token persisted to disk alongside machine-id
+- [x] **3.5F: Kanidm client NixOS module** — `modules/kanidm-client.nix` (configures kanidm-unixd for PAM/NSS on fleet devices: URI, CA cert, allowed login groups, shell, home prefix, HSM type). `modules/pam.nix` updated with `authBackend` option (`kanidm`/`sssd`/`none`). `mk-fleet-host.nix` extended with `kanidmUrl`/`kanidmCaCert` params. Enrollment module extended with `kanidmUrl`/`kanidmClientId`
+- [x] **3.5G: Web console OIDC login** — `oidc-client-ts` integration in `@hearth/console`: `auth.ts` (UserManager, PKCE Authorization Code flow), `AuthGuard.tsx` (redirect to Kanidm when unauthenticated), `useAuth` hook, OIDC callback handler, `apiFetch` auto-attaches Bearer token + 401→re-login. User display + sign-out in sidebar
+
+### Stats
+- **hearth-api:** 2 new files (auth.rs ~450 lines: JWKS, JWT validation, 4 extractors, token minting; routes/auth_me.rs), error.rs +3 variants, enrollment.rs rewritten for auth + machine token minting, repo.rs +set_machine_token_hash
+- **hearth-enrollment:** 2 new files (oauth.rs: device flow client; screens/login.rs: QR code display + polling), app.rs rewritten with Login screen, enroll/status/provision screens updated for authenticated flow + machine token
+- **hearth-common:** api_client.rs (Bearer token support, `Arc<RwLock>`), api_types.rs (+EnrollmentResponse, HeartbeatResponse.machine_token, Machine.machine_token_hash), config.rs (+machine_token_path)
+- **hearth-agent:** main.rs (token from disk), poller.rs (token refresh from heartbeat)
+- **Nix:** New `modules/kanidm-client.nix`, pam.nix rewritten with authBackend enum, mk-fleet-host.nix +kanidmUrl/kanidmCaCert, enrollment.nix +kanidm options, mk-enrollment-image.nix +kanidm passthrough
+- **Frontend:** 4 new files in console (auth.ts, AuthGuard.tsx, useAuth.ts, routes/callback.tsx), client.ts rewritten with Bearer injection, __root.tsx with user menu, +oidc-client-ts dep
+- **Infra:** docker-compose +kanidm, dev/kanidm/ (server.toml, bootstrap.sh), dev/setup.sh updated, migration 008
+
+---
+
 ## Phase 4: Enterprise Hardening {#phase-4}
 
 Items from `docs/pieces-to-fill-in.txt`:
@@ -185,11 +210,13 @@ hearth/
 │   ├── 003_deployments.sql
 │   ├── 004_audit_events.sql
 │   ├── 005_software_catalog.sql
-│   └── 006_deployment_machines.sql
+│   ├── 006_deployment_machines.sql
+│   └── 008_identity.sql
 ├── modules/                    # NixOS modules
 │   ├── agent.nix
 │   ├── greeter.nix
-│   ├── pam.nix
+│   ├── pam.nix                # PAM/NSS (authBackend: kanidm/sssd/none)
+│   ├── kanidm-client.nix      # Kanidm unixd client for fleet devices
 │   ├── desktop.nix
 │   ├── hardening.nix
 │   ├── enrollment.nix
@@ -217,7 +244,10 @@ hearth/
 │   └── apps/console/           # @hearth/console Admin Console SPA
 └── dev/                        # microvm.nix (interactive dev)
     ├── fleet-vm.nix
-    └── enrollment-vm.nix
+    ├── enrollment-vm.nix
+    └── kanidm/                 # Kanidm dev stack
+        ├── server.toml         # Kanidm server config
+        └── bootstrap.sh        # Idempotent provisioning script
 ```
 
 ---
@@ -235,6 +265,7 @@ Merges to main: additionally push to Attic.
 ### Local Stack (docker-compose)
 - PostgreSQL 16 → port 5432
 - Attic → port 8080 (binary cache, local FS storage)
+- Kanidm → port 8443 (identity provider, self-signed TLS)
 - API server runs natively via `cargo run -p hearth-api`
 
 ### nix develop Shell

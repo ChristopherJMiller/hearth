@@ -16,6 +16,7 @@ let
     agent = {
       poll_interval_secs = cfg.pollInterval;
       socket_path = cfg.socketPath;
+      machine_token_path = cfg.machineTokenPath;
     };
     cache = lib.optionalAttrs (cfg.binaryCacheUrl != null) {
       url = cfg.binaryCacheUrl;
@@ -97,6 +98,12 @@ in
       type = lib.types.str;
       default = "/var/lib/prometheus-node-exporter/hearth.prom";
       description = "Path for Prometheus textfile metrics export.";
+    };
+
+    machineTokenPath = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/hearth/machine-token";
+      description = "Path to the machine auth token file, written during enrollment.";
     };
 
     homeFlakeRef = lib.mkOption {

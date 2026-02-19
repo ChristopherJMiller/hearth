@@ -10,7 +10,9 @@ import {
   LuFilePlus2,
   LuFileText,
   LuFlame,
+  LuLogOut,
 } from 'react-icons/lu';
+import { useAuth } from '../useAuth';
 
 const navItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LuLayoutDashboard size={18} /> },
@@ -35,28 +37,53 @@ const routeMap: Record<string, string> = {
 export function RootLayout() {
   const router = useRouter();
   const pathname = router.state.location.pathname;
+  const { user, signOut, enabled } = useAuth();
 
   const activeId =
     navItems.find((item) => pathname.startsWith(`/console/${item.id}`))?.id ?? 'dashboard';
 
+  const displayName = user?.profile?.preferred_username
+    ?? user?.profile?.name
+    ?? user?.profile?.email
+    ?? null;
+
   return (
     <div className="flex h-screen bg-[var(--color-surface-base)]">
-      <Sidebar
-        items={navItems}
-        activeId={activeId}
-        onNavigate={(id) => {
-          const path = routeMap[id];
-          if (path) router.navigate({ to: path });
-        }}
-        header={
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-[var(--radius-sm)] bg-[var(--color-ember)] flex items-center justify-center text-white">
-              <LuFlame size={16} />
+      <div className="flex flex-col h-full">
+        <Sidebar
+          items={navItems}
+          activeId={activeId}
+          onNavigate={(id) => {
+            const path = routeMap[id];
+            if (path) router.navigate({ to: path });
+          }}
+          header={
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-[var(--radius-sm)] bg-[var(--color-ember)] flex items-center justify-center text-white">
+                <LuFlame size={16} />
+              </div>
+              <span className="font-semibold text-sm text-[var(--color-text-primary)]">Hearth</span>
             </div>
-            <span className="font-semibold text-sm text-[var(--color-text-primary)]">Hearth</span>
+          }
+        />
+        {enabled && displayName && (
+          <div className="px-4 py-3 border-t border-r border-[var(--color-border-subtle)] bg-[var(--color-surface)]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-[var(--color-text-secondary)] truncate">
+                {displayName}
+              </span>
+              <button
+                type="button"
+                onClick={signOut}
+                className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
+                title="Sign out"
+              >
+                <LuLogOut size={14} />
+              </button>
+            </div>
           </div>
-        }
-      />
+        )}
+      </div>
       <main className="flex-1 overflow-y-auto p-6">
         <Outlet />
       </main>

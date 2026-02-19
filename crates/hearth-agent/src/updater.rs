@@ -155,18 +155,24 @@ mod tests {
 
     #[tokio::test]
     async fn no_update_when_same() {
-        let result =
-            check_and_apply_update(Some("/nix/store/aaaa-system"), "/nix/store/aaaa-system", None)
-                .await
-                .unwrap();
+        let result = check_and_apply_update(
+            Some("/nix/store/aaaa-system"),
+            "/nix/store/aaaa-system",
+            None,
+        )
+        .await
+        .unwrap();
         assert!(!result);
     }
 
     #[tokio::test]
     async fn rejects_invalid_store_path() {
-        let result =
-            check_and_apply_update(Some("/nix/store/aaaa-system"), "/tmp/not-a-store-path", None)
-                .await;
+        let result = check_and_apply_update(
+            Some("/nix/store/aaaa-system"),
+            "/tmp/not-a-store-path",
+            None,
+        )
+        .await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(

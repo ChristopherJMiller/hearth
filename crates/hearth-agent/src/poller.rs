@@ -1,6 +1,7 @@
 //! Polling loop: periodically fetches target state from the control plane,
 //! sends heartbeats, and triggers system updates when the closure changes.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,6 +28,7 @@ pub async fn run_poll_loop<C: HearthApiClient>(
     machine_id: Uuid,
     interval: Duration,
     queue: Arc<OfflineQueue>,
+    machine_token_path: PathBuf,
     shutdown: CancellationToken,
 ) {
     info!(
@@ -179,6 +181,16 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                                 warn!(error = %e, "failed to write cache netrc");
                             }
                         }
+                    }
+                }
+
+                // Refresh machine token if the server sent a new one.
+                if let Some(new_token) = &resp.machine_token {
+                    client.update_token(new_token);
+                    if let Err(e) = std::fs::write(&machine_token_path, new_token) {
+                        warn!(error = %e, "failed to persist refreshed machine token");
+                    } else {
+                        info!("machine token refreshed and persisted");
                     }
                 }
 

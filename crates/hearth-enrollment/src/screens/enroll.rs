@@ -165,7 +165,11 @@ impl EnrollScreen {
     }
 
     async fn submit_enrollment(&mut self, data: &mut EnrollmentData) {
-        let client = ReqwestApiClient::new(data.server_url.clone());
+        // Use the user's OIDC token for authenticated enrollment if available.
+        let client = match &data.user_token {
+            Some(token) => ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone()),
+            None => ReqwestApiClient::new(data.server_url.clone()),
+        };
         let req = EnrollmentRequest {
             hostname: data.hostname.clone(),
             hardware_fingerprint: data.hardware_fingerprint.clone(),

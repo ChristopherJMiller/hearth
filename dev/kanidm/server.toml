@@ -1,0 +1,26 @@
+# Kanidm server configuration for local development
+#
+# Runs inside the docker-compose stack. Uses the default SQLite backend
+# and a self-signed TLS certificate generated on first start.
+# NOT for production use.
+
+bindaddress = "[::]:8443"
+# Kanidm requires HTTPS. In dev, it generates a self-signed cert automatically
+# when tls_chain and tls_key are omitted and the domain is localhost.
+origin = "https://localhost:8443"
+domain = "localhost"
+
+# Data directory (mapped to a Docker volume)
+db_path = "/data/db/kanidm.db"
+
+# Trust the X-Forwarded-For header from reverse proxies (useful for dev)
+trust_x_forward_for = false
+
+# Log level
+log_level = "info"
+
+# Online backup (disabled for dev)
+# [online_backup]
+# path = "/data/backups"
+# schedule = "0 0 * * *"
+# versions = 3

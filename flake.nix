@@ -147,8 +147,8 @@
           extraConfig = {
             fileSystems."/" = { device = "/dev/disk/by-label/nixos"; fsType = "ext4"; };
             fileSystems."/boot" = { device = "/dev/disk/by-label/boot"; fsType = "vfat"; };
-            # SSSD requires site-specific domain config; disable for generic templates.
-            services.hearth.pam.enableSssd = false;
+            # No IdP available in generic templates; use local users only.
+            services.hearth.pam.authBackend = "none";
           };
         };
 

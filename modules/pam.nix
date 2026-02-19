@@ -1,25 +1,27 @@
 # modules/pam.nix — NixOS module for PAM/NSS configuration
 #
-# Wires PAM services for greetd and login to work with SSSD-based
-# authentication and automatic home directory creation. The actual SSSD
-# configuration (domain, IdP connection, etc.) is site-specific and
-# not managed here.
+# Wires PAM services for greetd and login to work with the selected
+# authentication backend (Kanidm or SSSD). Handles automatic home
+# directory creation as a safety net alongside the hearth-agent.
 { config, lib, pkgs, ... }:
 
 let
   cfg = config.services.hearth.pam;
+  useKanidm = cfg.authBackend == "kanidm";
+  useSssd = cfg.authBackend == "sssd";
 in
 {
   options.services.hearth.pam = {
     enable = lib.mkEnableOption "Hearth PAM/NSS integration";
 
-    enableSssd = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
+    authBackend = lib.mkOption {
+      type = lib.types.enum [ "kanidm" "sssd" "none" ];
+      default = "kanidm";
       description = ''
-        Whether to enable SSSD integration for PAM authentication.
-        When enabled, configures PAM services to use SSSD for user
-        authentication against an external identity provider.
+        Which authentication backend to use for PAM/NSS.
+        "kanidm" — uses kanidm-unixd (configured via services.hearth.kanidmClient)
+        "sssd" — uses SSSD (site-specific domain config required)
+        "none" — local users only (useful for testing)
       '';
     };
 
@@ -37,13 +39,13 @@ in
     sssdServices = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ "nss" "pam" "ssh" ];
-      description = "SSSD services to enable.";
+      description = "SSSD services to enable (only used when authBackend = sssd).";
     };
   };
 
   config = lib.mkIf cfg.enable {
-    # --- SSSD integration ---
-    services.sssd = lib.mkIf cfg.enableSssd {
+    # --- SSSD integration (legacy backend) ---
+    services.sssd = lib.mkIf useSssd {
       enable = true;
       # Note: the actual sssd.conf with domain configuration is site-specific.
       # Fleet operators provide this via extraConfig or sops-nix secrets.
@@ -52,36 +54,39 @@ in
     };
 
     # --- NSS configuration ---
-    # Ensure SSSD is in the NSS lookup chain for passwd, group, shadow
-    system.nssDatabases = lib.mkIf cfg.enableSssd {
+    system.nssDatabases = lib.mkIf useSssd {
       passwd = lib.mkAfter [ "sss" ];
       group = lib.mkAfter [ "sss" ];
       shadow = lib.mkAfter [ "sss" ];
     };
+    # Note: when authBackend = "kanidm", NSS is configured automatically
+    # by NixOS's services.kanidm.enablePam option (via kanidm-client.nix).
 
     # --- PAM service configuration ---
-    # Configure PAM for the greetd greeter session
-    security.pam.services.greetd = lib.mkIf cfg.enableSssd {
-      # Enable SSSD for authentication
-      sssdStrictAccess = false;
-      # Home directory creation as a safety net
-      makeHomeDir = cfg.enableMkhomedir;
-      # Allow PAM mount for network shares if configured
-      pamMount = true;
-      # Do NOT configure home-manager activation here —
-      # that is owned by the greeter-to-agent flow
-    };
+    security.pam.services = {
+      greetd = if useSssd then {
+        sssdStrictAccess = false;
+        makeHomeDir = cfg.enableMkhomedir;
+        pamMount = true;
+      } else {
+        # kanidm: PAM auth configured by services.kanidm.enablePam;
+        # we only add mkhomedir as a safety net.
+        makeHomeDir = cfg.enableMkhomedir;
+      };
 
-    # Configure PAM for console login sessions
-    security.pam.services.login = lib.mkIf cfg.enableSssd {
-      sssdStrictAccess = false;
-      makeHomeDir = cfg.enableMkhomedir;
-    };
+      login = if useSssd then {
+        sssdStrictAccess = false;
+        makeHomeDir = cfg.enableMkhomedir;
+      } else {
+        makeHomeDir = cfg.enableMkhomedir;
+      };
 
-    # Configure PAM for SSH sessions
-    security.pam.services.sshd = lib.mkIf cfg.enableSssd {
-      sssdStrictAccess = false;
-      makeHomeDir = cfg.enableMkhomedir;
+      sshd = if useSssd then {
+        sssdStrictAccess = false;
+        makeHomeDir = cfg.enableMkhomedir;
+      } else {
+        makeHomeDir = cfg.enableMkhomedir;
+      };
     };
 
     # --- Home directory skeleton ---

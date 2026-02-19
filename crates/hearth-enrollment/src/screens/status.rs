@@ -28,6 +28,8 @@ pub struct StatusScreen {
     /// Cache credentials from extra_config for authenticated cache access.
     cache_url: Option<String>,
     cache_token: Option<String>,
+    /// Machine auth token for the agent, received after approval.
+    machine_token: Option<String>,
 }
 
 impl StatusScreen {
@@ -41,6 +43,7 @@ impl StatusScreen {
             approved_closure: None,
             cache_url: None,
             cache_token: None,
+            machine_token: None,
         }
     }
 
@@ -54,8 +57,18 @@ impl StatusScreen {
         (self.cache_url.take(), self.cache_token.take())
     }
 
+    /// Returns the machine token received after approval.
+    pub fn take_machine_token(&mut self) -> Option<String> {
+        self.machine_token.take()
+    }
+
     pub fn start_polling(&mut self, data: &EnrollmentData) {
-        self.client = Some(ReqwestApiClient::new(data.server_url.clone()));
+        // If the device has a user token, use it for authenticated polling.
+        let client = match &data.user_token {
+            Some(token) => ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone()),
+            None => ReqwestApiClient::new(data.server_url.clone()),
+        };
+        self.client = Some(client);
         self.machine_id = data.machine_id;
     }
 
@@ -160,7 +173,7 @@ impl StatusScreen {
         if let (Some(client), Some(machine_id)) = (&self.client, self.machine_id) {
             self.last_poll = Some(Instant::now());
             match client.get_enrollment_status(machine_id).await {
-                Ok(machine) => match machine.enrollment_status {
+                Ok(resp) => match resp.status {
                     EnrollmentStatus::Pending => {
                         self.status = PollStatus::Waiting;
                     }
@@ -169,29 +182,15 @@ impl StatusScreen {
                     | EnrollmentStatus::Provisioning
                     | EnrollmentStatus::Active => {
                         info!("device approved!");
-                        // Capture the target closure so provisioning can use
-                        // it immediately without an extra poll round-trip.
-                        if self.approved_closure.is_none() {
-                            self.approved_closure = machine.target_closure;
-                        }
-                        // Extract cache credentials from extra_config if present.
-                        if self.cache_token.is_none()
-                            && let Some(ref ec) = machine.extra_config
-                        {
-                            self.cache_url = ec
-                                .get("cache_url")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
-                            self.cache_token = ec
-                                .get("cache_token")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
-                            if self.cache_token.is_some() {
-                                info!("received cache credentials from control plane");
+                        // Capture the machine token (minted by the server on first
+                        // status poll after approval).
+                        if self.machine_token.is_none() {
+                            self.machine_token = resp.machine_token;
+                            if self.machine_token.is_some() {
+                                info!("received machine auth token from control plane");
                             }
                         }
                         self.status = PollStatus::Approved;
-                        // Don't auto-exit, let user see the message
                     }
                     EnrollmentStatus::Decommissioned => {
                         self.status = PollStatus::Error("Device was decommissioned".into());

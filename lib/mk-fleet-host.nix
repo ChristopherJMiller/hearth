@@ -11,6 +11,7 @@
 #     role = "developer";
 #     machineId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 #     serverUrl = "https://api.hearth.example.com";
+#     kanidmUrl = "https://idm.hearth.example.com";
 #     hardware = ./hosts/ws-0042/hardware-configuration.nix;
 #     extraModules = [ ./site-specific.nix ];
 #   };
@@ -33,6 +34,8 @@
 , hardeningLevel ? "standard"
 , enableDesktop ? true
 , enableEnrollment ? false
+, kanidmUrl ? null
+, kanidmCaCert ? null
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -58,6 +61,7 @@ nixpkgs.lib.nixosSystem {
     ../modules/agent.nix
     ../modules/greeter.nix
     ../modules/pam.nix
+    ../modules/kanidm-client.nix
     ../modules/desktop.nix
     ../modules/hardening.nix
     ../modules/roles/default.nix
@@ -91,7 +95,18 @@ nixpkgs.lib.nixosSystem {
       });
 
       # --- PAM/NSS ---
-      services.hearth.pam.enable = true;
+      services.hearth.pam = {
+        enable = true;
+        authBackend = if kanidmUrl != null then "kanidm" else "sssd";
+      };
+
+      # --- Kanidm client (when kanidmUrl is provided) ---
+      services.hearth.kanidmClient = lib.mkIf (kanidmUrl != null) ({
+        enable = true;
+        uri = kanidmUrl;
+      } // lib.optionalAttrs (kanidmCaCert != null) {
+        caCertPath = kanidmCaCert;
+      });
 
       # --- Desktop ---
       services.hearth.desktop.enable = enableDesktop;

@@ -35,6 +35,9 @@ pub struct AgentSettings {
     /// Path to the offline event queue (SQLite).
     #[serde(default = "default_queue_path")]
     pub queue_path: String,
+    /// Path to the machine auth token file.
+    #[serde(default = "default_machine_token_path")]
+    pub machine_token_path: String,
 }
 
 impl Default for AgentSettings {
@@ -43,6 +46,7 @@ impl Default for AgentSettings {
             poll_interval_secs: default_poll_interval(),
             socket_path: default_socket_path(),
             queue_path: default_queue_path(),
+            machine_token_path: default_machine_token_path(),
         }
     }
 }
@@ -127,6 +131,9 @@ fn default_socket_path() -> String {
 }
 fn default_queue_path() -> String {
     "/var/lib/hearth/queue.db".to_string()
+}
+fn default_machine_token_path() -> String {
+    "/var/lib/hearth/machine-token".to_string()
 }
 fn default_apply_strategy() -> String {
     "immediate".to_string()

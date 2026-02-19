@@ -20,6 +20,8 @@ until docker-compose exec -T postgres pg_isready -U hearth >/dev/null 2>&1; do s
 echo "    PostgreSQL ready"
 until docker-compose exec -T attic curl -sf http://localhost:8080/ >/dev/null 2>&1; do sleep 2; done
 echo "    Attic ready"
+until docker-compose exec -T kanidm curl -sf --insecure https://localhost:8443/status >/dev/null 2>&1; do sleep 2; done
+echo "    Kanidm ready"
 
 echo "==> Configuring Attic cache..."
 TOKEN=$(docker-compose exec -T attic atticadm make-token \
@@ -35,6 +37,9 @@ if [ -n "$TOKEN" ]; then
 else
     echo "    WARNING: Could not create Attic token (is atticd running?)"
 fi
+
+echo "==> Bootstrapping Kanidm identity provider..."
+bash dev/kanidm/bootstrap.sh
 
 echo "==> Running database migrations..."
 sqlx migrate run

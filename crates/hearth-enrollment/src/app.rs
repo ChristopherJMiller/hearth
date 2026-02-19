@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::screens::enroll::EnrollScreen;
 use crate::screens::hardware::HardwareScreen;
+use crate::screens::login::LoginScreen;
 use crate::screens::network::NetworkScreen;
 use crate::screens::provision::ProvisionScreen;
 use crate::screens::status::StatusScreen;
@@ -28,6 +29,12 @@ pub struct EnrollmentData {
     pub cache_url: Option<String>,
     pub cache_token: Option<String>,
     pub target_disk: Option<String>,
+    /// User OIDC access token from device flow login.
+    pub user_token: Option<String>,
+    /// Kanidm URL used for authentication.
+    pub kanidm_url: Option<String>,
+    /// Machine auth token received after enrollment approval.
+    pub machine_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +42,7 @@ enum Screen {
     Welcome,
     Hardware,
     Network,
+    Login,
     Enroll,
     Status,
     Provisioning,
@@ -47,6 +55,7 @@ pub struct App {
     welcome: WelcomeScreen,
     hardware: HardwareScreen,
     network: NetworkScreen,
+    login: LoginScreen,
     enroll: EnrollScreen,
     status: StatusScreen,
     provision: ProvisionScreen,
@@ -54,6 +63,8 @@ pub struct App {
     hw_detected: bool,
     /// Set to true once network check has been triggered for the current visit.
     net_checked: bool,
+    /// Set to true once login flow has been started.
+    login_started: bool,
     /// Set to true once status polling has been started.
     polling_started: bool,
     /// Set to true once provisioning has been started.
@@ -68,11 +79,13 @@ impl App {
             welcome: WelcomeScreen::new(),
             hardware: HardwareScreen::new(),
             network: NetworkScreen::new(),
+            login: LoginScreen::new(),
             enroll: EnrollScreen::new(),
             status: StatusScreen::new(),
             provision: ProvisionScreen::new(),
             hw_detected: false,
             net_checked: false,
+            login_started: false,
             polling_started: false,
             provisioning_started: false,
         }
@@ -83,6 +96,7 @@ impl App {
             Screen::Welcome => self.welcome.render(frame),
             Screen::Hardware => self.hardware.render(frame, &self.data),
             Screen::Network => self.network.render(frame, &self.data),
+            Screen::Login => self.login.render(frame),
             Screen::Enroll => self.enroll.render(frame),
             Screen::Status => self.status.render(frame),
             Screen::Provisioning => self.provision.render(frame),
@@ -112,6 +126,11 @@ impl App {
                     self.net_checked = true;
                 }
                 if self.network.handle_key(key) {
+                    self.screen = Screen::Login;
+                }
+            }
+            Screen::Login => {
+                if self.login.handle_key(key) {
                     self.screen = Screen::Enroll;
                 }
             }
@@ -135,6 +154,8 @@ impl App {
                         self.data.cache_url = url;
                     }
                     self.data.cache_token = token;
+                    // Take the machine token from the approval response.
+                    self.data.machine_token = self.status.take_machine_token();
                     self.screen = Screen::Provisioning;
                 }
             }
@@ -160,6 +181,12 @@ impl App {
                     self.network.check(&mut self.data);
                     self.net_checked = true;
                 }
+            }
+            Screen::Login => {
+                if !self.login_started {
+                    self.login_started = true;
+                }
+                self.login.tick(&mut self.data).await;
             }
             Screen::Status => {
                 if !self.polling_started {

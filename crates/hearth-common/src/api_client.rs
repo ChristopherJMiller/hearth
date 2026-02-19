@@ -52,7 +52,7 @@ pub trait HearthApiClient: Send + Sync {
     fn get_enrollment_status(
         &self,
         machine_id: Uuid,
-    ) -> impl Future<Output = Result<Machine, ApiError>> + Send;
+    ) -> impl Future<Output = Result<EnrollmentResponse, ApiError>> + Send;
     fn report_user_env(
         &self,
         machine_id: Uuid,
@@ -72,6 +72,10 @@ pub trait HearthApiClient: Send + Sync {
         status: MachineUpdateStatus,
         error_message: Option<&str>,
     ) -> impl Future<Output = Result<(), ApiError>> + Send;
+
+    /// Update the bearer token at runtime (e.g. after a refresh from heartbeat).
+    /// Default implementation is a no-op for test mocks.
+    fn update_token(&self, _token: &str) {}
 }
 
 /// Production API client using reqwest.
@@ -79,6 +83,7 @@ pub trait HearthApiClient: Send + Sync {
 pub struct ReqwestApiClient {
     client: reqwest::Client,
     base_url: String,
+    bearer_token: std::sync::Arc<std::sync::RwLock<Option<String>>>,
 }
 
 impl ReqwestApiClient {
@@ -87,11 +92,56 @@ impl ReqwestApiClient {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("failed to build HTTP client");
-        Self { client, base_url }
+        Self {
+            client,
+            base_url,
+            bearer_token: std::sync::Arc::new(std::sync::RwLock::new(None)),
+        }
+    }
+
+    pub fn new_with_token(base_url: String, token: String) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("failed to build HTTP client");
+        Self {
+            client,
+            base_url,
+            bearer_token: std::sync::Arc::new(std::sync::RwLock::new(Some(token))),
+        }
+    }
+
+    /// Update the bearer token at runtime (e.g. after a refresh from heartbeat).
+    pub fn set_token(&self, token: String) {
+        *self.bearer_token.write().unwrap() = Some(token);
     }
 
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url.trim_end_matches('/'), path)
+    }
+
+    fn authed_get(&self, url: String) -> reqwest::RequestBuilder {
+        let mut req = self.client.get(url);
+        if let Some(token) = self.bearer_token.read().unwrap().as_deref() {
+            req = req.bearer_auth(token);
+        }
+        req
+    }
+
+    fn authed_post(&self, url: String) -> reqwest::RequestBuilder {
+        let mut req = self.client.post(url);
+        if let Some(token) = self.bearer_token.read().unwrap().as_deref() {
+            req = req.bearer_auth(token);
+        }
+        req
+    }
+
+    fn authed_put(&self, url: String) -> reqwest::RequestBuilder {
+        let mut req = self.client.put(url);
+        if let Some(token) = self.bearer_token.read().unwrap().as_deref() {
+            req = req.bearer_auth(token);
+        }
+        req
     }
 
     async fn check_response(&self, resp: reqwest::Response) -> Result<reqwest::Response, ApiError> {
@@ -108,8 +158,7 @@ impl ReqwestApiClient {
 impl HearthApiClient for ReqwestApiClient {
     async fn get_target_state(&self, machine_id: Uuid) -> Result<TargetState, ApiError> {
         let resp = self
-            .client
-            .get(self.url(&format!("/api/v1/machines/{machine_id}/target-state")))
+            .authed_get(self.url(&format!("/api/v1/machines/{machine_id}/target-state")))
             .send()
             .await?;
         let resp = self.check_response(resp).await?;
@@ -118,8 +167,7 @@ impl HearthApiClient for ReqwestApiClient {
 
     async fn send_heartbeat(&self, req: &HeartbeatRequest) -> Result<HeartbeatResponse, ApiError> {
         let resp = self
-            .client
-            .post(self.url("/api/v1/heartbeat"))
+            .authed_post(self.url("/api/v1/heartbeat"))
             .json(req)
             .send()
             .await?;
@@ -129,8 +177,7 @@ impl HearthApiClient for ReqwestApiClient {
 
     async fn register_machine(&self, req: &CreateMachineRequest) -> Result<Machine, ApiError> {
         let resp = self
-            .client
-            .post(self.url("/api/v1/machines"))
+            .authed_post(self.url("/api/v1/machines"))
             .json(req)
             .send()
             .await?;
@@ -139,7 +186,7 @@ impl HearthApiClient for ReqwestApiClient {
     }
 
     async fn get_catalog(&self) -> Result<Vec<CatalogEntry>, ApiError> {
-        let resp = self.client.get(self.url("/api/v1/catalog")).send().await?;
+        let resp = self.authed_get(self.url("/api/v1/catalog")).send().await?;
         let resp = self.check_response(resp).await?;
         Ok(resp.json().await?)
     }
@@ -156,8 +203,7 @@ impl HearthApiClient for ReqwestApiClient {
             username: &'a str,
         }
         let resp = self
-            .client
-            .post(self.url(&format!("/api/v1/catalog/{catalog_entry_id}/request")))
+            .authed_post(self.url(&format!("/api/v1/catalog/{catalog_entry_id}/request")))
             .json(&Body {
                 machine_id,
                 username,
@@ -170,8 +216,7 @@ impl HearthApiClient for ReqwestApiClient {
 
     async fn claim_install(&self, request_id: Uuid) -> Result<(), ApiError> {
         let resp = self
-            .client
-            .post(self.url(&format!("/api/v1/requests/{request_id}/claim")))
+            .authed_post(self.url(&format!("/api/v1/requests/{request_id}/claim")))
             .send()
             .await?;
         self.check_response(resp).await?;
@@ -180,8 +225,7 @@ impl HearthApiClient for ReqwestApiClient {
 
     async fn report_install_result(&self, report: &InstallResultReport) -> Result<(), ApiError> {
         let resp = self
-            .client
-            .post(self.url(&format!("/api/v1/requests/{}/result", report.request_id)))
+            .authed_post(self.url(&format!("/api/v1/requests/{}/result", report.request_id)))
             .json(report)
             .send()
             .await?;
@@ -191,8 +235,7 @@ impl HearthApiClient for ReqwestApiClient {
 
     async fn enroll(&self, req: &EnrollmentRequest) -> Result<EnrollmentResponse, ApiError> {
         let resp = self
-            .client
-            .post(self.url("/api/v1/enroll"))
+            .authed_post(self.url("/api/v1/enroll"))
             .json(req)
             .send()
             .await?;
@@ -200,10 +243,12 @@ impl HearthApiClient for ReqwestApiClient {
         Ok(resp.json().await?)
     }
 
-    async fn get_enrollment_status(&self, machine_id: Uuid) -> Result<Machine, ApiError> {
+    async fn get_enrollment_status(
+        &self,
+        machine_id: Uuid,
+    ) -> Result<EnrollmentResponse, ApiError> {
         let resp = self
-            .client
-            .get(self.url(&format!("/api/v1/machines/{machine_id}/enrollment-status")))
+            .authed_get(self.url(&format!("/api/v1/machines/{machine_id}/enrollment-status")))
             .send()
             .await?;
         let resp = self.check_response(resp).await?;
@@ -223,8 +268,7 @@ impl HearthApiClient for ReqwestApiClient {
             status: UserEnvStatus,
         }
         let resp = self
-            .client
-            .put(self.url(&format!(
+            .authed_put(self.url(&format!(
                 "/api/v1/machines/{machine_id}/environments/{username}"
             )))
             .json(&Body { role, status })
@@ -236,8 +280,7 @@ impl HearthApiClient for ReqwestApiClient {
 
     async fn report_user_login(&self, machine_id: Uuid, username: &str) -> Result<(), ApiError> {
         let resp = self
-            .client
-            .post(self.url(&format!(
+            .authed_post(self.url(&format!(
                 "/api/v1/machines/{machine_id}/environments/{username}/login"
             )))
             .send()
@@ -259,8 +302,7 @@ impl HearthApiClient for ReqwestApiClient {
             error_message: Option<&'a str>,
         }
         let resp = self
-            .client
-            .put(self.url(&format!(
+            .authed_put(self.url(&format!(
                 "/api/v1/deployments/{deployment_id}/machines/{machine_id}"
             )))
             .json(&Body {
@@ -271,5 +313,9 @@ impl HearthApiClient for ReqwestApiClient {
             .await?;
         self.check_response(resp).await?;
         Ok(())
+    }
+
+    fn update_token(&self, token: &str) {
+        self.set_token(token.to_string());
     }
 }

@@ -1,5 +1,6 @@
 mod app;
 mod hw;
+mod oauth;
 mod screens;
 mod ui;
 

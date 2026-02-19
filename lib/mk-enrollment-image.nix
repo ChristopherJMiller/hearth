@@ -11,7 +11,7 @@
 #   }).config.system.build.image;
 #
 
-{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null }:
+{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null, kanidmUrl ? null, kanidmClientId ? "hearth-enrollment" }:
 
 let
   lib = nixpkgs.lib;
@@ -50,6 +50,8 @@ nixpkgs.lib.nixosSystem {
       services.hearth.enrollment = {
         enable = true;
         inherit serverUrl wifiSupport;
+      } // lib.optionalAttrs (kanidmUrl != null) {
+        inherit kanidmUrl kanidmClientId;
       };
 
       # --- System basics ---

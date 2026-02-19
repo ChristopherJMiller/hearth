@@ -13,31 +13,27 @@ use crate::db::{
     ActiveDeploymentRow, AuditEventRow, CatalogEntryRow, DeploymentClosureRow,
     DeploymentMachineRow, DeploymentRow, DeploymentStatusDb, HeartbeatResultRow, InstallMethodDb,
     MachineRow, MachineUpdateStatusDb, PendingInstallRow, RoleClosureRow, SoftwareRequestRow,
-    SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb, UserEnvironmentRow,
+    SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb, UserEnvironmentRow, UserRow,
 };
 
+const MACHINE_COLUMNS: &str = "id, hostname, hardware_fingerprint, enrollment_status,
+    current_closure, target_closure, rollback_closure,
+    role, tags, extra_config, last_heartbeat,
+    enrolled_by, machine_token_hash,
+    created_at, updated_at";
+
 pub async fn list_machines(pool: &PgPool) -> Result<Vec<MachineRow>, sqlx::Error> {
-    sqlx::query_as::<_, MachineRow>(
-        "SELECT id, hostname, hardware_fingerprint, enrollment_status,
-                current_closure, target_closure, rollback_closure,
-                role, tags, extra_config, last_heartbeat,
-                created_at, updated_at
-         FROM machines
-         ORDER BY created_at DESC",
-    )
+    sqlx::query_as::<_, MachineRow>(&format!(
+        "SELECT {MACHINE_COLUMNS} FROM machines ORDER BY created_at DESC"
+    ))
     .fetch_all(pool)
     .await
 }
 
 pub async fn get_machine(pool: &PgPool, id: Uuid) -> Result<Option<MachineRow>, sqlx::Error> {
-    sqlx::query_as::<_, MachineRow>(
-        "SELECT id, hostname, hardware_fingerprint, enrollment_status,
-                current_closure, target_closure, rollback_closure,
-                role, tags, extra_config, last_heartbeat,
-                created_at, updated_at
-         FROM machines
-         WHERE id = $1",
-    )
+    sqlx::query_as::<_, MachineRow>(&format!(
+        "SELECT {MACHINE_COLUMNS} FROM machines WHERE id = $1"
+    ))
     .bind(id)
     .fetch_optional(pool)
     .await
@@ -49,14 +45,11 @@ pub async fn create_machine(
 ) -> Result<MachineRow, sqlx::Error> {
     let tags = req.tags.clone().unwrap_or_default();
 
-    sqlx::query_as::<_, MachineRow>(
+    sqlx::query_as::<_, MachineRow>(&format!(
         "INSERT INTO machines (hostname, hardware_fingerprint, role, tags)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, hostname, hardware_fingerprint, enrollment_status,
-                   current_closure, target_closure, rollback_closure,
-                   role, tags, extra_config, last_heartbeat,
-                   created_at, updated_at",
-    )
+         RETURNING {MACHINE_COLUMNS}"
+    ))
     .bind(&req.hostname)
     .bind(&req.hardware_fingerprint)
     .bind(&req.role)
@@ -70,8 +63,7 @@ pub async fn update_machine(
     id: Uuid,
     req: &UpdateMachineRequest,
 ) -> Result<Option<MachineRow>, sqlx::Error> {
-    // Use COALESCE-style conditional updates: only update fields that are Some.
-    sqlx::query_as::<_, MachineRow>(
+    sqlx::query_as::<_, MachineRow>(&format!(
         "UPDATE machines SET
             hostname = COALESCE($2, hostname),
             role = COALESCE($3, role),
@@ -80,11 +72,8 @@ pub async fn update_machine(
             extra_config = COALESCE($6, extra_config),
             updated_at = now()
          WHERE id = $1
-         RETURNING id, hostname, hardware_fingerprint, enrollment_status,
-                   current_closure, target_closure, rollback_closure,
-                   role, tags, extra_config, last_heartbeat,
-                   created_at, updated_at",
-    )
+         RETURNING {MACHINE_COLUMNS}"
+    ))
     .bind(id)
     .bind(&req.hostname)
     .bind(&req.role)
@@ -167,6 +156,7 @@ pub async fn record_heartbeat(
                 active_deployment_id,
                 cache_url: None,
                 cache_token: None,
+                machine_token: None,
             }))
         }
         None => Ok(None),
@@ -547,17 +537,16 @@ pub async fn enroll_machine(
     pool: &PgPool,
     hostname: &str,
     hardware_fingerprint: Option<&str>,
+    enrolled_by: Option<&str>,
 ) -> Result<MachineRow, sqlx::Error> {
-    sqlx::query_as::<_, MachineRow>(
-        "INSERT INTO machines (hostname, hardware_fingerprint, enrollment_status)
-         VALUES ($1, $2, 'pending')
-         RETURNING id, hostname, hardware_fingerprint, enrollment_status,
-                   current_closure, target_closure, rollback_closure,
-                   role, tags, extra_config, last_heartbeat,
-                   created_at, updated_at",
-    )
+    sqlx::query_as::<_, MachineRow>(&format!(
+        "INSERT INTO machines (hostname, hardware_fingerprint, enrollment_status, enrolled_by)
+         VALUES ($1, $2, 'pending', $3)
+         RETURNING {MACHINE_COLUMNS}"
+    ))
     .bind(hostname)
     .bind(hardware_fingerprint)
+    .bind(enrolled_by)
     .fetch_one(pool)
     .await
 }
@@ -568,24 +557,85 @@ pub async fn approve_enrollment(
     role: &str,
     target_closure: Option<&str>,
     extra_config: Option<&serde_json::Value>,
+    machine_token_hash: Option<&str>,
 ) -> Result<Option<MachineRow>, sqlx::Error> {
-    sqlx::query_as::<_, MachineRow>(
+    sqlx::query_as::<_, MachineRow>(&format!(
         "UPDATE machines SET
             enrollment_status = 'approved',
             role = $2,
             target_closure = COALESCE($3, target_closure),
             extra_config = COALESCE($4, extra_config),
+            machine_token_hash = $5,
             updated_at = now()
          WHERE id = $1 AND enrollment_status = 'pending'
-         RETURNING id, hostname, hardware_fingerprint, enrollment_status,
-                   current_closure, target_closure, rollback_closure,
-                   role, tags, extra_config, last_heartbeat,
-                   created_at, updated_at",
-    )
+         RETURNING {MACHINE_COLUMNS}"
+    ))
     .bind(id)
     .bind(role)
     .bind(target_closure)
     .bind(extra_config)
+    .bind(machine_token_hash)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn set_machine_token_hash(
+    pool: &PgPool,
+    id: Uuid,
+    hash: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE machines SET machine_token_hash = $2, updated_at = now() WHERE id = $1")
+        .bind(id)
+        .bind(hash)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// --- User queries ---
+
+pub async fn upsert_user(
+    pool: &PgPool,
+    username: &str,
+    display_name: Option<&str>,
+    email: Option<&str>,
+    kanidm_uuid: Option<&str>,
+    groups: &[String],
+) -> Result<UserRow, sqlx::Error> {
+    sqlx::query_as::<_, UserRow>(
+        "INSERT INTO users (username, display_name, email, kanidm_uuid, groups, last_seen)
+         VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (username)
+         DO UPDATE SET
+            display_name = COALESCE($2, users.display_name),
+            email = COALESCE($3, users.email),
+            kanidm_uuid = COALESCE($4, users.kanidm_uuid),
+            groups = $5,
+            last_seen = now(),
+            updated_at = now()
+         RETURNING id, username, display_name, email, kanidm_uuid, groups,
+                   last_seen, created_at, updated_at",
+    )
+    .bind(username)
+    .bind(display_name)
+    .bind(email)
+    .bind(kanidm_uuid)
+    .bind(groups)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn get_user_by_username(
+    pool: &PgPool,
+    username: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    sqlx::query_as::<_, UserRow>(
+        "SELECT id, username, display_name, email, kanidm_uuid, groups,
+                last_seen, created_at, updated_at
+         FROM users
+         WHERE username = $1",
+    )
+    .bind(username)
     .fetch_optional(pool)
     .await
 }

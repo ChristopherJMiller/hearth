@@ -19,6 +19,10 @@ pub struct Machine {
     pub tags: Vec<String>,
     pub extra_config: Option<serde_json::Value>,
     pub last_heartbeat: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub enrolled_by: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub machine_token_hash: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -75,6 +79,9 @@ pub struct HeartbeatResponse {
     pub cache_url: Option<String>,
     #[serde(default)]
     pub cache_token: Option<String>,
+    /// Refreshed machine token — agent should persist this and use for future requests.
+    #[serde(default)]
+    pub machine_token: Option<String>,
 }
 
 // --- Target state ---
@@ -353,6 +360,11 @@ pub struct EnrollmentResponse {
     pub machine_id: Uuid,
     pub status: EnrollmentStatus,
     pub message: String,
+    #[serde(default)]
+    pub enrolled_by: Option<String>,
+    /// Machine auth token, present only in the approval response after admin approves.
+    #[serde(default)]
+    pub machine_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -399,4 +411,40 @@ pub struct AuditEvent {
     pub machine_id: Option<Uuid>,
     pub details: serde_json::Value,
     pub created_at: DateTime<Utc>,
+}
+
+// --- User / identity types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub id: Uuid,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+    pub kanidm_uuid: Option<String>,
+    pub groups: Vec<String>,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Claims extracted from a validated JWT (Kanidm OIDC or machine token).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthClaims {
+    pub sub: String,
+    #[serde(default)]
+    pub preferred_username: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub groups: Vec<String>,
+}
+
+/// Authenticated identity attached to a request by the auth middleware.
+#[derive(Debug, Clone)]
+pub enum AuthIdentity {
+    /// A human user authenticated via Kanidm OIDC.
+    User(AuthClaims),
+    /// A machine (agent) authenticated via a machine token.
+    Machine { machine_id: Uuid },
 }

@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { router } from './router';
+import { AuthGuard } from './AuthGuard';
+import { CallbackPage } from './routes/callback';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -9,9 +11,17 @@ const queryClient = new QueryClient({
 });
 
 export function App() {
+  // Handle OIDC callback before anything else — this path must be reachable
+  // without authentication since it completes the login flow.
+  if (window.location.pathname === '/console/callback') {
+    return <CallbackPage />;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <AuthGuard>
+        <RouterProvider router={router} />
+      </AuthGuard>
     </QueryClientProvider>
   );
 }

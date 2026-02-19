@@ -16,3 +16,6 @@ thiserror.workspace = true
 uuid.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
+reqwest.workspace = true
+qrcode.workspace = true
+base64.workspace = true

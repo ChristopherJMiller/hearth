@@ -58,7 +58,7 @@ pkgs.testers.nixosTest {
     services.hearth.greeter.enable = true;
     services.hearth.desktop.enable = true;
     services.hearth.pam.enable = true;
-    services.hearth.pam.enableSssd = false;
+    services.hearth.pam.authBackend = "none";
 
     # Create a test user for login testing
     users.users.testuser = {

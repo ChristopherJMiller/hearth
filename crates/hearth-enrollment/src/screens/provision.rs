@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 use crate::app::EnrollmentData;
 use crate::ui;
 
-use hearth_common::api_client::{HearthApiClient, ReqwestApiClient};
+use hearth_common::api_client::ReqwestApiClient;
 
 #[derive(Debug)]
 struct BlockDevice {
@@ -44,6 +44,7 @@ pub struct ProvisionScreen {
     target_closure: Option<String>,
     cache_url: Option<String>,
     cache_token: Option<String>,
+    machine_token: Option<String>,
     target_disk: Option<String>,
     last_poll: Option<Instant>,
     dots: usize,
@@ -60,6 +61,7 @@ impl ProvisionScreen {
             target_closure: None,
             cache_url: None,
             cache_token: None,
+            machine_token: None,
             target_disk: None,
             last_poll: None,
             dots: 0,
@@ -83,6 +85,7 @@ impl ProvisionScreen {
         }
         self.cache_url = data.cache_url.clone();
         self.cache_token = data.cache_token.clone();
+        self.machine_token = data.machine_token.clone();
         info!(
             machine_id = ?self.machine_id,
             has_cache_token = self.cache_token.is_some(),
@@ -470,6 +473,17 @@ impl ProvisionScreen {
                     } else {
                         self.log(format!("Machine identity written to {id_path}"));
                     }
+
+                    // Write the machine auth token so the agent can
+                    // authenticate on first boot.
+                    if let Some(ref token) = self.machine_token {
+                        let token_path = format!("{id_dir}/machine-token");
+                        if let Err(e) = tokio::fs::write(&token_path, token).await {
+                            warn!("failed to write machine-token to {token_path}: {e}");
+                        } else {
+                            self.log("Machine auth token written");
+                        }
+                    }
                 }
 
                 self.state = ProvisionState::Complete;
@@ -520,25 +534,11 @@ impl ProvisionScreen {
                     None => true,
                 };
 
-                if should_poll
-                    && let (Some(client), Some(machine_id)) = (&self.client, self.machine_id)
-                {
+                if should_poll {
                     self.last_poll = Some(Instant::now());
-                    match client.get_enrollment_status(machine_id).await {
-                        Ok(machine) => {
-                            if let Some(closure) = machine.target_closure {
-                                info!(closure = %closure, "received target closure");
-                                self.log(format!("Received system image: {closure}"));
-                                self.target_closure = Some(closure);
-                                // Next tick will proceed to disk discovery
-                            }
-                            // Otherwise keep waiting
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "failed to poll for target closure");
-                            // Don't error out — just keep retrying
-                        }
-                    }
+                    // Closure should have been set by the status screen.
+                    // If not, just keep waiting.
+                    self.log("Waiting for target closure...");
                 }
             }
             // These states are driven by user input or are terminal

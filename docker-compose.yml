@@ -27,6 +27,19 @@ services:
       timeout: 5s
       retries: 5
 
+  kanidm:
+    image: ghcr.io/kanidm/server:latest
+    ports: ["8443:8443"]
+    volumes:
+      - ./dev/kanidm/server.toml:/data/server.toml:ro
+      - kanidm-data:/data/db
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "--insecure", "https://localhost:8443/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   pgdata:
   attic-data:
+  kanidm-data:

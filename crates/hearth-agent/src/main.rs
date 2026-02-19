@@ -91,8 +91,27 @@ async fn main() {
 
     info!(%machine_id, server = %cfg.server.url, "agent configured");
 
-    // --- Build shared API client ---
-    let client = Arc::new(ReqwestApiClient::new(cfg.server.url.clone()));
+    // --- Build shared API client (with machine token if available) ---
+    let client = {
+        let token_path = std::path::Path::new(&cfg.agent.machine_token_path);
+        match std::fs::read_to_string(token_path) {
+            Ok(token) => {
+                let token = token.trim().to_string();
+                info!("loaded machine token from {}", token_path.display());
+                Arc::new(ReqwestApiClient::new_with_token(
+                    cfg.server.url.clone(),
+                    token,
+                ))
+            }
+            Err(_) => {
+                warn!(
+                    path = %token_path.display(),
+                    "no machine token found, running without auth (dev mode)"
+                );
+                Arc::new(ReqwestApiClient::new(cfg.server.url.clone()))
+            }
+        }
+    };
 
     // --- Coordinated shutdown ---
     let shutdown = CancellationToken::new();
@@ -112,12 +131,14 @@ async fn main() {
     let poll_client = Arc::clone(&client);
     let poll_interval = Duration::from_secs(cfg.agent.poll_interval_secs);
     let poll_queue = Arc::clone(&offline_queue);
+    let poll_token_path = std::path::PathBuf::from(&cfg.agent.machine_token_path);
     let poll_handle = tokio::spawn(async move {
         poller::run_poll_loop(
             poll_client,
             machine_id,
             poll_interval,
             poll_queue,
+            poll_token_path,
             poll_shutdown,
         )
         .await;

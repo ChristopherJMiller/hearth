@@ -1,20 +1,23 @@
+pub mod auth;
 mod build;
 mod cache_token;
 mod db;
 mod deployment_fsm;
 mod deployment_monitor;
-mod error;
+pub mod error;
 mod health_check;
-mod repo;
+pub mod repo;
 mod rollout;
 mod routes;
 
+use auth::AuthConfig;
 use axum::Router;
 use axum::routing::{get, post, put};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -22,6 +25,7 @@ use tracing::info;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub auth_config: AuthConfig,
 }
 
 fn machines_routes() -> Router<AppState> {
@@ -135,6 +139,10 @@ fn environments_routes() -> Router<AppState> {
         )
 }
 
+fn auth_me_route() -> Router<AppState> {
+    Router::new().route("/me", get(routes::auth_me::me))
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -162,7 +170,13 @@ async fn main() {
 
     info!("migrations applied");
 
-    let state = AppState { pool };
+    let auth_config = AuthConfig::from_env();
+    info!(
+        auth_enabled = auth_config.is_enabled(),
+        "auth configuration loaded"
+    );
+
+    let state = AppState { pool, auth_config };
 
     // Spawn deployment monitor background task
     let cancel = CancellationToken::new();
@@ -170,7 +184,6 @@ async fn main() {
     tokio::spawn(deployment_monitor::run(monitor_pool, cancel.clone()));
 
     // Serve the Vite-built catalog SPA from the dist directory.
-    // Falls back to index.html for client-side routes.
     let catalog_dist =
         std::env::var("HEARTH_WEB_DIST").unwrap_or_else(|_| "web/apps/catalog/dist".to_string());
 
@@ -184,6 +197,12 @@ async fn main() {
     let console_spa = ServeDir::new(&console_dist)
         .not_found_service(ServeFile::new(Path::new(&console_dist).join("index.html")));
 
+    // CORS: allow the console SPA origin (dev: localhost:5173)
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/healthz", get(routes::health::healthz))
         .nest("/api/v1/machines", machines_routes())
@@ -193,6 +212,7 @@ async fn main() {
         .nest("/api/v1/deployments", deployments_routes())
         .nest("/api/v1/role-closures", role_closure_routes())
         .nest("/api/v1", enrollment_routes())
+        .nest("/api/v1/auth", auth_me_route())
         .route("/api/v1/stats", get(routes::stats::fleet_stats))
         .route("/api/v1/audit", get(routes::audit::list_audit_events))
         .nest(
@@ -201,6 +221,7 @@ async fn main() {
         )
         .nest_service("/catalog", catalog_spa)
         .nest_service("/console", console_spa)
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

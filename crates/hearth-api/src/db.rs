@@ -58,6 +58,8 @@ pub struct MachineRow {
     pub tags: Vec<String>,
     pub extra_config: Option<serde_json::Value>,
     pub last_heartbeat: Option<DateTime<Utc>>,
+    pub enrolled_by: Option<String>,
+    pub machine_token_hash: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -76,6 +78,39 @@ impl From<MachineRow> for api_types::Machine {
             tags: row.tags,
             extra_config: row.extra_config,
             last_heartbeat: row.last_heartbeat,
+            enrolled_by: row.enrolled_by,
+            machine_token_hash: row.machine_token_hash,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+// --- User row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct UserRow {
+    pub id: Uuid,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+    pub kanidm_uuid: Option<String>,
+    pub groups: Vec<String>,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<UserRow> for api_types::User {
+    fn from(row: UserRow) -> Self {
+        api_types::User {
+            id: row.id,
+            username: row.username,
+            display_name: row.display_name,
+            email: row.email,
+            kanidm_uuid: row.kanidm_uuid,
+            groups: row.groups,
+            last_seen: row.last_seen,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }

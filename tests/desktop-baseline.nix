@@ -49,8 +49,8 @@ pkgs.testers.nixosTest {
     };
     services.hearth.greeter.enable = true;
     services.hearth.pam.enable = true;
-    # Disable SSSD for testing (no IdP available in VM)
-    services.hearth.pam.enableSssd = false;
+    # No IdP available in VM tests; use local users only.
+    services.hearth.pam.authBackend = "none";
 
     # VM needs enough resources for GNOME
     virtualisation = {

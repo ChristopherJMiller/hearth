@@ -26,6 +26,7 @@ result-*
 # Dev artifacts (VM disks, ephemeral state)
 dev/*.qcow2
 dev/*.img
+dev/kanidm/.env
 
 # OS
 .DS_Store

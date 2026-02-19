@@ -8,6 +8,9 @@ pub enum AppError {
     NotFound(String),
     Database(sqlx::Error),
     BadRequest(String),
+    Unauthorized(String),
+    Forbidden(String),
+    Internal(String),
 }
 
 impl std::fmt::Display for AppError {
@@ -16,6 +19,9 @@ impl std::fmt::Display for AppError {
             AppError::NotFound(msg) => write!(f, "not found: {msg}"),
             AppError::Database(err) => write!(f, "database error: {err}"),
             AppError::BadRequest(msg) => write!(f, "bad request: {msg}"),
+            AppError::Unauthorized(msg) => write!(f, "unauthorized: {msg}"),
+            AppError::Forbidden(msg) => write!(f, "forbidden: {msg}"),
+            AppError::Internal(msg) => write!(f, "internal error: {msg}"),
         }
     }
 }
@@ -32,6 +38,15 @@ impl IntoResponse for AppError {
                 )
             }
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
+            AppError::Internal(msg) => {
+                tracing::error!("internal error: {msg}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
+            }
         };
 
         let body = Json(json!({

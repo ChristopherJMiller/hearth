@@ -36,6 +36,23 @@ in
       default = true;
       description = "Whether to include WiFi firmware and tools for enrollment.";
     };
+
+    kanidmUrl = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "https://idm.hearth.example.com";
+      description = ''
+        URL of the Kanidm server for OAuth2 device authorization flow.
+        When set, the enrollment TUI will require user authentication
+        before device enrollment.
+      '';
+    };
+
+    kanidmClientId = lib.mkOption {
+      type = lib.types.str;
+      default = "hearth-enrollment";
+      description = "OAuth2 client ID for the enrollment device flow.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -65,6 +82,10 @@ in
       if [ "$(tty)" = "/dev/tty1" ] && [ -z "$HEARTH_ENROLLMENT_STARTED" ]; then
         export HEARTH_ENROLLMENT_STARTED=1
         export HEARTH_SERVER_URL="${cfg.serverUrl}"
+        ${lib.optionalString (cfg.kanidmUrl != null) ''
+        export HEARTH_KANIDM_URL="${cfg.kanidmUrl}"
+        export HEARTH_KANIDM_CLIENT_ID="${cfg.kanidmClientId}"
+        ''}
         exec ${cfg.package}/bin/hearth-enrollment
       fi
     '';
@@ -80,6 +101,11 @@ in
         auto_detect_hardware = true
         # Show WiFi setup step if wlan interfaces are found
         wifi_setup = ${if cfg.wifiSupport then "true" else "false"}
+      '' + lib.optionalString (cfg.kanidmUrl != null) ''
+
+        [kanidm]
+        url = "${cfg.kanidmUrl}"
+        client_id = "${cfg.kanidmClientId}"
       '';
       mode = "0644";
     };
