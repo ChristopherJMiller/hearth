@@ -9,7 +9,7 @@ export interface StatCardProps {
 
 export function StatCard({ icon, value, label, trend }: StatCardProps) {
   return (
-    <div className="bg-[var(--color-surface)] border border-[var(--color-border-subtle)] rounded-[var(--radius-md)] p-5 shadow-[var(--shadow-card)] animate-[fade-in-up_0.4s_ease_both]">
+    <div className="bg-[var(--color-surface)] border border-[var(--color-border-subtle)] rounded-[var(--radius-md)] p-6 shadow-[var(--shadow-card)] animate-[fade-in-up_0.4s_ease_both]">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-[var(--radius-sm)] bg-[var(--color-ember-faint)] text-[var(--color-ember)]">

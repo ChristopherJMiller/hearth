@@ -17,7 +17,7 @@ export function Card({
 
   return (
     <div
-      className={`bg-[var(--color-surface)] border border-[var(--color-border-subtle)] rounded-[var(--radius-md)] p-5 shadow-[var(--shadow-card)] animate-[fade-in-up_0.4s_ease_both] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-[var(--color-border-accent)] hover:shadow-[var(--shadow-card-hover)] ${className}`}
+      className={`bg-[var(--color-surface)] border border-[var(--color-border-subtle)] rounded-[var(--radius-md)] p-6 shadow-[var(--shadow-card)] animate-[fade-in-up_0.4s_ease_both] transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-[var(--color-border-accent)] hover:shadow-[var(--shadow-card-hover)] ${className}`}
       style={delayStyle}
       {...rest}
     >

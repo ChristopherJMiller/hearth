@@ -145,7 +145,7 @@ export function EnrollmentPage() {
           description="All devices have been reviewed. New devices will appear here when they request enrollment."
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {pending.map((machine) => (
             <EnrollmentCard key={machine.id} machine={machine} />
           ))}

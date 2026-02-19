@@ -55,7 +55,7 @@ export function Sidebar({ items, activeId, onNavigate, header }: SidebarProps) {
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 py-2 px-2 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 py-2 px-2 space-y-1 overflow-y-auto">
         {items.map((item) => {
           const isActive = item.id === activeId;
           return (
@@ -63,7 +63,7 @@ export function Sidebar({ items, activeId, onNavigate, header }: SidebarProps) {
               key={item.id}
               type="button"
               onClick={() => onNavigate(item.id)}
-              className={`flex items-center gap-3 w-full rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium cursor-pointer transition-colors duration-100 ${
+              className={`flex items-center gap-3 w-full rounded-[var(--radius-sm)] px-3 py-2.5 text-sm font-medium cursor-pointer transition-colors duration-100 ${
                 isActive
                   ? "bg-[var(--color-ember-faint)] text-[var(--color-ember)] border border-[var(--color-border-accent)]"
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)] border border-transparent"

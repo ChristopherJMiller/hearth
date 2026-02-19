@@ -9,7 +9,7 @@ export interface PageHeaderProps {
 
 export function PageHeader({ title, description, breadcrumbs, actions }: PageHeaderProps) {
   return (
-    <div className="flex flex-col gap-1 mb-6">
+    <div className="flex flex-col gap-1 mb-8">
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
           {breadcrumbs.map((crumb, i) => (
@@ -32,7 +32,7 @@ export function PageHeader({ title, description, breadcrumbs, actions }: PageHea
       )}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">{title}</h1>
+          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{title}</h1>
           {description && (
             <p className="text-sm text-[var(--color-text-secondary)] mt-1">{description}</p>
           )}

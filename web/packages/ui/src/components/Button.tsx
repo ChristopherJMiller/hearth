@@ -9,8 +9,8 @@ const baseClasses =
   "inline-flex items-center justify-center gap-2 font-sans font-semibold leading-none rounded-[var(--radius-sm)] cursor-pointer select-none transition-all duration-150 ease-out disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-ember)]";
 
 const sizeClasses = {
-  sm: "text-[13px] px-3.5 py-2",
-  md: "text-sm px-5 py-2.5",
+  sm: "text-[13px] px-4 py-2.5",
+  md: "text-sm px-5 py-3",
 };
 
 const variantClasses = {

@@ -52,6 +52,12 @@
   --radius-lg: 16px;
   --radius-full: 9999px;
 
+  /* ── Layout spacing ── */
+  --spacing-page-x: 2.5rem;    /* 40px — main content horizontal padding */
+  --spacing-page-y: 2rem;      /* 32px — main content vertical padding */
+  --spacing-section: 2rem;     /* 32px — between major page sections */
+  --spacing-card-gap: 1.25rem; /* 20px — between cards in grids */
+
   /* ── Shadows ── */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(45, 51, 86, 0.5);
   --shadow-card-hover: 0 8px 32px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(233, 69, 96, 0.2);

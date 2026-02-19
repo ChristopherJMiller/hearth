@@ -84,7 +84,7 @@ export function CatalogGrid({
 }: CatalogGridProps) {
   if (isLoading || !entries) {
     return (
-      <div className="max-w-6xl mx-auto mt-6 mb-12 px-8 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
+      <div className="max-w-6xl mx-auto mt-6 mb-12 px-8 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-5">
         {Array.from({ length: 6 }, (_, i) => (
           <SkeletonCard key={i} index={i} />
         ))}
@@ -101,7 +101,7 @@ export function CatalogGrid({
   }
 
   return (
-    <div className="max-w-6xl mx-auto mt-6 mb-12 px-8 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
+    <div className="max-w-6xl mx-auto mt-6 mb-12 px-8 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-5">
       {entries.map((entry, i) => (
         <CatalogCard
           key={entry.id}

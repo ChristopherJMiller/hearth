@@ -202,7 +202,7 @@ export function DeploymentDetailPage() {
           <LuSettings size={16} className="text-[var(--color-text-tertiary)]" />
           <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Configuration</h2>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5">
           <ConfigItem label="Canary Size" value={deployment.canary_size} />
           <ConfigItem label="Batch Size" value={deployment.batch_size} />
           <ConfigItem label="Failure Threshold" value={`${(deployment.failure_threshold * 100).toFixed(0)}%`} />

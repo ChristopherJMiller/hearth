@@ -87,7 +87,7 @@ export function NewDeploymentPage() {
             placeholder="e.g. github:org/fleet-modules#main"
           />
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             <TextInput
               label="Canary Size"
               value={canarySize}

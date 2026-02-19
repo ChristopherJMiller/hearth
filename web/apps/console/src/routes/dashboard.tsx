@@ -35,7 +35,7 @@ export function DashboardPage() {
     <div>
       <PageHeader title="Dashboard" description="Fleet overview and recent activity" />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
         <StatCard icon={<LuMonitor size={20} />} value={stats?.total_machines ?? '—'} label="Total Machines" />
         <StatCard icon={<LuCheckCircle size={20} />} value={stats?.active_machines ?? '—'} label="Active" />
         <StatCard icon={<LuUserPlus size={20} />} value={stats?.pending_enrollments ?? '—'} label="Pending Enrollment" />
