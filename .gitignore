@@ -23,6 +23,10 @@ result-*
 *.swo
 *~
 
+# Dev artifacts (VM disks, ephemeral state)
+dev/*.qcow2
+dev/*.img
+
 # OS
 .DS_Store
 Thumbs.db

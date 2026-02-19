@@ -100,7 +100,6 @@ let
         htop
         iotop
         sysstat
-        dstat
 
         # Network diagnostics
         nmap
@@ -163,7 +162,7 @@ in
     };
 
     extraRoleConfig = lib.mkOption {
-      type = lib.types.attrs;
+      type = lib.types.attrsOf lib.types.raw;
       default = { };
       description = ''
         Additional NixOS configuration to merge into the selected role.
@@ -173,12 +172,12 @@ in
   };
 
   config = lib.mkMerge [
-    # Apply the selected role's configuration
-    (lib.mkIf (builtins.hasAttr roleCfg.role roleConfigs)
-      roleConfigs.${roleCfg.role}
-    )
-
-    # Merge in any extra role configuration
-    roleCfg.extraRoleConfig
+    # Apply the selected role's configuration.
+    # Each role is guarded by a separate mkIf to keep evaluation lazy
+    # and avoid infinite recursion through the module fixed-point.
+    (lib.mkIf (roleCfg.role == "default") roleConfigs.default)
+    (lib.mkIf (roleCfg.role == "developer") roleConfigs.developer)
+    (lib.mkIf (roleCfg.role == "designer") roleConfigs.designer)
+    (lib.mkIf (roleCfg.role == "admin") roleConfigs.admin)
   ];
 }

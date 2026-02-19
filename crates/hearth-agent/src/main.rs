@@ -60,12 +60,32 @@ async fn main() {
             }
         },
         None => {
-            let id = Uuid::new_v4();
-            warn!(
-                %id,
-                "no machine_id in config, generated a random one (dev mode)"
-            );
-            id
+            // Try reading the machine-id file written during enrollment.
+            let machine_id_path = std::path::Path::new("/var/lib/hearth/machine-id");
+            match std::fs::read_to_string(machine_id_path) {
+                Ok(contents) => match contents.trim().parse() {
+                    Ok(id) => {
+                        info!(%id, "loaded machine_id from {}", machine_id_path.display());
+                        id
+                    }
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            path = %machine_id_path.display(),
+                            "machine-id file exists but is not a valid UUID"
+                        );
+                        std::process::exit(1);
+                    }
+                },
+                Err(_) => {
+                    let id = Uuid::new_v4();
+                    warn!(
+                        %id,
+                        "no machine_id in config or file, generated a random one (dev mode)"
+                    );
+                    id
+                }
+            }
         }
     };
 

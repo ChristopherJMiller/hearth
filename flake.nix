@@ -119,8 +119,9 @@
         enrollmentImage = lib.optionalAttrs pkgs.stdenv.isLinux {
           enrollment-iso = (import ./lib/mk-enrollment-image.nix {
             inherit self nixpkgs system;
+            serverUrl = "http://10.0.2.2:3000";
             cacheUrl = "http://10.0.2.2:8080/hearth";
-          }).config.system.build.isoImage;
+          }).config.system.build.image;
         };
 
         # Fleet dev VM (Linux only)
@@ -128,6 +129,34 @@
           fleet-vm = (import ./dev/fleet-vm.nix {
             inherit self nixpkgs system;
           }).config.system.build.vm;
+        };
+
+        # Role template closures (Linux only)
+        # Generic NixOS system images — one per role. The agent reads its
+        # machine identity from /var/lib/hearth/machine-id at first boot.
+        mkRoleTemplate = role: (import ./lib/mk-fleet-host.nix {
+          inherit self nixpkgs;
+        }) {
+          hostname = "hearth-${role}";
+          inherit role;
+          machineId = "";
+          serverUrl = "http://10.0.2.2:3000";
+          inherit system;
+          # Placeholder filesystems — nixos-install overwrites the hardware
+          # config, but evaluation requires at least a root fs to pass assertions.
+          extraConfig = {
+            fileSystems."/" = { device = "/dev/disk/by-label/nixos"; fsType = "ext4"; };
+            fileSystems."/boot" = { device = "/dev/disk/by-label/boot"; fsType = "vfat"; };
+            # SSSD requires site-specific domain config; disable for generic templates.
+            services.hearth.pam.enableSssd = false;
+          };
+        };
+
+        roleTemplates = lib.optionalAttrs pkgs.stdenv.isLinux {
+          role-template-default   = (mkRoleTemplate "default").config.system.build.toplevel;
+          role-template-developer = (mkRoleTemplate "developer").config.system.build.toplevel;
+          role-template-designer  = (mkRoleTemplate "designer").config.system.build.toplevel;
+          role-template-admin     = (mkRoleTemplate "admin").config.system.build.toplevel;
         };
 
       in {
@@ -139,7 +168,7 @@
         packages = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api;
           default = hearth-agent;
-        } // enrollmentImage // fleetVm;
+        } // enrollmentImage // fleetVm // roleTemplates;
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
@@ -196,6 +225,10 @@
           RUST_LOG = "info";
           HEARTH_ATTIC_CACHE = "hearth";
           HEARTH_ATTIC_SERVER = "http://localhost:8080";
+          # Shared HS256 secret for minting Attic cache tokens.
+          # Must match token-hs256-secret-base64 in dev/attic/server.toml.
+          # Production: inject from secrets manager, rotate in lockstep with Attic.
+          HEARTH_ATTIC_TOKEN_SECRET = "aGVhcnRoLWRldi1zZWNyZXQtZG8tbm90LXVzZS1pbi1wcm9kdWN0aW9uISEhIQ==";
         };
       }
     ) // {

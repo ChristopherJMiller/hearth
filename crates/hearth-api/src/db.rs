@@ -480,6 +480,27 @@ impl From<AuditEventRow> for api_types::AuditEvent {
     }
 }
 
+// --- Role closure row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct RoleClosureRow {
+    pub role: String,
+    pub closure: String,
+    pub built_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<RoleClosureRow> for api_types::RoleClosure {
+    fn from(row: RoleClosureRow) -> Self {
+        api_types::RoleClosure {
+            role: row.role,
+            closure: row.closure,
+            built_at: row.built_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
 // --- Active deployment ID row ---
 
 #[derive(Debug, sqlx::FromRow)]

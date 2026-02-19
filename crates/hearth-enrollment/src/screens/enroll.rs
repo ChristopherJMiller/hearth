@@ -25,9 +25,11 @@ pub struct EnrollScreen {
 
 impl EnrollScreen {
     pub fn new() -> Self {
+        let url_input = std::env::var("HEARTH_SERVER_URL").unwrap_or_else(|_| "http://".into());
+        let cursor_pos = url_input.len();
         Self {
-            url_input: "http://".into(),
-            cursor_pos: 7,
+            url_input,
+            cursor_pos,
             state: EnrollState::Input,
         }
     }

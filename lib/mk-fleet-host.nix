@@ -38,9 +38,8 @@
 , extraConfig ? { }
 }:
 
+let lib = nixpkgs.lib; in
 nixpkgs.lib.nixosSystem {
-  inherit system;
-
   # Pass inputs as specialArgs so modules can access flake inputs
   specialArgs = {
     inherit inputs self;
@@ -49,6 +48,7 @@ nixpkgs.lib.nixosSystem {
   modules = [
     # --- Hearth overlay: makes hearth-* packages available as pkgs.hearth-* ---
     {
+      nixpkgs.hostPlatform = system;
       nixpkgs.overlays = [
         self.overlays.default
       ];

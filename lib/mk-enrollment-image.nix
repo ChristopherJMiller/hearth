@@ -8,7 +8,7 @@
 #   packages.enrollment-iso = (import ./lib/mk-enrollment-image.nix {
 #     inherit self nixpkgs system;
 #     serverUrl = "https://api.hearth.example.com";
-#   }).config.system.build.isoImage;
+#   }).config.system.build.image;
 #
 
 { self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null }:
@@ -17,8 +17,6 @@ let
   lib = nixpkgs.lib;
 in
 nixpkgs.lib.nixosSystem {
-  inherit system;
-
   modules = [
     # NixOS ISO image infrastructure
     "${nixpkgs}/nixos/modules/installer/cd-dvd/iso-image.nix"
@@ -26,6 +24,7 @@ nixpkgs.lib.nixosSystem {
 
     # Hearth overlay so pkgs.hearth-enrollment is available
     {
+      nixpkgs.hostPlatform = system;
       nixpkgs.overlays = [
         self.overlays.default
       ];
@@ -37,8 +36,8 @@ nixpkgs.lib.nixosSystem {
     # ISO and enrollment configuration
     ({ config, pkgs, lib, ... }: {
       # --- ISO image settings ---
+      image.fileName = "hearth-enrollment-${config.system.nixos.label}.iso";
       isoImage = {
-        isoName = "hearth-enrollment-${config.system.nixos.label}.iso";
         volumeID = "HEARTH-ENROLL";
         # zstd for fast decompression on target hardware
         squashfsCompression = "zstd";
@@ -62,10 +61,16 @@ nixpkgs.lib.nixosSystem {
       # Nix — needed to install the target system (enrollment module also sets this)
       nix.settings = {
         experimental-features = lib.mkDefault [ "nix-command" "flakes" ];
-        substituters = lib.optional (cacheUrl != null) cacheUrl
-          ++ [ "https://cache.nixos.org" ];
+        substituters = lib.mkForce (
+          lib.optional (cacheUrl != null) cacheUrl
+          ++ [ "https://cache.nixos.org" ]
+        );
         trusted-public-keys = lib.optional (cachePublicKey != null) cachePublicKey
           ++ [ "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" ];
+        trusted-users = [ "root" ];
+        # Dev Attic caches may not have signing keys; allow unsigned paths.
+        # Production builds should set cachePublicKey and remove this.
+        require-sigs = cachePublicKey != null;
       };
     })
   ];

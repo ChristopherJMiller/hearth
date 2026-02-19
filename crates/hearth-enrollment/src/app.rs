@@ -26,6 +26,7 @@ pub struct EnrollmentData {
     pub machine_id: Option<Uuid>,
     pub target_closure: Option<String>,
     pub cache_url: Option<String>,
+    pub cache_token: Option<String>,
     pub target_disk: Option<String>,
 }
 
@@ -123,6 +124,17 @@ impl App {
             }
             Screen::Status => {
                 if self.status.handle_key(key) {
+                    // Transfer the target closure and cache credentials captured
+                    // during approval into enrollment data so the provision screen
+                    // gets them.
+                    if let Some(closure) = self.status.take_approved_closure() {
+                        self.data.target_closure = Some(closure);
+                    }
+                    let (url, token) = self.status.take_cache_credentials();
+                    if url.is_some() {
+                        self.data.cache_url = url;
+                    }
+                    self.data.cache_token = token;
                     self.screen = Screen::Provisioning;
                 }
             }

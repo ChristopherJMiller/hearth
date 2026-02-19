@@ -23,6 +23,11 @@ pub struct StatusScreen {
     client: Option<ReqwestApiClient>,
     machine_id: Option<uuid::Uuid>,
     dots: usize,
+    /// Captured from the approval response so provisioning can use it immediately.
+    approved_closure: Option<String>,
+    /// Cache credentials from extra_config for authenticated cache access.
+    cache_url: Option<String>,
+    cache_token: Option<String>,
 }
 
 impl StatusScreen {
@@ -33,7 +38,20 @@ impl StatusScreen {
             client: None,
             machine_id: None,
             dots: 0,
+            approved_closure: None,
+            cache_url: None,
+            cache_token: None,
         }
+    }
+
+    /// Returns the target closure captured at approval time, if any.
+    pub fn take_approved_closure(&mut self) -> Option<String> {
+        self.approved_closure.take()
+    }
+
+    /// Returns cache credentials (url, token) captured from extra_config at approval time.
+    pub fn take_cache_credentials(&mut self) -> (Option<String>, Option<String>) {
+        (self.cache_url.take(), self.cache_token.take())
     }
 
     pub fn start_polling(&mut self, data: &EnrollmentData) {
@@ -151,6 +169,27 @@ impl StatusScreen {
                     | EnrollmentStatus::Provisioning
                     | EnrollmentStatus::Active => {
                         info!("device approved!");
+                        // Capture the target closure so provisioning can use
+                        // it immediately without an extra poll round-trip.
+                        if self.approved_closure.is_none() {
+                            self.approved_closure = machine.target_closure;
+                        }
+                        // Extract cache credentials from extra_config if present.
+                        if self.cache_token.is_none()
+                            && let Some(ref ec) = machine.extra_config
+                        {
+                            self.cache_url = ec
+                                .get("cache_url")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            self.cache_token = ec
+                                .get("cache_token")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            if self.cache_token.is_some() {
+                                info!("received cache credentials from control plane");
+                            }
+                        }
                         self.status = PollStatus::Approved;
                         // Don't auto-exit, let user see the message
                     }

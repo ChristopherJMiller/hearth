@@ -1,4 +1,5 @@
 mod build;
+mod cache_token;
 mod db;
 mod deployment_fsm;
 mod deployment_monitor;
@@ -12,8 +13,9 @@ use axum::Router;
 use axum::routing::{get, post, put};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use std::path::Path;
 use tokio_util::sync::CancellationToken;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -97,6 +99,18 @@ fn deployments_routes() -> Router<AppState> {
         .route("/build", post(routes::deployments::trigger_build))
 }
 
+fn role_closure_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(routes::role_closures::list).put(routes::role_closures::upsert),
+        )
+        .route(
+            "/{role}",
+            get(routes::role_closures::get).delete(routes::role_closures::delete),
+        )
+}
+
 fn enrollment_routes() -> Router<AppState> {
     Router::new()
         .route("/enroll", post(routes::enrollment::enroll))
@@ -156,21 +170,19 @@ async fn main() {
     tokio::spawn(deployment_monitor::run(monitor_pool, cancel.clone()));
 
     // Serve the Vite-built catalog SPA from the dist directory.
-    // Falls back to the SPA handler for client-side routes.
+    // Falls back to index.html for client-side routes.
     let catalog_dist =
         std::env::var("HEARTH_WEB_DIST").unwrap_or_else(|_| "web/apps/catalog/dist".to_string());
 
-    let catalog_spa = Router::new()
-        .fallback(get(routes::web::catalog_spa_fallback))
-        .nest_service("/", ServeDir::new(&catalog_dist));
+    let catalog_spa = ServeDir::new(&catalog_dist)
+        .not_found_service(ServeFile::new(Path::new(&catalog_dist).join("index.html")));
 
     // Serve the admin console SPA.
     let console_dist = std::env::var("HEARTH_CONSOLE_DIST")
         .unwrap_or_else(|_| "web/apps/console/dist".to_string());
 
-    let console_spa = Router::new()
-        .fallback(get(routes::web::console_spa_fallback))
-        .nest_service("/", ServeDir::new(&console_dist));
+    let console_spa = ServeDir::new(&console_dist)
+        .not_found_service(ServeFile::new(Path::new(&console_dist).join("index.html")));
 
     let app = Router::new()
         .route("/healthz", get(routes::health::healthz))
@@ -179,6 +191,7 @@ async fn main() {
         .nest("/api/v1/catalog", catalog_routes())
         .nest("/api/v1/requests", request_routes())
         .nest("/api/v1/deployments", deployments_routes())
+        .nest("/api/v1/role-closures", role_closure_routes())
         .nest("/api/v1", enrollment_routes())
         .route("/api/v1/stats", get(routes::stats::fleet_stats))
         .route("/api/v1/audit", get(routes::audit::list_audit_events))
@@ -186,8 +199,8 @@ async fn main() {
             "/api/v1/machines/{machine_id}/environments",
             environments_routes(),
         )
-        .nest("/catalog", catalog_spa)
-        .nest("/console", console_spa)
+        .nest_service("/catalog", catalog_spa)
+        .nest_service("/console", console_spa)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

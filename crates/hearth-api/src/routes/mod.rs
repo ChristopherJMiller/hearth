@@ -7,5 +7,5 @@ pub mod health;
 pub mod heartbeat;
 pub mod machines;
 pub mod requests;
+pub mod role_closures;
 pub mod stats;
-pub mod web;

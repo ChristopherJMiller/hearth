@@ -15,12 +15,17 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> AppResult<()> {
+    // Write logs to a file so they don't corrupt the TUI.
+    let log_file =
+        std::fs::File::create("/tmp/hearth-enrollment.log").expect("failed to create log file");
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "hearth_enrollment=info".into()),
         )
-        .with_writer(std::io::stderr)
+        .with_writer(log_file)
+        .with_ansi(false)
         .init();
 
     info!("hearth-enrollment starting");

@@ -54,42 +54,20 @@ in
     # WiFi firmware if needed
     hardware.enableRedistributableFirmware = lib.mkIf cfg.wifiSupport true;
 
-    # --- Enrollment user and auto-login ---
-    users.users.enrollment = {
-      isNormalUser = true;
-      description = "Hearth Enrollment User";
-      home = "/home/enrollment";
-      shell = pkgs.bash;
-      # No password — auto-login only
-      initialPassword = "";
-      extraGroups = [ "networkmanager" "wheel" ];
-    };
+    # --- Auto-login as root ---
+    # The enrollment ISO is a single-purpose system. Disk partitioning,
+    # formatting, and nixos-install all require root, so we auto-login
+    # as root directly rather than using sudo.
+    services.getty.autologinUser = lib.mkIf cfg.autoStart "root";
 
-    # Auto-login on TTY1 as the enrollment user
-    services.getty.autologinUser = lib.mkIf cfg.autoStart "enrollment";
-
-    # --- Auto-start enrollment TUI ---
-    # The enrollment user's .bashrc launches the TUI immediately
-    environment.etc."skel-enrollment/.bashrc" = lib.mkIf cfg.autoStart {
-      text = ''
-        # Hearth enrollment — auto-start the enrollment TUI
-        if [ "$(tty)" = "/dev/tty1" ] && [ -z "$HEARTH_ENROLLMENT_STARTED" ]; then
-          export HEARTH_ENROLLMENT_STARTED=1
-          export HEARTH_SERVER_URL="${cfg.serverUrl}"
-          exec ${cfg.package}/bin/hearth-enrollment
-        fi
-      '';
-      mode = "0644";
-    };
-
-    # Copy enrollment bashrc to the enrollment user's home
-    system.activationScripts.enrollment-bashrc = lib.mkIf cfg.autoStart {
-      text = ''
-        mkdir -p /home/enrollment
-        cp /etc/skel-enrollment/.bashrc /home/enrollment/.bashrc
-        chown enrollment:users /home/enrollment/.bashrc
-      '';
-    };
+    # --- Auto-start enrollment TUI on TTY1 ---
+    programs.bash.interactiveShellInit = lib.mkIf cfg.autoStart ''
+      if [ "$(tty)" = "/dev/tty1" ] && [ -z "$HEARTH_ENROLLMENT_STARTED" ]; then
+        export HEARTH_ENROLLMENT_STARTED=1
+        export HEARTH_SERVER_URL="${cfg.serverUrl}"
+        exec ${cfg.package}/bin/hearth-enrollment
+      fi
+    '';
 
     # --- Enrollment configuration ---
     environment.etc."hearth/enrollment.toml" = {
@@ -110,11 +88,13 @@ in
     environment.systemPackages = with pkgs; [
       cfg.package
 
-      # Disk utilities for partitioning
+      # Disk utilities for partitioning and formatting
+      gptfdisk    # sgdisk for GPT partitioning
       parted
-      e2fsprogs
-      dosfstools
+      e2fsprogs   # mkfs.ext4
+      dosfstools  # mkfs.fat
       cryptsetup
+      nixos-install-tools
 
       # Network utilities
       iproute2
@@ -152,6 +132,9 @@ in
       experimental-features = [ "nix-command" "flakes" ];
       # The enrollment image needs to pull closures from the Hearth cache
       trusted-users = [ "root" "enrollment" ];
+      # The enrollment TUI writes /etc/nix/netrc at runtime with cache
+      # credentials received from the control plane during approval.
+      netrc-file = "/etc/nix/netrc";
     };
 
     # --- Boot configuration (for netboot/USB) ---

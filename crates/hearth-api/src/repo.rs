@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::db::{
     ActiveDeploymentRow, AuditEventRow, CatalogEntryRow, DeploymentClosureRow,
     DeploymentMachineRow, DeploymentRow, DeploymentStatusDb, HeartbeatResultRow, InstallMethodDb,
-    MachineRow, MachineUpdateStatusDb, PendingInstallRow, SoftwareRequestRow,
+    MachineRow, MachineUpdateStatusDb, PendingInstallRow, RoleClosureRow, SoftwareRequestRow,
     SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb, UserEnvironmentRow,
 };
 
@@ -565,12 +565,14 @@ pub async fn approve_enrollment(
     id: Uuid,
     role: &str,
     target_closure: Option<&str>,
+    extra_config: Option<&serde_json::Value>,
 ) -> Result<Option<MachineRow>, sqlx::Error> {
     sqlx::query_as::<_, MachineRow>(
         "UPDATE machines SET
             enrollment_status = 'approved',
             role = $2,
             target_closure = COALESCE($3, target_closure),
+            extra_config = COALESCE($4, extra_config),
             updated_at = now()
          WHERE id = $1 AND enrollment_status = 'pending'
          RETURNING id, hostname, hardware_fingerprint, enrollment_status,
@@ -581,8 +583,61 @@ pub async fn approve_enrollment(
     .bind(id)
     .bind(role)
     .bind(target_closure)
+    .bind(extra_config)
     .fetch_optional(pool)
     .await
+}
+
+// --- Role closure queries ---
+
+pub async fn list_role_closures(pool: &PgPool) -> Result<Vec<RoleClosureRow>, sqlx::Error> {
+    sqlx::query_as::<_, RoleClosureRow>(
+        "SELECT role, closure, built_at, updated_at
+         FROM role_closures
+         ORDER BY role",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn get_role_closure(
+    pool: &PgPool,
+    role: &str,
+) -> Result<Option<RoleClosureRow>, sqlx::Error> {
+    sqlx::query_as::<_, RoleClosureRow>(
+        "SELECT role, closure, built_at, updated_at
+         FROM role_closures
+         WHERE role = $1",
+    )
+    .bind(role)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn upsert_role_closure(
+    pool: &PgPool,
+    role: &str,
+    closure: &str,
+) -> Result<RoleClosureRow, sqlx::Error> {
+    sqlx::query_as::<_, RoleClosureRow>(
+        "INSERT INTO role_closures (role, closure)
+         VALUES ($1, $2)
+         ON CONFLICT (role)
+         DO UPDATE SET closure = $2, updated_at = now()
+         RETURNING role, closure, built_at, updated_at",
+    )
+    .bind(role)
+    .bind(closure)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn delete_role_closure(pool: &PgPool, role: &str) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM role_closures WHERE role = $1")
+        .bind(role)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 // --- Deployment queries ---

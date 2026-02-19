@@ -3,8 +3,7 @@
 # Uses SQLite (no PostgreSQL dependency) and local filesystem storage.
 # NOT for production use — dev-only signing secret.
 
-[listen]
-address = "0.0.0.0:8080"
+listen = "[::]:8080"
 
 [database]
 # SQLite for simplicity — no need for a separate database in dev
@@ -24,7 +23,11 @@ min-size = 16384
 avg-size = 65536
 max-size = 262144
 
-# Dev-only token signing — DO NOT use in production
-[token_hs256_secret_base64]
+# Dev-only token signing — DO NOT use in production.
 # base64 of "hearth-dev-secret-do-not-use-in-production!!!!"
-value = "aGVhcnRoLWRldi1zZWNyZXQtZG8tbm90LXVzZS1pbi1wcm9kdWN0aW9uISEhIQ=="
+#
+# hearth-api reads this same secret via HEARTH_ATTIC_TOKEN_SECRET (set in
+# flake.nix devShell) to mint short-lived pull-only JWTs during enrollment.
+# The two values MUST match — rotate them together.
+[jwt.signing]
+token-hs256-secret-base64 = "aGVhcnRoLWRldi1zZWNyZXQtZG8tbm90LXVzZS1pbi1wcm9kdWN0aW9uISEhIQ=="

@@ -12,9 +12,7 @@ let
   # Build the agent.toml configuration from module options
   agentConfig = settingsFormat.generate "agent.toml" {
     server.url = cfg.serverUrl;
-    machine = {
-      id = cfg.machineId;
-    };
+    server.machine_id = cfg.machineId;
     agent = {
       poll_interval_secs = cfg.pollInterval;
       socket_path = cfg.socketPath;

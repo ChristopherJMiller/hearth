@@ -42,6 +42,8 @@ pub struct ProvisionScreen {
     client: Option<ReqwestApiClient>,
     machine_id: Option<uuid::Uuid>,
     target_closure: Option<String>,
+    cache_url: Option<String>,
+    cache_token: Option<String>,
     target_disk: Option<String>,
     last_poll: Option<Instant>,
     dots: usize,
@@ -56,6 +58,8 @@ impl ProvisionScreen {
             client: None,
             machine_id: None,
             target_closure: None,
+            cache_url: None,
+            cache_token: None,
             target_disk: None,
             last_poll: None,
             dots: 0,
@@ -77,8 +81,11 @@ impl ProvisionScreen {
         if let Some(ref closure) = data.target_closure {
             self.target_closure = Some(closure.clone());
         }
+        self.cache_url = data.cache_url.clone();
+        self.cache_token = data.cache_token.clone();
         info!(
             machine_id = ?self.machine_id,
+            has_cache_token = self.cache_token.is_some(),
             "provisioning screen started"
         );
     }
@@ -276,8 +283,10 @@ impl ProvisionScreen {
         let efi_part = Self::partition_path(&disk, 1);
         let root_part = Self::partition_path(&disk, 2);
 
-        self.log(format!("Formatting {efi_part} as FAT32 (EFI)..."));
-        if let Err(e) = Self::run_cmd("mkfs.fat", &["-F", "32", &efi_part]).await {
+        self.log(format!(
+            "Formatting {efi_part} as FAT32 (EFI, label=boot)..."
+        ));
+        if let Err(e) = Self::run_cmd("mkfs.fat", &["-F", "32", "-n", "boot", &efi_part]).await {
             self.state = ProvisionState::Error {
                 step: "formatting".into(),
                 message: format!("Failed to format EFI partition: {e}"),
@@ -286,8 +295,8 @@ impl ProvisionScreen {
         }
         self.log("EFI partition formatted.");
 
-        self.log(format!("Formatting {root_part} as ext4..."));
-        if let Err(e) = Self::run_cmd("mkfs.ext4", &["-F", &root_part]).await {
+        self.log(format!("Formatting {root_part} as ext4 (label=nixos)..."));
+        if let Err(e) = Self::run_cmd("mkfs.ext4", &["-F", "-L", "nixos", &root_part]).await {
             self.state = ProvisionState::Error {
                 step: "formatting".into(),
                 message: format!("Failed to format root partition: {e}"),
@@ -317,6 +326,15 @@ impl ProvisionScreen {
         self.state = ProvisionState::Mounting;
         let efi_part = Self::partition_path(&disk, 1);
         let root_part = Self::partition_path(&disk, 2);
+
+        // Ensure mount point exists
+        if let Err(e) = Self::run_cmd("mkdir", &["-p", "/mnt"]).await {
+            self.state = ProvisionState::Error {
+                step: "mounting".into(),
+                message: format!("Failed to create /mnt: {e}"),
+            };
+            return;
+        }
 
         self.log(format!("Mounting {root_part} on /mnt..."));
         if let Err(e) = Self::run_cmd("mount", &[&root_part, "/mnt"]).await {
@@ -352,6 +370,34 @@ impl ProvisionScreen {
         self.install_system().await;
     }
 
+    /// Write /etc/nix/netrc with bearer credentials for the cache server,
+    /// enabling authenticated access during nixos-install.
+    async fn write_netrc(&mut self, cache_url: &str, token: &str) -> Result<(), String> {
+        // Extract the hostname from the cache URL for the netrc machine field.
+        let host = cache_url
+            .strip_prefix("http://")
+            .or_else(|| cache_url.strip_prefix("https://"))
+            .unwrap_or(cache_url)
+            .split('/')
+            .next()
+            .unwrap_or(cache_url);
+
+        let netrc_content = format!("machine {host}\nlogin bearer\npassword {token}\n");
+
+        if let Err(e) = Self::run_cmd("mkdir", &["-p", "/etc/nix"]).await {
+            return Err(format!("failed to create /etc/nix: {e}"));
+        }
+
+        tokio::fs::write("/etc/nix/netrc", netrc_content)
+            .await
+            .map_err(|e| format!("failed to write /etc/nix/netrc: {e}"))?;
+
+        self.log(format!(
+            "Wrote cache credentials for {host} to /etc/nix/netrc"
+        ));
+        Ok(())
+    }
+
     /// Run nixos-install with the target closure.
     async fn install_system(&mut self) {
         let closure = match &self.target_closure {
@@ -369,14 +415,35 @@ impl ProvisionScreen {
             progress: "Starting NixOS installation...".into(),
         };
         self.log(format!("Installing system closure: {closure}"));
+
+        // If we have cache credentials, write netrc and configure substituters.
+        let mut extra_args: Vec<String> = Vec::new();
+        if let (Some(cache_url), Some(token)) = (self.cache_url.clone(), self.cache_token.clone()) {
+            match self.write_netrc(&cache_url, &token).await {
+                Ok(()) => {
+                    let substituters = format!("{cache_url} https://cache.nixos.org");
+                    extra_args.extend([
+                        "--option".into(),
+                        "substituters".into(),
+                        substituters,
+                        "--option".into(),
+                        "netrc-file".into(),
+                        "/etc/nix/netrc".into(),
+                    ]);
+                }
+                Err(e) => {
+                    warn!("failed to write netrc, proceeding without cache auth: {e}");
+                }
+            }
+        }
+
         self.log("Running nixos-install (this may take a while)...");
 
-        match Self::run_cmd(
-            "nixos-install",
-            &["--no-root-password", "--system", &closure],
-        )
-        .await
-        {
+        let mut args: Vec<&str> = vec!["--no-root-password", "--system", &closure];
+        let extra_refs: Vec<&str> = extra_args.iter().map(|s| s.as_str()).collect();
+        args.extend(extra_refs);
+
+        match Self::run_cmd("nixos-install", &args).await {
             Ok(output) => {
                 // Log the last few lines of output
                 for line in output
@@ -390,6 +457,21 @@ impl ProvisionScreen {
                     self.log(format!("  {line}"));
                 }
                 self.log("NixOS installation complete!");
+
+                // Persist the enrollment-assigned machine identity so the
+                // agent can read it on first boot.
+                if let Some(mid) = self.machine_id {
+                    let id_dir = "/mnt/var/lib/hearth";
+                    let id_path = format!("{id_dir}/machine-id");
+                    if let Err(e) = Self::run_cmd("mkdir", &["-p", id_dir]).await {
+                        warn!("failed to create {id_dir}: {e}");
+                    } else if let Err(e) = tokio::fs::write(&id_path, mid.to_string()).await {
+                        warn!("failed to write machine-id to {id_path}: {e}");
+                    } else {
+                        self.log(format!("Machine identity written to {id_path}"));
+                    }
+                }
+
                 self.state = ProvisionState::Complete;
             }
             Err(e) => {

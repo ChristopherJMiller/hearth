@@ -19,11 +19,10 @@ let
   lib = nixpkgs.lib;
 in
 nixpkgs.lib.nixosSystem {
-  inherit system;
-
   modules = [
     # Hearth overlay
     {
+      nixpkgs.hostPlatform = system;
       nixpkgs.overlays = [
         self.overlays.default
       ];

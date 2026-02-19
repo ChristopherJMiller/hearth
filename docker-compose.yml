@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: ghcr.io/cloudnative-pg/postgresql:16
+    image: postgres:16
     ports: ["5432:5432"]
     environment:
       POSTGRES_USER: hearth
@@ -22,7 +22,7 @@ services:
       - ./dev/attic/server.toml:/etc/attic/server.toml:ro
       - attic-data:/var/lib/attic
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/"]
       interval: 5s
       timeout: 5s
       retries: 5
