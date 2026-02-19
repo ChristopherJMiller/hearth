@@ -7,6 +7,7 @@ use tracing::{debug, error, info, warn};
 /// Errors from the build process.
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
+    #[allow(dead_code)]
     #[error("nix build failed for {drv}: exit code {code}")]
     BuildFailed { drv: String, code: i32 },
     #[error("nix build failed to start: {0}")]
@@ -21,6 +22,7 @@ pub struct BuildResult {
     pub drv_path: String,
     pub out_path: String,
     pub success: bool,
+    #[allow(dead_code)]
     pub error: Option<String>,
 }
 

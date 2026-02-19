@@ -11,8 +11,10 @@ pub struct NixEvalResult {
     pub attr: String,
     #[serde(rename = "drvPath")]
     pub drv_path: String,
+    #[allow(dead_code)]
     #[serde(default)]
     pub outputs: std::collections::HashMap<String, String>,
+    #[allow(dead_code)]
     pub system: Option<String>,
     pub error: Option<String>,
 }

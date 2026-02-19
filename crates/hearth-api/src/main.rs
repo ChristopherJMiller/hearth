@@ -1,14 +1,10 @@
-#[allow(dead_code)]
 mod build;
 mod db;
-#[allow(dead_code)]
 mod deployment_fsm;
 mod deployment_monitor;
 mod error;
-#[allow(dead_code)]
 mod health_check;
 mod repo;
-#[allow(dead_code)]
 mod rollout;
 mod routes;
 

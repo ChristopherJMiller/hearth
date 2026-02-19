@@ -72,6 +72,19 @@ pub async fn update_deployment_status(
     Json(req): Json<UpdateDeploymentStatusRequest>,
 ) -> Result<Json<Deployment>, AppError> {
     let status_db: DeploymentStatusDb = req.status.into();
+
+    // Fetch current deployment to validate FSM transition
+    let existing = repo::get_deployment(&state.pool, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("deployment {id} not found")))?;
+
+    if !crate::deployment_fsm::is_valid_transition(existing.status, status_db) {
+        return Err(AppError::BadRequest(format!(
+            "invalid status transition from {:?} to {:?}",
+            existing.status, status_db
+        )));
+    }
+
     let row = repo::update_deployment_status(&state.pool, id, status_db).await?;
     match row {
         Some(r) => Ok(Json(r.into())),
@@ -83,24 +96,22 @@ pub async fn rollback_deployment(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Deployment>, AppError> {
-    // First verify the deployment exists and is in a rollback-able state
-    let existing = repo::get_deployment(&state.pool, id).await?;
-    match existing {
-        Some(dep) => {
-            let status = dep.status;
-            if status == DeploymentStatusDb::Completed || status == DeploymentStatusDb::RolledBack {
-                return Err(AppError::BadRequest(format!(
-                    "deployment {id} cannot be rolled back from {:?} status",
-                    status
-                )));
-            }
-            let row =
-                repo::rollback_deployment(&state.pool, id, "manual rollback requested").await?;
-            match row {
-                Some(r) => Ok(Json(r.into())),
-                None => Err(AppError::NotFound(format!("deployment {id} not found"))),
-            }
-        }
+    // Verify the deployment exists and the FSM allows a rollback transition
+    let existing = repo::get_deployment(&state.pool, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("deployment {id} not found")))?;
+
+    if !crate::deployment_fsm::is_valid_transition(existing.status, DeploymentStatusDb::RolledBack)
+    {
+        return Err(AppError::BadRequest(format!(
+            "deployment {id} cannot be rolled back from {:?} status",
+            existing.status
+        )));
+    }
+
+    let row = repo::rollback_deployment(&state.pool, id, "manual rollback requested").await?;
+    match row {
+        Some(r) => Ok(Json(r.into())),
         None => Err(AppError::NotFound(format!("deployment {id} not found"))),
     }
 }

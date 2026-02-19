@@ -34,6 +34,7 @@ pub fn is_valid_transition(from: DeploymentStatusDb, to: DeploymentStatusDb) -> 
 /// Determine the next state for a deployment that should advance.
 ///
 /// Returns `None` if the deployment is already in a terminal state.
+#[allow(dead_code)]
 pub fn next_state(current: DeploymentStatusDb) -> Option<DeploymentStatusDb> {
     match current {
         DeploymentStatusDb::Pending => Some(DeploymentStatusDb::Canary),

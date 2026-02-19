@@ -100,8 +100,23 @@ async fn advance_rolling_batch(
         return Ok(());
     }
 
-    // If there are still in-progress machines, wait for them
+    // Check for stale machines (no heartbeat in 5 minutes)
     if health.in_progress > 0 {
+        let (_recent, stale) = crate::health_check::check_heartbeat_recency(
+            pool,
+            dep.id,
+            chrono::Duration::minutes(5),
+        )
+        .await?;
+        if stale > 0 {
+            warn!(
+                deployment_id = %dep.id,
+                stale,
+                in_progress = health.in_progress,
+                "stale machines detected in deployment"
+            );
+        }
+        // Still in-progress machines, wait for them
         return Ok(());
     }
 

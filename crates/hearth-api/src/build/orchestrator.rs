@@ -118,7 +118,7 @@ pub async fn run_build_pipeline(
         "deployment created"
     );
 
-    // Step 6: Set target_closure on matched machines and create deployment_machine entries.
+    // Step 6: Create deployment_machine entries (Pending, no target_closure yet).
     for machine in &fleet_config.machines {
         let machine_id: uuid::Uuid = match machine.machine_id.parse() {
             Ok(id) => id,
@@ -128,19 +128,7 @@ pub async fn run_build_pipeline(
             }
         };
 
-        // Update machine's target closure
-        let update_req = hearth_common::api_types::UpdateMachineRequest {
-            hostname: None,
-            role: None,
-            tags: None,
-            target_closure: Some(primary_closure.clone()),
-            extra_config: None,
-        };
-        if let Err(e) = repo::update_machine(pool, machine_id, &update_req).await {
-            error!(%machine_id, error = %e, "failed to set target_closure");
-        }
-
-        // Create deployment_machine entry
+        // Create deployment_machine entry as Pending
         if let Err(e) = repo::upsert_deployment_machine(
             pool,
             deployment_id,
@@ -154,8 +142,47 @@ pub async fn run_build_pipeline(
         }
     }
 
-    // Update total_machines count on the deployment.
-    let _ = repo::update_deployment_status(pool, deployment_id, DeploymentStatusDb::Pending).await;
+    // Step 7: Select canary machines and set target_closure only on them.
+    let canaries = crate::rollout::select_canary_machines(pool, deployment_id, canary_size as usize)
+        .await
+        .map_err(|e| OrchestrateError::Database(match e {
+            crate::rollout::RolloutError::Database(db_err) => db_err,
+            other => sqlx::Error::Protocol(other.to_string()),
+        }))?;
+
+    for machine_id in &canaries {
+        let update_req = hearth_common::api_types::UpdateMachineRequest {
+            hostname: None,
+            role: None,
+            tags: None,
+            target_closure: Some(primary_closure.clone()),
+            extra_config: None,
+        };
+        if let Err(e) = repo::update_machine(pool, *machine_id, &update_req).await {
+            error!(%machine_id, error = %e, "failed to set target_closure on canary");
+        }
+        // Mark canary as Downloading
+        if let Err(e) = repo::upsert_deployment_machine(
+            pool,
+            deployment_id,
+            *machine_id,
+            crate::db::MachineUpdateStatusDb::Downloading,
+            None,
+        )
+        .await
+        {
+            error!(%machine_id, error = %e, "failed to update canary machine status");
+        }
+    }
+
+    info!(
+        deployment_id = %deployment_id,
+        canaries = canaries.len(),
+        "canary machines selected, advancing to canary phase"
+    );
+
+    // Advance deployment to Canary state.
+    let _ = repo::update_deployment_status(pool, deployment_id, DeploymentStatusDb::Canary).await;
 
     Ok(OrchestrateResult {
         deployment_id,
