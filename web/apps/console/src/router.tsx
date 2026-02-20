@@ -15,6 +15,7 @@ import { NewDeploymentPage } from './routes/deployments/new';
 import { CatalogPage } from './routes/catalog/index';
 import { RequestsPage } from './routes/requests/index';
 import { AuditPage } from './routes/audit/index';
+import { ReportsPage } from './routes/reports';
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -88,6 +89,12 @@ const auditRoute = createRoute({
   component: AuditPage,
 });
 
+const reportsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reports',
+  component: ReportsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
@@ -100,6 +107,7 @@ const routeTree = rootRoute.addChildren([
   catalogRoute,
   requestsRoute,
   auditRoute,
+  reportsRoute,
 ]);
 
 export const router = createRouter({

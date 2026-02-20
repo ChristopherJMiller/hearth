@@ -73,6 +73,11 @@ pub trait HearthApiClient: Send + Sync {
         error_message: Option<&str>,
     ) -> impl Future<Output = Result<(), ApiError>> + Send;
 
+    fn report_action_result(
+        &self,
+        report: &ActionResultReport,
+    ) -> impl Future<Output = Result<(), ApiError>> + Send;
+
     /// Update the bearer token at runtime (e.g. after a refresh from heartbeat).
     /// Default implementation is a no-op for test mocks.
     fn update_token(&self, _token: &str) {}
@@ -309,6 +314,16 @@ impl HearthApiClient for ReqwestApiClient {
                 status,
                 error_message,
             })
+            .send()
+            .await?;
+        self.check_response(resp).await?;
+        Ok(())
+    }
+
+    async fn report_action_result(&self, report: &ActionResultReport) -> Result<(), ApiError> {
+        let resp = self
+            .authed_post(self.url(&format!("/api/v1/actions/{}/result", report.action_id)))
+            .json(report)
             .send()
             .await?;
         self.check_response(resp).await?;

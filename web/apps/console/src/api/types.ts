@@ -120,3 +120,48 @@ export interface FleetStats {
   active_deployments: number;
   pending_requests: number;
 }
+
+// --- Phase 4: Remote Actions ---
+
+export type ActionType = 'lock' | 'restart' | 'rebuild' | 'run_command';
+export type ActionStatus = 'pending' | 'delivered' | 'running' | 'completed' | 'failed';
+
+export interface PendingAction {
+  id: string;
+  machine_id: string;
+  action_type: ActionType;
+  payload: Record<string, unknown>;
+  status: ActionStatus;
+  created_by: string | null;
+  created_at: string;
+  delivered_at: string | null;
+  completed_at: string | null;
+  result: Record<string, unknown> | null;
+}
+
+export interface CreateActionRequest {
+  action_type: ActionType;
+  payload?: Record<string, unknown>;
+}
+
+// --- Phase 4: Reports ---
+
+export interface ComplianceReport {
+  total: number;
+  compliant: number;
+  drifted: number;
+  no_target: number;
+}
+
+export interface DeploymentTimelineEntry {
+  date: string;
+  completed: number;
+  failed: number;
+  rolled_back: number;
+}
+
+export interface EnrollmentTimelineEntry {
+  date: string;
+  enrolled: number;
+  pending: number;
+}

@@ -48,6 +48,11 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid"
 jsonwebtoken = "9"
 base64 = "0.22"
 
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+prometheus-client = "0.23"
+
 # TUI
 ratatui = "0.29"
 crossterm = "0.28"

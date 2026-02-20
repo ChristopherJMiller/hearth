@@ -8,10 +8,12 @@ use hearth_common::api_types::{
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::{OperatorIdentity, UserIdentity};
 use crate::error::AppError;
 use crate::repo;
 
 pub async fn list_catalog(
+    _user: UserIdentity,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<CatalogEntry>>, AppError> {
     let rows = repo::list_catalog(&state.pool).await?;
@@ -20,6 +22,7 @@ pub async fn list_catalog(
 }
 
 pub async fn get_catalog_entry(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CatalogEntry>, AppError> {
@@ -31,6 +34,7 @@ pub async fn get_catalog_entry(
 }
 
 pub async fn create_catalog_entry(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Json(req): Json<CreateCatalogEntryRequest>,
 ) -> Result<(StatusCode, Json<CatalogEntry>), AppError> {
@@ -39,6 +43,7 @@ pub async fn create_catalog_entry(
 }
 
 pub async fn update_catalog_entry(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateCatalogEntryRequest>,
@@ -51,6 +56,7 @@ pub async fn update_catalog_entry(
 }
 
 pub async fn delete_catalog_entry(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
@@ -63,6 +69,7 @@ pub async fn delete_catalog_entry(
 }
 
 pub async fn request_software(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<SoftwareRequestBody>,

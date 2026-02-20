@@ -10,12 +10,13 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::{
-    ActiveDeploymentRow, AuditEventRow, BuildJobRow, BuildJobStatusDb, CatalogEntryRow,
-    DeploymentClosureRow, DeploymentMachineRow, DeploymentRow, DeploymentStatusDb,
-    HeartbeatResultRow, InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingInstallRow,
-    RoleClosureRow, SoftwareRequestRow, SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb,
-    UserEnvironmentRow, UserRow,
+    ActionTypeDb, ActiveDeploymentRow, AuditEventRow, BuildJobRow, BuildJobStatusDb,
+    CatalogEntryRow, DeploymentClosureRow, DeploymentMachineRow, DeploymentRow, DeploymentStatusDb,
+    HeartbeatResultRow, InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingActionRow,
+    PendingInstallRow, PendingUserEnvRow, RoleClosureRow, SoftwareRequestRow,
+    SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb, UserEnvironmentRow, UserRow,
 };
+use crate::routes::reports::{ComplianceReport, DeploymentTimelineEntry, EnrollmentTimelineEntry};
 
 const MACHINE_COLUMNS: &str = "id, hostname, hardware_fingerprint, enrollment_status,
     current_closure, target_closure, rollback_closure,
@@ -151,6 +152,28 @@ pub async fn record_heartbeat(
                 }
             }
 
+            // Fetch pending remote actions
+            let actions = get_pending_actions_for_machine(pool, req.machine_id).await?;
+            let action_ids: Vec<Uuid> = actions.iter().map(|a| a.id).collect();
+            let pending_actions: Vec<hearth_common::api_types::PendingAction> =
+                actions.into_iter().map(Into::into).collect();
+
+            // Mark fetched actions as delivered
+            if !action_ids.is_empty() {
+                deliver_actions(pool, &action_ids).await?;
+            }
+
+            // Fetch pending user environment activations
+            let user_envs = get_pending_user_envs(pool, req.machine_id).await?;
+            let pending_user_envs: Vec<hearth_common::api_types::PendingUserEnv> = user_envs
+                .into_iter()
+                .map(|e| hearth_common::api_types::PendingUserEnv {
+                    username: e.username,
+                    target_closure: e.target_closure,
+                    cache_url: None,
+                })
+                .collect();
+
             Ok(Some(HeartbeatResponse {
                 target_closure: r.target_closure,
                 pending_installs: installs.into_iter().map(Into::into).collect(),
@@ -158,6 +181,8 @@ pub async fn record_heartbeat(
                 cache_url: None,
                 cache_token: None,
                 machine_token: None,
+                pending_actions,
+                pending_user_envs,
             }))
         }
         None => Ok(None),
@@ -1108,4 +1133,256 @@ pub async fn list_build_jobs(
             .await
         }
     }
+}
+
+// --- Remote action queries ---
+
+const ACTION_COLUMNS: &str = "id, machine_id, action_type, payload, status,
+    created_by, created_at, delivered_at, completed_at, result";
+
+pub async fn create_action(
+    pool: &PgPool,
+    machine_id: Uuid,
+    action_type: hearth_common::api_types::ActionType,
+    payload: &serde_json::Value,
+    created_by: &str,
+) -> Result<PendingActionRow, sqlx::Error> {
+    let action_type_db = ActionTypeDb::from(action_type);
+    sqlx::query_as::<_, PendingActionRow>(&format!(
+        "INSERT INTO pending_actions (machine_id, action_type, payload, created_by)
+         VALUES ($1, $2, $3, $4)
+         RETURNING {ACTION_COLUMNS}"
+    ))
+    .bind(machine_id)
+    .bind(action_type_db)
+    .bind(payload)
+    .bind(created_by)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn get_pending_actions_for_machine(
+    pool: &PgPool,
+    machine_id: Uuid,
+) -> Result<Vec<PendingActionRow>, sqlx::Error> {
+    sqlx::query_as::<_, PendingActionRow>(&format!(
+        "SELECT {ACTION_COLUMNS}
+         FROM pending_actions
+         WHERE machine_id = $1 AND status = 'pending'
+         ORDER BY created_at ASC"
+    ))
+    .bind(machine_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn deliver_actions(pool: &PgPool, action_ids: &[Uuid]) -> Result<(), sqlx::Error> {
+    if action_ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "UPDATE pending_actions SET status = 'delivered', delivered_at = now()
+         WHERE id = ANY($1) AND status = 'pending'",
+    )
+    .bind(action_ids)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn complete_action(
+    pool: &PgPool,
+    action_id: Uuid,
+    success: bool,
+    result: Option<&serde_json::Value>,
+) -> Result<Option<PendingActionRow>, sqlx::Error> {
+    let new_status = if success { "completed" } else { "failed" };
+    sqlx::query_as::<_, PendingActionRow>(&format!(
+        "UPDATE pending_actions
+         SET status = $2::action_status, completed_at = now(), result = $3
+         WHERE id = $1
+         RETURNING {ACTION_COLUMNS}"
+    ))
+    .bind(action_id)
+    .bind(new_status)
+    .bind(result)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn list_machine_actions(
+    pool: &PgPool,
+    machine_id: Uuid,
+) -> Result<Vec<PendingActionRow>, sqlx::Error> {
+    sqlx::query_as::<_, PendingActionRow>(&format!(
+        "SELECT {ACTION_COLUMNS}
+         FROM pending_actions
+         WHERE machine_id = $1
+         ORDER BY created_at DESC
+         LIMIT 100"
+    ))
+    .bind(machine_id)
+    .fetch_all(pool)
+    .await
+}
+
+// --- Audit event creation ---
+
+pub async fn create_audit_event(
+    pool: &PgPool,
+    event_type: &str,
+    actor: Option<&str>,
+    machine_id: Option<Uuid>,
+    details: &serde_json::Value,
+) -> Result<AuditEventRow, sqlx::Error> {
+    sqlx::query_as::<_, AuditEventRow>(
+        "INSERT INTO audit_events (event_type, actor, machine_id, details)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, event_type, actor, machine_id, details, created_at",
+    )
+    .bind(event_type)
+    .bind(actor)
+    .bind(machine_id)
+    .bind(details)
+    .fetch_one(pool)
+    .await
+}
+
+// --- Pending user environments (for heartbeat) ---
+
+pub async fn get_pending_user_envs(
+    pool: &PgPool,
+    machine_id: Uuid,
+) -> Result<Vec<PendingUserEnvRow>, sqlx::Error> {
+    sqlx::query_as::<_, PendingUserEnvRow>(
+        "SELECT username, target_closure
+         FROM user_environments
+         WHERE machine_id = $1
+           AND target_closure IS NOT NULL
+           AND (current_closure IS NULL OR current_closure != target_closure)",
+    )
+    .bind(machine_id)
+    .fetch_all(pool)
+    .await
+}
+
+// --- User list (for identity sync) ---
+
+pub async fn list_users(pool: &PgPool) -> Result<Vec<UserRow>, sqlx::Error> {
+    sqlx::query_as::<_, UserRow>(
+        "SELECT id, username, display_name, email, kanidm_uuid, groups,
+                last_seen, created_at, updated_at
+         FROM users
+         ORDER BY username",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+// --- Compliance report ---
+
+#[derive(Debug, sqlx::FromRow)]
+struct ComplianceRow {
+    total: Option<i64>,
+    compliant: Option<i64>,
+    drifted: Option<i64>,
+    no_target: Option<i64>,
+}
+
+pub async fn get_compliance_report(pool: &PgPool) -> Result<ComplianceReport, sqlx::Error> {
+    let row = sqlx::query_as::<_, ComplianceRow>(
+        "SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE target_closure IS NOT NULL AND current_closure = target_closure) AS compliant,
+            COUNT(*) FILTER (WHERE target_closure IS NOT NULL AND (current_closure IS NULL OR current_closure != target_closure)) AS drifted,
+            COUNT(*) FILTER (WHERE target_closure IS NULL) AS no_target
+         FROM machines
+         WHERE enrollment_status = 'active'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(ComplianceReport {
+        total: row.total.unwrap_or(0),
+        compliant: row.compliant.unwrap_or(0),
+        drifted: row.drifted.unwrap_or(0),
+        no_target: row.no_target.unwrap_or(0),
+    })
+}
+
+// --- Deployment timeline ---
+
+#[derive(Debug, sqlx::FromRow)]
+struct DeploymentTimelineRow {
+    date: String,
+    completed: Option<i64>,
+    failed: Option<i64>,
+    rolled_back: Option<i64>,
+}
+
+pub async fn get_deployment_timeline(
+    pool: &PgPool,
+    days: i64,
+) -> Result<Vec<DeploymentTimelineEntry>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, DeploymentTimelineRow>(
+        "SELECT
+            to_char(created_at::date, 'YYYY-MM-DD') AS date,
+            COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+            COUNT(*) FILTER (WHERE status = 'rolled_back') AS rolled_back
+         FROM deployments
+         WHERE created_at >= now() - ($1 || ' days')::interval
+         GROUP BY created_at::date
+         ORDER BY created_at::date",
+    )
+    .bind(days.to_string())
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| DeploymentTimelineEntry {
+            date: r.date,
+            completed: r.completed.unwrap_or(0),
+            failed: r.failed.unwrap_or(0),
+            rolled_back: r.rolled_back.unwrap_or(0),
+        })
+        .collect())
+}
+
+// --- Enrollment timeline ---
+
+#[derive(Debug, sqlx::FromRow)]
+struct EnrollmentTimelineRow {
+    date: String,
+    enrolled: Option<i64>,
+    pending: Option<i64>,
+}
+
+pub async fn get_enrollment_timeline(
+    pool: &PgPool,
+    days: i64,
+) -> Result<Vec<EnrollmentTimelineEntry>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, EnrollmentTimelineRow>(
+        "SELECT
+            to_char(created_at::date, 'YYYY-MM-DD') AS date,
+            COUNT(*) FILTER (WHERE enrollment_status IN ('active', 'enrolled', 'approved')) AS enrolled,
+            COUNT(*) FILTER (WHERE enrollment_status = 'pending') AS pending
+         FROM machines
+         WHERE created_at >= now() - ($1 || ' days')::interval
+         GROUP BY created_at::date
+         ORDER BY created_at::date",
+    )
+    .bind(days.to_string())
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| EnrollmentTimelineEntry {
+            date: r.date,
+            enrolled: r.enrolled.unwrap_or(0),
+            pending: r.pending.unwrap_or(0),
+        })
+        .collect())
 }

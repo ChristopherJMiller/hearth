@@ -136,7 +136,7 @@ export function MachinesPage() {
         <DataTable
           data={filtered}
           columns={columns}
-          onRowClick={(machine) =>
+          onRowClick={(machine: Machine) =>
             router.navigate({
               to: '/machines/$machineId',
               params: { machineId: machine.id },

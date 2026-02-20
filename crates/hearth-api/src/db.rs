@@ -550,6 +550,99 @@ pub struct DeploymentClosureRow {
     pub closure: String,
 }
 
+// --- Remote action enums ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "action_type", rename_all = "snake_case")]
+pub enum ActionTypeDb {
+    Lock,
+    Restart,
+    Rebuild,
+    RunCommand,
+}
+
+impl From<ActionTypeDb> for api_types::ActionType {
+    fn from(a: ActionTypeDb) -> Self {
+        match a {
+            ActionTypeDb::Lock => api_types::ActionType::Lock,
+            ActionTypeDb::Restart => api_types::ActionType::Restart,
+            ActionTypeDb::Rebuild => api_types::ActionType::Rebuild,
+            ActionTypeDb::RunCommand => api_types::ActionType::RunCommand,
+        }
+    }
+}
+
+impl From<api_types::ActionType> for ActionTypeDb {
+    fn from(a: api_types::ActionType) -> Self {
+        match a {
+            api_types::ActionType::Lock => ActionTypeDb::Lock,
+            api_types::ActionType::Restart => ActionTypeDb::Restart,
+            api_types::ActionType::Rebuild => ActionTypeDb::Rebuild,
+            api_types::ActionType::RunCommand => ActionTypeDb::RunCommand,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "action_status", rename_all = "snake_case")]
+pub enum ActionStatusDb {
+    Pending,
+    Delivered,
+    Running,
+    Completed,
+    Failed,
+}
+
+impl From<ActionStatusDb> for api_types::ActionStatus {
+    fn from(s: ActionStatusDb) -> Self {
+        match s {
+            ActionStatusDb::Pending => api_types::ActionStatus::Pending,
+            ActionStatusDb::Delivered => api_types::ActionStatus::Delivered,
+            ActionStatusDb::Running => api_types::ActionStatus::Running,
+            ActionStatusDb::Completed => api_types::ActionStatus::Completed,
+            ActionStatusDb::Failed => api_types::ActionStatus::Failed,
+        }
+    }
+}
+
+// --- Pending action row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct PendingActionRow {
+    pub id: Uuid,
+    pub machine_id: Uuid,
+    pub action_type: ActionTypeDb,
+    pub payload: serde_json::Value,
+    pub status: ActionStatusDb,
+    pub created_by: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub delivered_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub result: Option<serde_json::Value>,
+}
+
+impl From<PendingActionRow> for api_types::PendingAction {
+    fn from(row: PendingActionRow) -> Self {
+        api_types::PendingAction {
+            id: row.id,
+            machine_id: row.machine_id,
+            action_type: row.action_type.into(),
+            payload: row.payload,
+            status: row.status.into(),
+            created_by: row.created_by,
+            created_at: row.created_at,
+        }
+    }
+}
+
+// --- Pending user env row (for heartbeat response) ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct PendingUserEnvRow {
+    pub username: String,
+    pub target_closure: String,
+}
+
 // --- Build job status enum ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]

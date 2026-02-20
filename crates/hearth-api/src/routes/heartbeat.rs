@@ -6,14 +6,17 @@ use hearth_common::api_types::{HeartbeatRequest, HeartbeatResponse};
 use tracing::{debug, warn};
 
 use crate::AppState;
+use crate::auth::MachineIdentity;
 use crate::cache_token;
 use crate::error::AppError;
 use crate::repo;
 
 pub async fn record_heartbeat(
+    _machine: MachineIdentity,
     State(state): State<AppState>,
     Json(req): Json<HeartbeatRequest>,
 ) -> Result<Json<HeartbeatResponse>, AppError> {
+    metrics::counter!("hearth_heartbeats_total").increment(1);
     let response = repo::record_heartbeat(&state.pool, &req).await?;
     match response {
         Some(mut resp) => {

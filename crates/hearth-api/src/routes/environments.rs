@@ -5,11 +5,13 @@ use hearth_common::api_types::{UpsertUserEnvRequest, UserEnvironment};
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::{MachineIdentity, UserIdentity};
 use crate::db::UserEnvStatusDb;
 use crate::error::AppError;
 use crate::repo;
 
 pub async fn list_environments(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(machine_id): Path<Uuid>,
 ) -> Result<Json<Vec<UserEnvironment>>, AppError> {
@@ -19,6 +21,7 @@ pub async fn list_environments(
 }
 
 pub async fn get_environment(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path((machine_id, username)): Path<(Uuid, String)>,
 ) -> Result<Json<UserEnvironment>, AppError> {
@@ -32,6 +35,7 @@ pub async fn get_environment(
 }
 
 pub async fn upsert_environment(
+    _machine: MachineIdentity,
     State(state): State<AppState>,
     Path((machine_id, username)): Path<(Uuid, String)>,
     Json(req): Json<UpsertUserEnvRequest>,
@@ -42,6 +46,7 @@ pub async fn upsert_environment(
 }
 
 pub async fn record_login(
+    _machine: MachineIdentity,
     State(state): State<AppState>,
     Path((machine_id, username)): Path<(Uuid, String)>,
 ) -> Result<Json<UserEnvironment>, AppError> {

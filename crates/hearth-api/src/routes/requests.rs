@@ -5,6 +5,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::{MachineIdentity, OperatorIdentity, UserIdentity};
 use crate::db::SoftwareRequestStatusDb;
 use crate::error::AppError;
 use crate::repo;
@@ -27,6 +28,7 @@ fn parse_status(s: &str) -> Result<SoftwareRequestStatusDb, AppError> {
 }
 
 pub async fn list_requests(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Query(params): Query<ListRequestsParams>,
 ) -> Result<Json<Vec<SoftwareRequest>>, AppError> {
@@ -38,6 +40,7 @@ pub async fn list_requests(
 }
 
 pub async fn approve_request(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<ResolveRequestBody>,
@@ -52,6 +55,7 @@ pub async fn approve_request(
 }
 
 pub async fn deny_request(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<ResolveRequestBody>,
@@ -66,6 +70,7 @@ pub async fn deny_request(
 }
 
 pub async fn claim_install(
+    _machine: MachineIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<SoftwareRequest>, AppError> {
@@ -79,6 +84,7 @@ pub async fn claim_install(
 }
 
 pub async fn report_install_result(
+    _machine: MachineIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<InstallResultReport>,

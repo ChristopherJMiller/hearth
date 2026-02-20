@@ -4,15 +4,20 @@ use axum::http::StatusCode;
 use hearth_common::api_types::{RoleClosure, UpsertRoleClosureRequest};
 
 use crate::AppState;
+use crate::auth::{AdminIdentity, UserIdentity};
 use crate::error::AppError;
 use crate::repo;
 
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<RoleClosure>>, AppError> {
+pub async fn list(
+    _user: UserIdentity,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<RoleClosure>>, AppError> {
     let rows = repo::list_role_closures(&state.pool).await?;
     Ok(Json(rows.into_iter().map(Into::into).collect()))
 }
 
 pub async fn get(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(role): Path<String>,
 ) -> Result<Json<RoleClosure>, AppError> {
@@ -26,6 +31,7 @@ pub async fn get(
 }
 
 pub async fn upsert(
+    _admin: AdminIdentity,
     State(state): State<AppState>,
     Json(req): Json<UpsertRoleClosureRequest>,
 ) -> Result<(StatusCode, Json<RoleClosure>), AppError> {
@@ -34,6 +40,7 @@ pub async fn upsert(
 }
 
 pub async fn delete(
+    _admin: AdminIdentity,
     State(state): State<AppState>,
     Path(role): Path<String>,
 ) -> Result<StatusCode, AppError> {

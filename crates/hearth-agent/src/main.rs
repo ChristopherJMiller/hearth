@@ -5,9 +5,11 @@
 //! - An IPC server for the greeter to request user-environment preparation.
 //! - Coordinated shutdown on SIGTERM / SIGINT.
 
+mod actions;
 mod config;
 mod installer;
 mod ipc;
+mod metrics;
 mod poller;
 mod queue;
 mod updater;
@@ -23,13 +25,18 @@ use hearth_common::api_client::ReqwestApiClient;
 
 #[tokio::main]
 async fn main() {
-    // Initialise structured logging.
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "hearth_agent=info".into()),
-        )
-        .init();
+    // Initialise structured logging (JSON when LOG_FORMAT=json).
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "hearth_agent=info".into());
+
+    if std::env::var("LOG_FORMAT").as_deref() == Ok("json") {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(env_filter)
+            .init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    }
 
     info!("hearth-agent starting");
 

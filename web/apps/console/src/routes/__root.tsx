@@ -9,6 +9,7 @@ import {
   LuBookOpen,
   LuFilePlus2,
   LuFileText,
+  LuBarChart3,
   LuFlame,
   LuLogOut,
 } from 'react-icons/lu';
@@ -22,6 +23,7 @@ const navItems: SidebarItem[] = [
   { id: 'catalog', label: 'Catalog', icon: <LuBookOpen size={18} /> },
   { id: 'requests', label: 'Requests', icon: <LuFilePlus2 size={18} /> },
   { id: 'audit', label: 'Audit Log', icon: <LuFileText size={18} /> },
+  { id: 'reports', label: 'Reports', icon: <LuBarChart3 size={18} /> },
 ];
 
 const routeMap: Record<string, string> = {
@@ -32,6 +34,7 @@ const routeMap: Record<string, string> = {
   catalog: '/catalog',
   requests: '/requests',
   audit: '/audit',
+  reports: '/reports',
 };
 
 export function RootLayout() {
@@ -53,7 +56,7 @@ export function RootLayout() {
         <Sidebar
           items={navItems}
           activeId={activeId}
-          onNavigate={(id) => {
+          onNavigate={(id: string) => {
             const path = routeMap[id];
             if (path) router.navigate({ to: path });
           }}

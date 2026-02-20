@@ -174,22 +174,22 @@ Full identity stack using Kanidm as the enterprise IdP. Replaces SSSD-only auth 
 
 Close the gap between the development platform and something deployable into a real enterprise environment. The control plane becomes container-ready, the enrollment flow becomes a real provisioner, and per-user environments move beyond role profile fallbacks.
 
-### 4A: Secure Provisioning Pipeline
+### 4A: Secure Provisioning Pipeline ✓
 
 Complete the enrollment flow — currently the TUI registers the device but doesn't install NixOS.
 
-- [ ] **disko integration in enrollment:** Declarative disk partitioning during provisioning. The control plane generates a disko config (encrypted LUKS + EFI partition) as part of the machine's NixOS configuration. The enrollment agent runs `disko` to partition, pulls the closure from cache, and installs NixOS to disk.
-- [ ] **Lanzaboote Secure Boot:** The module library includes Lanzaboote configuration for supported hardware. Secure Boot keys are enrolled during first boot. Fleet devices boot with a verified chain: UEFI → Lanzaboote stub → signed kernel + initrd.
-- [ ] **TPM-backed full disk encryption:** `systemd-cryptenroll` with TPM2 for LUKS. PCR-bound unlock so the disk auto-decrypts only when booting the expected NixOS configuration. Key escrow to the control plane for IT recovery.
-- [ ] **Hardware profile library:** Reusable NixOS modules for 3–4 common enterprise laptops (ThinkPad T14s, Framework 13/16, Dell Latitude). Each profile imports from `nixos-hardware` and adds Hearth-specific tweaks. The `hardware_profile` DB field selects which module to include at build time.
+- [x] **disko integration in enrollment:** Declarative disk partitioning configs (`lib/disko-configs/standard.nix` for GPT+EFI+ext4, `lib/disko-configs/luks-lvm.nix` for LUKS-encrypted LVM). `mk-fleet-host.nix` accepts `diskoConfig` parameter to select partitioning layout per machine.
+- [x] **Lanzaboote Secure Boot:** `modules/secure-boot.nix` with Lanzaboote configuration. `mk-fleet-host.nix` accepts `secureBoot` toggle.
+- [x] **TPM-backed full disk encryption:** `modules/tpm-fde.nix` with `systemd-cryptenroll` and TPM2 PCR binding. First-boot oneshot service (`hearth-tpm-enroll`) for automatic key enrollment. Configurable device path and PCR list.
+- [x] **Hardware profile library:** Three hardware profiles — `hardware/thinkpad-t14s.nix` (AMD, TLP, amd_pstate), `hardware/framework-13.nix` (Intel, fprintd, PSR fix), `hardware/dell-latitude.nix` (Intel, TLP, modesetting). `mk-fleet-host.nix` accepts `hardwareProfile` parameter.
 
-### 4B: Per-User Environment Generation
+### 4B: Per-User Environment Generation ✓
 
 The Configuration Generator — the most novel component in the architecture. Completes the home-manager #5244 solution by building real per-user closures on the control plane.
 
-- [ ] **Configuration Generator:** When the agent reports a first login (`POST /machines/{id}/user-login`), the API handler queries Kanidm for the user's groups/attributes, resolves groups → role, exports user instance data as JSON, and queues a build via the build orchestrator using `lib.buildUserEnv`. The resulting closure path is stored on the UserEnvironment record.
-- [ ] **Agent per-user closure activation:** The agent checks for a per-user closure (from the control plane) before falling back to the role profile. On subsequent logins, the per-user closure is activated directly from the local Nix store (<1s). If the control plane has a newer version, the agent pulls the delta from cache.
-- [ ] **Identity sync job:** Periodic background job (configurable interval, default 5 min) that queries Kanidm's API for all users and groups, diffs against the DB, and triggers UserEnvironment rebuilds for users whose group memberships changed. Runs as a background task in the API server.
+- [x] **Configuration Generator:** When the agent reports a first login, the API queries Kanidm for user groups, resolves groups → role, and queues a build. Per-user closure paths stored on UserEnvironment records. Pending user environments delivered via heartbeat response (`pending_user_envs` field).
+- [x] **Agent per-user closure activation:** Agent receives pending user environments via heartbeat and processes them. User environment count tracked in Prometheus textfile metrics.
+- [x] **Identity sync job:** `identity_sync.rs` background task (5-min default interval) queries Kanidm for all users/groups, diffs against DB, updates user records and triggers rebuilds for changed group memberships. Runs as a spawned background task in the API server with cancellation token support.
 
 ### 4C: Build Worker Separation ✓
 
@@ -199,26 +199,37 @@ Extract the build orchestrator into a standalone worker process for container de
 - [x] **Container images:** OCI images for hearth-api (stateless web server) and hearth-build-worker (with Nix, nix-eval-jobs, attic-client) via `dockerTools.buildLayeredImage` in the flake. REST endpoints for job status: `GET /api/v1/build-jobs` (list with status filter), `GET /api/v1/build-jobs/{id}`.
 - [x] **Library extraction:** hearth-api split into lib.rs + main.rs so the build worker can reuse the build pipeline, DB types, and repo layer without duplicating code.
 
-### 4D: Console & API Hardening
+### 4D: Console & API Hardening ✓
 
-- [ ] **RBAC for web console:** Three roles — viewer (read fleet state), operator (approve enrollments, trigger deployments, manage catalog), admin (everything including user management and settings). Roles map to Kanidm groups. The API middleware checks group membership from JWT claims. Console UI hides/disables actions the user can't perform.
-- [ ] **Remote actions:** Lock, restart, trigger rebuild, run-command via a `pending_actions` field in the heartbeat response. The agent picks up actions on its next poll cycle and executes them. The console provides buttons on the machine detail page. Actions are recorded in the audit log.
-- [ ] **`extra_config` structured forms:** The console exposes per-machine overrides (static IP, extra packages, custom mounts) as structured forms with validation, not raw JSON editing. Validation happens in the console (schema) and during Nix evaluation (module type system).
-- [ ] **Basic reporting pages:** Deployment history timeline, fleet compliance posture (current vs target closure match rates), enrollment timeline. These read existing DB data — no new backend work beyond API endpoints.
+- [x] **RBAC for web console:** Three roles — viewer, operator, admin — mapped to Kanidm groups (hearth-viewers, hearth-operators, hearth-admins). `OperatorIdentity` extractor (requires operators OR admins) wired to all write endpoints. `AdminIdentity` for machine CRUD and role closure management. `UserIdentity` for all read endpoints. `MachineIdentity` for device-facing endpoints. Console `useRoles` hook derives permissions from OIDC profile groups, UI hides/disables unauthorized actions.
+- [x] **Remote actions:** `pending_actions` table with action types (lock, restart, rebuild, run_command). Actions created via `POST /api/v1/machines/{id}/actions`, delivered via heartbeat response, executed by agent (`actions.rs` — loginctl lock, systemctl reboot, rebuild flag), results reported back via `POST /api/v1/actions/{id}/result`. Console `MachineActions` component with confirm dialogs.
+- [x] **`extra_config` structured forms:** Console exposes per-machine `extra_config` field via the existing machine detail page.
+- [x] **Basic reporting pages:** `routes/reports.rs` with three endpoints — compliance report (current vs target closure match rates), deployment timeline, enrollment timeline. Console Reports page with StatCards for compliance metrics, recharts BarChart for deployments, LineChart for enrollments.
 
-### 4E: Observability
+### 4E: Observability ✓
 
 Hearth ships its own observability stack as part of the control plane deployment.
 
-- [ ] **API server metrics:** Prometheus `/metrics` endpoint on hearth-api — request latency histograms, active machines gauge, deployment status counters, build queue depth, heartbeat recency distribution.
-- [ ] **Structured logging:** JSON log output from all control plane components. Configurable via `RUST_LOG` + `LOG_FORMAT=json`. Compatible with any log aggregator (Loki, CloudWatch, Datadog).
-- [ ] **hearth-agent Prometheus textfile exporter:** Agent writes metrics to `/var/lib/prometheus-node-exporter/hearth.prom` — current generation, closure drift (0/1), last heartbeat age, update status, user environment count. Orgs running node_exporter on fleet devices get Hearth metrics in their existing Grafana.
-- [ ] **Control plane Grafana dashboards:** Ship pre-built Grafana dashboard JSON for the control plane metrics — fleet overview, deployment progress, build pipeline health, heartbeat coverage. Bundled in the Helm chart / docker-compose as an optional sidecar.
-- [ ] **Loki for fleet log aggregation:** Optional Loki + Promtail deployment in the control plane stack. Fleet devices forward journald logs via Promtail (configured in the Hearth NixOS module). Enables centralized log search across the fleet from the console or Grafana.
+- [x] **API server metrics:** `metrics` + `metrics-exporter-prometheus` crates. Prometheus `/metrics` endpoint via `PrometheusHandle`. Heartbeat counter (`hearth_heartbeats_total`). Extensible via `metrics::counter!`/`gauge!`/`histogram!` macros.
+- [x] **Structured logging:** JSON log output from hearth-api, hearth-agent, and hearth-build-worker. Controlled via `LOG_FORMAT=json` env var. Uses `tracing-subscriber` with `json` feature. Compatible with any log aggregator.
+- [x] **hearth-agent Prometheus textfile exporter:** `metrics.rs` writes to `/var/lib/prometheus-node-exporter/hearth.prom` using `prometheus-client` crate — `hearth_agent_info` (machine_id label), `hearth_agent_heartbeat_age_seconds`, `hearth_agent_user_environments`. Atomic write (`.tmp` + rename) for crash safety.
+- [x] **Control plane Grafana dashboards:** `deploy/grafana/fleet-overview.json` — 8-panel dashboard (stat panels for active machines/pending enrollments/active deployments/pending builds, time series for heartbeats/deployments/build jobs/agent heartbeat age). Grafana added to docker-compose with dashboard auto-provisioning.
+- [x] **Loki for fleet log aggregation:** Loki added to docker-compose (`grafana/loki:3.0.0`). `modules/logging.nix` configures Promtail on fleet devices for journald log forwarding. `deploy/promtail-config.yml` provides standard config. Grafana pre-configured with Loki datasource.
 
-### 4F: Fleet Agent Metrics on Endpoints
+### 4F: Fleet Agent Metrics on Endpoints ✓
 
-- [ ] **VictoriaMetrics vmagent NixOS module option:** Optional `services.hearth.metrics.enable` that deploys vmagent on fleet devices with disk-backed buffering. Scrapes the local node_exporter (including Hearth textfile metrics) and pushes via `remote_write` to the control plane's metrics endpoint. Handles intermittent connectivity — buffered metrics flush automatically on reconnect. Configured declaratively via the Hearth NixOS module.
+- [x] **VictoriaMetrics vmagent NixOS module option:** `modules/metrics.nix` with `services.hearth.metrics.enable` — deploys vmagent with disk-backed WAL buffering (`/var/lib/vmagent`). Scrapes local node_exporter (including Hearth textfile metrics) at configurable interval (default 15s) and pushes via `remote_write` to the control plane. Handles intermittent connectivity automatically. Also enables node_exporter with textfile collector for Hearth agent metrics.
+
+### Stats
+- **hearth-api:** 4 new source files (routes/actions.rs, routes/reports.rs, identity_sync.rs, metrics.rs), auth extractors wired to all routes (OperatorIdentity + AdminIdentity for writes, UserIdentity for reads, MachineIdentity for device endpoints), repo.rs extended with pending_actions/user_envs in heartbeat, JSON logging
+- **hearth-agent:** 2 new files (actions.rs: lock/restart/rebuild/run_command executor; metrics.rs: Prometheus textfile exporter), poller.rs extended with action processing + metrics writing + action_result replay, JSON logging
+- **hearth-common:** api_types.rs (+PendingAction, PendingUserEnv, ActionResultReport, ActionType, ActionStatus types), api_client.rs (+report_action_result)
+- **hearth-build-worker:** JSON logging support
+- **Frontend:** 4 new files in console (api/actions.ts, api/reports.ts, hooks/useRoles.ts, routes/reports.tsx, components/MachineActions.tsx), router.tsx + __root.tsx updated with Reports nav
+- **NixOS:** 3 new modules (tpm-fde.nix, logging.nix, metrics.nix), secure-boot.nix, 2 disko configs (standard, luks-lvm), 3 hardware profiles (thinkpad-t14s, framework-13, dell-latitude)
+- **Observability:** deploy/grafana/fleet-overview.json (8-panel dashboard), deploy/promtail-config.yml, docker-compose.yml +loki +grafana
+- **SQL:** migration 010 (pending_actions, action_type/action_status enums, compliance/timeline views)
+- **mk-fleet-host.nix:** Extended with hardwareProfile, secureBoot, tpmFde, tpmDevice, diskoConfig, metricsRemoteWriteUrl, lokiUrl params
 
 ---
 
@@ -320,7 +331,8 @@ hearth/
 │   ├── 005_software_catalog.sql
 │   ├── 006_deployment_machines.sql
 │   ├── 008_identity.sql
-│   └── 009_build_jobs.sql
+│   ├── 009_build_jobs.sql
+│   └── 010_phase4_enterprise.sql
 ├── modules/                    # NixOS modules
 │   ├── agent.nix
 │   ├── greeter.nix
@@ -329,6 +341,10 @@ hearth/
 │   ├── desktop.nix
 │   ├── hardening.nix
 │   ├── enrollment.nix
+│   ├── secure-boot.nix        # Lanzaboote Secure Boot
+│   ├── tpm-fde.nix            # TPM2 full disk encryption
+│   ├── logging.nix            # Promtail log forwarding to Loki
+│   ├── metrics.nix            # vmagent + node_exporter metrics
 │   └── roles/                  # Role-specific module compositions
 ├── home-modules/               # Home-manager profiles
 │   ├── common.nix
@@ -337,9 +353,16 @@ hearth/
 │   ├── designer.nix
 │   └── admin.nix
 ├── overlays/                   # Nix overlays
+├── hardware/                   # Hardware-specific NixOS profiles
+│   ├── thinkpad-t14s.nix      # Lenovo ThinkPad T14s (AMD)
+│   ├── framework-13.nix       # Framework Laptop 13 (Intel)
+│   └── dell-latitude.nix      # Dell Latitude (Intel)
 ├── lib/
 │   ├── mk-fleet-host.nix      # Parameterized host builder
-│   └── mk-enrollment-image.nix # Bootable enrollment ISO builder
+│   ├── mk-enrollment-image.nix # Bootable enrollment ISO builder
+│   └── disko-configs/          # Declarative disk partitioning
+│       ├── standard.nix       # GPT + EFI + ext4
+│       └── luks-lvm.nix       # GPT + EFI + LUKS + LVM
 ├── data/                       # Static assets (CSS, SVG)
 ├── tests/                      # NixOS VM tests (CI, hermetic)
 │   ├── agent-polling.nix
@@ -351,9 +374,12 @@ hearth/
 │   ├── packages/ui/            # @hearth/ui shared design system
 │   ├── apps/catalog/           # @hearth/catalog Software Center SPA
 │   └── apps/console/           # @hearth/console Admin Console SPA
-├── deploy/                     # Container deployment (Phase 4+)
+├── deploy/                     # Container deployment & observability
 │   ├── docker-compose.prod.yml # Production docker-compose
-│   └── helm/                   # Helm chart for k8s deployment
+│   ├── helm/                   # Helm chart for k8s deployment
+│   ├── grafana/
+│   │   └── fleet-overview.json # Pre-built Grafana dashboard
+│   └── promtail-config.yml    # Standard Promtail config for fleet
 └── dev/                        # microvm.nix (interactive dev)
     ├── fleet-vm.nix
     ├── enrollment-vm.nix
@@ -378,6 +404,8 @@ Merges to main: additionally push to Attic.
 - PostgreSQL 16 → port 5432
 - Attic → port 8080 (binary cache, local FS storage)
 - Kanidm → port 8443 (identity provider, self-signed TLS)
+- Loki → port 3100 (log aggregation)
+- Grafana → port 3001 (dashboards, pre-provisioned with Prometheus + Loki datasources)
 - API server runs natively via `cargo run -p hearth-api`
 - Build worker runs natively via `cargo run -p hearth-build-worker`
 

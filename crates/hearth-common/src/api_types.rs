@@ -82,6 +82,12 @@ pub struct HeartbeatResponse {
     /// Refreshed machine token — agent should persist this and use for future requests.
     #[serde(default)]
     pub machine_token: Option<String>,
+    /// Remote actions pending execution on this machine.
+    #[serde(default)]
+    pub pending_actions: Vec<PendingAction>,
+    /// Per-user environment closures ready for activation.
+    #[serde(default)]
+    pub pending_user_envs: Vec<PendingUserEnv>,
 }
 
 // --- Target state ---
@@ -447,6 +453,71 @@ pub enum AuthIdentity {
     User(AuthClaims),
     /// A machine (agent) authenticated via a machine token.
     Machine { machine_id: Uuid },
+}
+
+// --- Remote action types ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionType {
+    Lock,
+    Restart,
+    Rebuild,
+    RunCommand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionStatus {
+    Pending,
+    Delivered,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingAction {
+    pub id: Uuid,
+    pub machine_id: Uuid,
+    pub action_type: ActionType,
+    pub payload: serde_json::Value,
+    pub status: ActionStatus,
+    pub created_by: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateActionRequest {
+    pub action_type: ActionType,
+    #[serde(default)]
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionResultReport {
+    pub action_id: Uuid,
+    pub success: bool,
+    pub result: Option<serde_json::Value>,
+}
+
+// --- Per-user environment types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingUserEnv {
+    pub username: String,
+    pub target_closure: String,
+    pub cache_url: Option<String>,
+}
+
+// --- Compliance report types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceReport {
+    pub total: i64,
+    pub compliant: i64,
+    pub drifted: i64,
+    pub no_target: i64,
 }
 
 // --- Build job types ---

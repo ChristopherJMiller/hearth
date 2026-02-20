@@ -6,6 +6,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::UserIdentity;
 use crate::error::AppError;
 use crate::repo;
 
@@ -19,6 +20,7 @@ pub struct AuditFilters {
 }
 
 pub async fn list_audit_events(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Query(params): Query<AuditFilters>,
 ) -> Result<Json<Vec<AuditEvent>>, AppError> {

@@ -432,6 +432,33 @@ impl FromRequestParts<AppState> for OptionalIdentity {
     }
 }
 
+/// Extractor that requires a user in the hearth-operators or hearth-admins group.
+pub struct OperatorIdentity(pub AuthClaims);
+
+impl FromRequestParts<AppState> for OperatorIdentity {
+    type Rejection = AuthError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let UserIdentity(claims) = UserIdentity::from_request_parts(parts, state).await?;
+
+        if claims
+            .groups
+            .iter()
+            .any(|g| g == "hearth-operators" || g == "hearth-admins")
+        {
+            Ok(OperatorIdentity(claims))
+        } else {
+            Err(AuthError(
+                StatusCode::FORBIDDEN,
+                "requires hearth-operators or hearth-admins group membership".into(),
+            ))
+        }
+    }
+}
+
 /// Extractor that requires a user in the hearth-admins group.
 pub struct AdminIdentity(pub AuthClaims);
 

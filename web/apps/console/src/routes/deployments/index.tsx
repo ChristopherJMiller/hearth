@@ -125,7 +125,7 @@ export function DeploymentsPage() {
         <DataTable
           data={filtered}
           columns={columns}
-          onRowClick={(deployment) =>
+          onRowClick={(deployment: Deployment) =>
             router.navigate({
               to: '/deployments/$deploymentId',
               params: { deploymentId: deployment.id },

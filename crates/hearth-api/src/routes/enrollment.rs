@@ -9,6 +9,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::OperatorIdentity;
 use crate::auth::OptionalIdentity;
 use crate::cache_token;
 use crate::error::AppError;
@@ -65,6 +66,7 @@ pub async fn enroll(
 }
 
 pub async fn approve(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<ApproveEnrollmentRequest>,

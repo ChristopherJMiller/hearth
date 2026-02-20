@@ -5,6 +5,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::UserIdentity;
 use crate::db::BuildJobStatusDb;
 use crate::error::AppError;
 use crate::repo;
@@ -31,6 +32,7 @@ fn parse_build_job_status(s: &str) -> Result<BuildJobStatusDb, AppError> {
 }
 
 pub async fn list_build_jobs(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Query(params): Query<BuildJobFilters>,
 ) -> Result<Json<Vec<BuildJob>>, AppError> {
@@ -46,6 +48,7 @@ pub async fn list_build_jobs(
 }
 
 pub async fn get_build_job(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<BuildJob>, AppError> {

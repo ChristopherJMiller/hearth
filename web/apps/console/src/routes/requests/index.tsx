@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { PageHeader, DataTable, FilterPills, Button } from '@hearth/ui';
 import {
@@ -36,7 +36,7 @@ function ActionsCell({ request }: { request: SoftwareRequest }) {
       <Button
         variant="primary"
         size="sm"
-        onClick={(e) => {
+        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
           e.stopPropagation();
           approve.mutate({ id: request.id, admin: 'console-admin' });
         }}
@@ -49,7 +49,7 @@ function ActionsCell({ request }: { request: SoftwareRequest }) {
         variant="ghost"
         size="sm"
         className="text-[var(--color-error)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-faint)]"
-        onClick={(e) => {
+        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
           e.stopPropagation();
           deny.mutate({ id: request.id, admin: 'console-admin' });
         }}

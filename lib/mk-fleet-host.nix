@@ -36,6 +36,13 @@
 , enableEnrollment ? false
 , kanidmUrl ? null
 , kanidmCaCert ? null
+, hardwareProfile ? null
+, secureBoot ? false
+, tpmFde ? false
+, tpmDevice ? "/dev/disk/by-partlabel/cryptroot"
+, diskoConfig ? null
+, metricsRemoteWriteUrl ? null
+, lokiUrl ? null
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -64,6 +71,10 @@ nixpkgs.lib.nixosSystem {
     ../modules/kanidm-client.nix
     ../modules/desktop.nix
     ../modules/hardening.nix
+    ../modules/secure-boot.nix
+    ../modules/tpm-fde.nix
+    ../modules/logging.nix
+    ../modules/metrics.nix
     ../modules/roles/default.nix
 
     # --- Per-host configuration ---
@@ -120,6 +131,18 @@ nixpkgs.lib.nixosSystem {
       # --- Role ---
       services.hearth.roles.role = role;
 
+      # --- Secure Boot ---
+      services.hearth.secureBoot.enable = secureBoot;
+
+      # --- TPM FDE ---
+      services.hearth.tpmFde = lib.mkIf tpmFde { enable = true; device = tpmDevice; };
+
+      # --- Logging ---
+      services.hearth.logging = lib.mkIf (lokiUrl != null) { enable = true; inherit lokiUrl; };
+
+      # --- Metrics ---
+      services.hearth.metrics = lib.mkIf (metricsRemoteWriteUrl != null) { enable = true; remoteWriteUrl = metricsRemoteWriteUrl; };
+
       # --- Boot loader (reasonable defaults, hardware module can override) ---
       boot.loader.systemd-boot.enable = lib.mkDefault true;
       boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
@@ -144,6 +167,12 @@ nixpkgs.lib.nixosSystem {
 
     # --- Hardware configuration (if provided) ---
   ] ++ lib.optional (hardware != null) hardware
+
+    # --- Hardware profile (if provided) ---
+    ++ lib.optional (hardwareProfile != null) hardwareProfile
+
+    # --- Disko configuration (if provided) ---
+    ++ lib.optional (diskoConfig != null) (import diskoConfig { device = "/dev/sda"; })
 
     # --- Enrollment module (if this is an enrollment image) ---
     ++ lib.optional enableEnrollment (

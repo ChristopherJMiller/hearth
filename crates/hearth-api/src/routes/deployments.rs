@@ -9,6 +9,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::{MachineIdentity, OperatorIdentity, UserIdentity};
 use crate::db::{DeploymentStatusDb, MachineUpdateStatusDb};
 use crate::error::AppError;
 use crate::repo;
@@ -33,6 +34,7 @@ fn parse_deployment_status(s: &str) -> Result<DeploymentStatusDb, AppError> {
 }
 
 pub async fn create_deployment(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Json(req): Json<CreateDeploymentRequest>,
 ) -> Result<(StatusCode, Json<Deployment>), AppError> {
@@ -41,6 +43,7 @@ pub async fn create_deployment(
 }
 
 pub async fn list_deployments(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Query(params): Query<DeploymentFilters>,
 ) -> Result<Json<Vec<Deployment>>, AppError> {
@@ -56,6 +59,7 @@ pub async fn list_deployments(
 }
 
 pub async fn get_deployment(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Deployment>, AppError> {
@@ -67,6 +71,7 @@ pub async fn get_deployment(
 }
 
 pub async fn update_deployment_status(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDeploymentStatusRequest>,
@@ -93,6 +98,7 @@ pub async fn update_deployment_status(
 }
 
 pub async fn rollback_deployment(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Deployment>, AppError> {
@@ -117,6 +123,7 @@ pub async fn rollback_deployment(
 }
 
 pub async fn list_deployment_machines(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(deployment_id): Path<Uuid>,
 ) -> Result<Json<Vec<DeploymentMachineStatus>>, AppError> {
@@ -134,6 +141,7 @@ pub async fn list_deployment_machines(
 }
 
 pub async fn update_machine_status(
+    _machine: MachineIdentity,
     State(state): State<AppState>,
     Path((deployment_id, machine_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateMachineUpdateStatusRequest>,
@@ -170,6 +178,7 @@ pub async fn update_machine_status(
 /// will pick it up and execute the full pipeline (eval, build, cache push,
 /// deployment creation).
 pub async fn trigger_build(
+    _op: OperatorIdentity,
     State(state): State<AppState>,
     Json(req): Json<TriggerBuildRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {

@@ -6,13 +6,17 @@ pub mod deployment_fsm;
 mod deployment_monitor;
 pub mod error;
 mod health_check;
+pub mod identity_sync;
+pub mod metrics;
 pub mod repo;
 pub mod rollout;
 mod routes;
 
 use auth::AuthConfig;
 use axum::Router;
+use axum::middleware;
 use axum::routing::{get, post, put};
+use metrics_exporter_prometheus::PrometheusHandle;
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
@@ -22,6 +26,11 @@ use tower_http::trace::TraceLayer;
 /// Start the deployment monitor background loop.
 pub async fn deployment_monitor_run(pool: PgPool, cancel: CancellationToken) {
     deployment_monitor::run(pool, cancel).await;
+}
+
+/// Start the identity sync background loop.
+pub async fn identity_sync_run(pool: PgPool, auth_config: AuthConfig, cancel: CancellationToken) {
+    identity_sync::run(pool, auth_config, cancel).await;
 }
 
 #[derive(Clone)]
@@ -45,6 +54,10 @@ pub fn machines_routes() -> Router<AppState> {
         .route(
             "/{id}/target-state",
             get(routes::machines::get_target_state),
+        )
+        .route(
+            "/{id}/actions",
+            get(routes::actions::list_actions).post(routes::actions::create_action),
         )
 }
 
@@ -151,8 +164,24 @@ pub fn auth_me_route() -> Router<AppState> {
     Router::new().route("/me", get(routes::auth_me::me))
 }
 
+pub fn action_result_routes() -> Router<AppState> {
+    Router::new().route("/{id}/result", post(routes::actions::report_action_result))
+}
+
+pub fn reports_routes() -> Router<AppState> {
+    Router::new()
+        .route("/compliance", get(routes::reports::compliance_report))
+        .route("/deployments", get(routes::reports::deployment_timeline))
+        .route("/enrollments", get(routes::reports::enrollment_timeline))
+}
+
 /// Build the complete application router.
-pub fn build_router(state: AppState, catalog_dist: &str, console_dist: &str) -> Router {
+pub fn build_router(
+    state: AppState,
+    catalog_dist: &str,
+    console_dist: &str,
+    metrics_handle: PrometheusHandle,
+) -> Router {
     let catalog_spa = ServeDir::new(catalog_dist).not_found_service(ServeFile::new(
         std::path::Path::new(catalog_dist).join("index.html"),
     ));
@@ -168,6 +197,10 @@ pub fn build_router(state: AppState, catalog_dist: &str, console_dist: &str) -> 
 
     Router::new()
         .route("/healthz", get(routes::health::healthz))
+        .route(
+            "/metrics",
+            get(metrics::metrics_handler).with_state(metrics_handle),
+        )
         .nest("/api/v1/machines", machines_routes())
         .nest("/api/v1/heartbeat", heartbeat_routes())
         .nest("/api/v1/catalog", catalog_routes())
@@ -177,6 +210,8 @@ pub fn build_router(state: AppState, catalog_dist: &str, console_dist: &str) -> 
         .nest("/api/v1/role-closures", role_closure_routes())
         .nest("/api/v1", enrollment_routes())
         .nest("/api/v1/auth", auth_me_route())
+        .nest("/api/v1/actions", action_result_routes())
+        .nest("/api/v1/reports", reports_routes())
         .route("/api/v1/stats", get(routes::stats::fleet_stats))
         .route("/api/v1/audit", get(routes::audit::list_audit_events))
         .nest(
@@ -185,6 +220,7 @@ pub fn build_router(state: AppState, catalog_dist: &str, console_dist: &str) -> 
         )
         .nest_service("/catalog", catalog_spa)
         .nest_service("/console", console_spa)
+        .layer(middleware::from_fn(metrics::track_request))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)

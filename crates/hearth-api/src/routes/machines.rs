@@ -4,16 +4,21 @@ use hearth_common::api_types::{CreateMachineRequest, Machine, TargetState, Updat
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::{AdminIdentity, MachineIdentity, UserIdentity};
 use crate::error::AppError;
 use crate::repo;
 
-pub async fn list_machines(State(state): State<AppState>) -> Result<Json<Vec<Machine>>, AppError> {
+pub async fn list_machines(
+    _user: UserIdentity,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Machine>>, AppError> {
     let rows = repo::list_machines(&state.pool).await?;
     let machines: Vec<Machine> = rows.into_iter().map(Into::into).collect();
     Ok(Json(machines))
 }
 
 pub async fn get_machine(
+    _user: UserIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Machine>, AppError> {
@@ -25,6 +30,7 @@ pub async fn get_machine(
 }
 
 pub async fn create_machine(
+    _admin: AdminIdentity,
     State(state): State<AppState>,
     Json(req): Json<CreateMachineRequest>,
 ) -> Result<(axum::http::StatusCode, Json<Machine>), AppError> {
@@ -33,6 +39,7 @@ pub async fn create_machine(
 }
 
 pub async fn update_machine(
+    _admin: AdminIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateMachineRequest>,
@@ -45,6 +52,7 @@ pub async fn update_machine(
 }
 
 pub async fn delete_machine(
+    _admin: AdminIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<axum::http::StatusCode, AppError> {
@@ -57,6 +65,7 @@ pub async fn delete_machine(
 }
 
 pub async fn get_target_state(
+    _machine: MachineIdentity,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TargetState>, AppError> {

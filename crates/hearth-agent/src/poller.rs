@@ -10,10 +10,13 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use hearth_common::api_client::HearthApiClient;
-use hearth_common::api_types::{HeartbeatRequest, MachineUpdateStatus};
+use hearth_common::api_types::{ActionResultReport, HeartbeatRequest, MachineUpdateStatus};
 
 use crate::queue::OfflineQueue;
 use crate::updater;
+
+/// Default path for Prometheus textfile metrics (node_exporter textfile collector).
+const METRICS_PATH: &str = "/var/lib/prometheus-node-exporter/hearth.prom";
 
 /// Run the main poll loop until the shutdown token is cancelled.
 ///
@@ -50,6 +53,11 @@ pub async fn run_poll_loop<C: HearthApiClient>(
     // Cache credentials from heartbeat — refreshed every cycle.
     let mut cache_url: Option<String> = None;
     let mut last_cache_token: Option<String> = None;
+
+    // Track last successful heartbeat time for metrics.
+    let mut last_heartbeat_time: Option<std::time::Instant> = None;
+    // Track user environment count from heartbeat response.
+    let mut user_env_count: u64 = 0;
 
     loop {
         // --- Drain offline queue ---
@@ -194,6 +202,8 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                     }
                 }
 
+                last_heartbeat_time = Some(std::time::Instant::now());
+
                 // Process pending software installs
                 for install in &resp.pending_installs {
                     let req_id = install.request_id;
@@ -225,6 +235,26 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                         }
                     }
                 }
+
+                // Process pending remote actions
+                for action in &resp.pending_actions {
+                    let (success, result) = crate::actions::execute_action(action).await;
+                    let report = ActionResultReport {
+                        action_id: action.id,
+                        success,
+                        result,
+                    };
+                    if let Err(e) = client.report_action_result(&report).await {
+                        warn!(action_id = %action.id, error = %e, "failed to report action result, queueing");
+                        let payload = serde_json::to_string(&report).unwrap_or_default();
+                        if let Err(qe) = queue.enqueue("action_result", &payload) {
+                            error!(error = %qe, "failed to queue action result");
+                        }
+                    }
+                }
+
+                // Track user env count from response for metrics
+                user_env_count = resp.pending_user_envs.len() as u64;
             }
             Err(e) => {
                 warn!(error = %e, "failed to send heartbeat, queueing for later");
@@ -239,6 +269,19 @@ pub async fn run_poll_loop<C: HearthApiClient>(
         if update_error.is_some() {
             update_error = None;
         }
+
+        // --- Write textfile metrics for node_exporter ---
+        let heartbeat_age = last_heartbeat_time
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(f64::NAN);
+        crate::metrics::write_textfile_metrics(
+            std::path::Path::new(METRICS_PATH),
+            &machine_id.to_string(),
+            current_closure.as_deref(),
+            None, // target_closure not available here; resolved from heartbeat response
+            heartbeat_age,
+            user_env_count,
+        );
 
         // --- Wait for the next tick or shutdown ---
         tokio::select! {
@@ -284,6 +327,11 @@ async fn replay_event<C: HearthApiClient>(
             let report: hearth_common::api_types::InstallResultReport =
                 serde_json::from_str(&event.payload)?;
             client.report_install_result(&report).await?;
+            Ok(())
+        }
+        "action_result" => {
+            let report: ActionResultReport = serde_json::from_str(&event.payload)?;
+            client.report_action_result(&report).await?;
             Ok(())
         }
         other => {
