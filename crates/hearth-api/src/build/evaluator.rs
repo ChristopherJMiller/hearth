@@ -87,3 +87,63 @@ pub async fn evaluate_flake(flake_ref: &str) -> Result<Vec<NixEvalResult>, EvalE
     info!(count = results.len(), "evaluation complete");
     Ok(results)
 }
+
+/// Evaluate a Nix expression file using `nix-eval-jobs --expr`.
+///
+/// This is used for per-machine closure builds where we generate an eval.nix
+/// wrapper that calls `buildMachineConfig` for each machine. Unlike
+/// `evaluate_flake`, this uses `--expr` instead of `--flake`.
+pub async fn evaluate_expr(expr_path: &str) -> Result<Vec<NixEvalResult>, EvalError> {
+    info!(expr_path, "starting nix-eval-jobs --expr");
+
+    let expr = format!("import {expr_path}");
+
+    let mut child = Command::new("nix-eval-jobs")
+        .args(["--expr", &expr])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(EvalError::SpawnFailed)?;
+
+    let stdout = child.stdout.take().expect("stdout not captured");
+    let reader = BufReader::new(stdout);
+    let mut lines = reader.lines();
+
+    let mut results = Vec::new();
+
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|e| EvalError::ParseError(format!("failed to read stdout: {e}")))?
+    {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<NixEvalResult>(&line) {
+            Ok(result) => {
+                if let Some(err) = &result.error {
+                    error!(attr = %result.attr, error = %err, "eval error for attribute");
+                } else {
+                    debug!(attr = %result.attr, drv = %result.drv_path, "evaluated");
+                }
+                results.push(result);
+            }
+            Err(e) => {
+                error!(line = %line, error = %e, "failed to parse nix-eval-jobs output");
+            }
+        }
+    }
+
+    let status = child.wait().await.map_err(EvalError::SpawnFailed)?;
+
+    if !status.success() {
+        let code = status.code().unwrap_or(-1);
+        return Err(EvalError::ExitFailed(
+            code,
+            format!("nix-eval-jobs --expr exited with code {code}"),
+        ));
+    }
+
+    info!(count = results.len(), "expression evaluation complete");
+    Ok(results)
+}

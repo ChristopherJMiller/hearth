@@ -23,6 +23,26 @@ pub struct Machine {
     pub enrolled_by: Option<String>,
     #[serde(default, skip_serializing)]
     pub machine_token_hash: Option<String>,
+    /// Full hardware detection report (CPU, RAM, disk, NIC, etc.) stored as JSON.
+    #[serde(default)]
+    pub hardware_report: Option<serde_json::Value>,
+    /// Device serial number for asset tracking.
+    #[serde(default)]
+    pub serial_number: Option<String>,
+    /// Generated NixOS hardware-configuration.nix content from the device.
+    /// Captured during enrollment via `nixos-generate-config --show-hardware-config`.
+    #[serde(default)]
+    pub hardware_config: Option<String>,
+    /// Legacy hardware profile name (from migration 010). Retained for backwards
+    /// compatibility but `hardware_config` is preferred for new enrollments.
+    #[serde(default)]
+    pub hardware_profile: Option<String>,
+    /// Hash of the instance data JSON used for the current build.
+    #[serde(default)]
+    pub instance_data_hash: Option<String>,
+    /// Git commit ref of the module library used for the current build.
+    #[serde(default)]
+    pub module_library_ref: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -359,6 +379,16 @@ pub struct EnrollmentRequest {
     pub hardware_fingerprint: Option<String>,
     pub os_version: Option<String>,
     pub role_hint: Option<String>,
+    /// Full hardware detection report (CPU, RAM, disk, NIC, etc.).
+    #[serde(default)]
+    pub hardware_report: Option<serde_json::Value>,
+    /// Device serial number for asset tracking.
+    #[serde(default)]
+    pub serial_number: Option<String>,
+    /// Generated NixOS hardware-configuration.nix content from the device.
+    /// Captured during enrollment via `nixos-generate-config --show-hardware-config`.
+    #[serde(default)]
+    pub hardware_config: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

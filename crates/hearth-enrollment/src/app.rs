@@ -37,6 +37,10 @@ pub struct EnrollmentData {
     pub machine_token: Option<String>,
     /// Disko config name for disk partitioning (e.g., "standard", "luks-lvm").
     pub disko_config: Option<String>,
+    /// Device serial number for asset tracking.
+    pub serial_number: Option<String>,
+    /// Generated NixOS hardware-configuration.nix content from the device.
+    pub hardware_config: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

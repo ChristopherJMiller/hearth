@@ -433,6 +433,24 @@ impl ProvisionScreen {
                     self.log(format!("  {line}"));
                 }
                 self.log("disko complete: disk partitioned, formatted, and mounted at /mnt");
+
+                // Verify mount points before proceeding
+                if let Err(e) = Self::run_cmd("mountpoint", &["-q", "/mnt"]).await {
+                    self.state = ProvisionState::Error {
+                        step: "disko".into(),
+                        message: format!("/mnt is not a mount point after disko: {e}"),
+                    };
+                    return;
+                }
+                if let Err(e) = Self::run_cmd("mountpoint", &["-q", "/mnt/boot"]).await {
+                    self.state = ProvisionState::Error {
+                        step: "disko".into(),
+                        message: format!("/mnt/boot is not a mount point after disko: {e}"),
+                    };
+                    return;
+                }
+                self.log("Mount points verified: /mnt and /mnt/boot OK");
+
                 // Proceed to NixOS installation
                 self.install_system().await;
             }
@@ -515,7 +533,12 @@ impl ProvisionScreen {
 
         self.log("Running nixos-install (this may take a while)...");
 
-        let mut args: Vec<&str> = vec!["--no-root-password", "--system", &closure];
+        let mut args: Vec<&str> = vec![
+            "--no-root-password",
+            "--no-channel-copy",
+            "--system",
+            &closure,
+        ];
         let extra_refs: Vec<&str> = extra_args.iter().map(|s| s.as_str()).collect();
         args.extend(extra_refs);
 

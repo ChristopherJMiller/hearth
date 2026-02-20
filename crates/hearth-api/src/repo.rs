@@ -22,6 +22,8 @@ const MACHINE_COLUMNS: &str = "id, hostname, hardware_fingerprint, enrollment_st
     current_closure, target_closure, rollback_closure,
     role, tags, extra_config, last_heartbeat,
     enrolled_by, machine_token_hash,
+    hardware_report, serial_number, hardware_config, hardware_profile,
+    instance_data_hash, module_library_ref,
     created_at, updated_at";
 
 pub async fn list_machines(pool: &PgPool) -> Result<Vec<MachineRow>, sqlx::Error> {
@@ -564,15 +566,22 @@ pub async fn enroll_machine(
     hostname: &str,
     hardware_fingerprint: Option<&str>,
     enrolled_by: Option<&str>,
+    hardware_report: Option<&serde_json::Value>,
+    serial_number: Option<&str>,
+    hardware_config: Option<&str>,
 ) -> Result<MachineRow, sqlx::Error> {
     sqlx::query_as::<_, MachineRow>(&format!(
-        "INSERT INTO machines (hostname, hardware_fingerprint, enrollment_status, enrolled_by)
-         VALUES ($1, $2, 'pending', $3)
+        "INSERT INTO machines (hostname, hardware_fingerprint, enrollment_status, enrolled_by,
+             hardware_report, serial_number, hardware_config)
+         VALUES ($1, $2, 'pending', $3, $4, $5, $6)
          RETURNING {MACHINE_COLUMNS}"
     ))
     .bind(hostname)
     .bind(hardware_fingerprint)
     .bind(enrolled_by)
+    .bind(hardware_report)
+    .bind(serial_number)
+    .bind(hardware_config)
     .fetch_one(pool)
     .await
 }

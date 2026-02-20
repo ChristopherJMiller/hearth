@@ -7,7 +7,10 @@ use tracing::info;
 
 use crate::repo;
 
-/// Per-machine configuration for `mkFleetHost`.
+/// Per-machine instance data for `buildMachineConfig`.
+///
+/// This struct is serialized to JSON and written to a per-machine file that
+/// the Nix evaluator reads via `builtins.readFile` + `builtins.fromJSON`.
 #[derive(Debug, Clone, Serialize)]
 pub struct MachineConfig {
     pub hostname: String,
@@ -15,6 +18,16 @@ pub struct MachineConfig {
     pub role: String,
     pub tags: Vec<String>,
     pub extra_config: Option<serde_json::Value>,
+    /// Server URL for the agent to connect to after provisioning.
+    pub server_url: Option<String>,
+    /// Raw NixOS hardware-configuration.nix content from the device.
+    pub hardware_config: Option<String>,
+    /// Device serial number for asset tracking.
+    pub serial_number: Option<String>,
+    /// Kanidm URL for identity integration.
+    pub kanidm_url: Option<String>,
+    /// Binary cache URL for pulling closures.
+    pub binary_cache_url: Option<String>,
 }
 
 /// Fleet-wide configuration for a build evaluation.
@@ -62,12 +75,75 @@ pub async fn generate_fleet_config(
             role: m.role.unwrap_or_else(|| "default".to_string()),
             tags: m.tags,
             extra_config: m.extra_config,
+            server_url: None, // Set by orchestrator from env/config
+            hardware_config: m.hardware_config,
+            serial_number: m.serial_number,
+            kanidm_url: None,       // Set by orchestrator from env/config
+            binary_cache_url: None, // Set by orchestrator from env/config
         });
     }
 
     info!(count = configs.len(), "generated fleet config");
 
     Ok(FleetConfig { machines: configs })
+}
+
+/// Compute a SHA-256 hash of serialized instance data for reproducibility tracking.
+pub fn instance_data_hash(config: &MachineConfig) -> String {
+    use std::hash::{Hash, Hasher};
+    // Use the JSON representation for a stable hash
+    let json = serde_json::to_string(config).unwrap_or_default();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    json.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Write per-machine instance data JSON files and a top-level eval.nix to a build
+/// directory. The eval.nix is the entry point for `nix-eval-jobs --expr`.
+///
+/// Returns the path to eval.nix.
+pub fn write_build_dir(
+    build_dir: &std::path::Path,
+    fleet_config: &FleetConfig,
+    flake_ref: &str,
+) -> Result<std::path::PathBuf, std::io::Error> {
+    std::fs::create_dir_all(build_dir)?;
+
+    // Write per-machine JSON files
+    for mc in &fleet_config.machines {
+        let json_path = build_dir.join(format!("{}.json", mc.hostname));
+        let json = serde_json::to_string_pretty(mc).map_err(std::io::Error::other)?;
+        std::fs::write(&json_path, json)?;
+    }
+
+    // Generate eval.nix that produces nixosConfigurations.<hostname> for each machine.
+    // nix-eval-jobs will evaluate this attribute set in a single process, sharing
+    // thunk evaluation across machines for maximum efficiency.
+    let mut eval_nix = String::from("let\n");
+    eval_nix.push_str(&format!("  flake = builtins.getFlake \"{flake_ref}\";\n"));
+    eval_nix.push_str("in {\n");
+
+    for mc in &fleet_config.machines {
+        let json_path = build_dir.join(format!("{}.json", mc.hostname));
+        let json_path_str = json_path.to_string_lossy();
+        eval_nix.push_str(&format!(
+            "  \"{}\" = (flake.lib.buildMachineConfig {{ instanceDataPath = \"{json_path_str}\"; }}).config.system.build.toplevel;\n",
+            mc.hostname
+        ));
+    }
+
+    eval_nix.push_str("}\n");
+
+    let eval_path = build_dir.join("eval.nix");
+    std::fs::write(&eval_path, eval_nix)?;
+
+    info!(
+        build_dir = %build_dir.display(),
+        machines = fleet_config.machines.len(),
+        "wrote build directory with eval.nix"
+    );
+
+    Ok(eval_path)
 }
 
 /// Check if a machine matches a target filter.

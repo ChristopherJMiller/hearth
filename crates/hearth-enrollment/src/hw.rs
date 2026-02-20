@@ -150,6 +150,63 @@ pub fn hardware_fingerprint() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
+/// Run `nixos-generate-config --show-hardware-config --no-filesystems` and capture the output.
+/// Returns the generated NixOS hardware-configuration.nix content as a string.
+/// Uses `--no-filesystems` because disko manages filesystem declarations.
+pub fn generate_hardware_config() -> Option<String> {
+    Command::new("nixos-generate-config")
+        .args(["--show-hardware-config", "--no-filesystems"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let config = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if config.is_empty() {
+                    None
+                } else {
+                    Some(config)
+                }
+            } else {
+                None
+            }
+        })
+}
+
+/// Read the system serial number from DMI data for asset tracking.
+pub fn detect_serial_number() -> Option<String> {
+    Command::new("dmidecode")
+        .args(["-s", "system-serial-number"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let serial = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if serial.is_empty()
+                    || serial.eq_ignore_ascii_case("not specified")
+                    || serial.eq_ignore_ascii_case("to be filled by o.e.m.")
+                {
+                    None
+                } else {
+                    Some(serial)
+                }
+            } else {
+                None
+            }
+        })
+}
+
+/// Build a JSON hardware report from all detected hardware info.
+pub fn to_hardware_report(data: &EnrollmentData) -> serde_json::Value {
+    serde_json::json!({
+        "cpu": data.cpu,
+        "ram": data.ram,
+        "disk": data.disk,
+        "nic": data.nic,
+        "ip_address": data.ip_address,
+        "hostname": data.hostname,
+    })
+}
+
 pub fn detect_all(data: &mut EnrollmentData) {
     data.hostname = detect_hostname();
     data.cpu = detect_cpu();
@@ -158,4 +215,6 @@ pub fn detect_all(data: &mut EnrollmentData) {
     data.nic = detect_nic();
     data.ip_address = detect_ip();
     data.hardware_fingerprint = Some(hardware_fingerprint());
+    data.serial_number = detect_serial_number();
+    data.hardware_config = generate_hardware_config();
 }

@@ -323,6 +323,42 @@
         inherit self nixpkgs;
       };
 
+      # --- Build-pipeline entry point: build a machine config from instance data JSON ---
+      #
+      # The build worker writes a per-machine instance-data JSON to disk, then
+      # generates an eval.nix that calls this function. Signature:
+      #
+      #   buildMachineConfig { instanceDataPath = "/tmp/build-xxx/ws-0042.json"; }
+      #
+      # The JSON has the machine's hostname, role, machineId, tags, extra_config,
+      # hardware_config (the raw Nix code from nixos-generate-config), etc.
+      lib.buildMachineConfig = { instanceDataPath }:
+        let
+          data = builtins.fromJSON (builtins.readFile instanceDataPath);
+          # If hardware_config is present (Nix source code string), write it to a
+          # derivation so we can import it as a module.
+          hardwareModule =
+            if data ? hardware_config && data.hardware_config != null
+            then builtins.toFile "hardware-configuration.nix" data.hardware_config
+            else null;
+        in self.lib.mkFleetHost ({
+          hostname = data.hostname;
+          role = data.role or "default";
+          machineId = data.machine_id;
+          serverUrl = data.server_url or "http://localhost:3000";
+          hardware = if hardwareModule != null then import hardwareModule else null;
+          extraConfig = {
+            fileSystems."/" = { device = "/dev/disk/by-label/nixos"; fsType = "ext4"; };
+            fileSystems."/boot" = { device = "/dev/disk/by-label/boot"; fsType = "vfat"; };
+          } // (if data ? extra_config && data.extra_config != null then data.extra_config else {});
+        } // nixpkgs.lib.optionalAttrs (data ? kanidm_url && data.kanidm_url != null) {
+          kanidmUrl = data.kanidm_url;
+        } // nixpkgs.lib.optionalAttrs (data ? binary_cache_url && data.binary_cache_url != null) {
+          binaryCacheUrl = data.binary_cache_url;
+        } // nixpkgs.lib.optionalAttrs (data ? tags && data.tags != null) {
+          # Tags could drive extra modules in the future
+        });
+
       # --- Example fleet host (uncomment to test) ---
       # nixosConfigurations.example-workstation = self.lib.mkFleetHost {
       #   hostname = "ws-example";

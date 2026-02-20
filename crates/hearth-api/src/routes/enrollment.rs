@@ -44,6 +44,9 @@ pub async fn enroll(
         &req.hostname,
         req.hardware_fingerprint.as_deref(),
         enrolled_by.as_deref(),
+        req.hardware_report.as_ref(),
+        req.serial_number.as_deref(),
+        req.hardware_config.as_deref(),
     )
     .await?;
 
@@ -147,6 +150,42 @@ pub async fn approve(
                 .unwrap_or((None, None, None));
 
             info!(machine_id = %id, "enrollment approved, machine token minted");
+
+            // Queue an async build job for the machine-specific closure.
+            // The role template closure is used for initial provisioning, but
+            // the build worker will produce a machine-specific closure incorporating
+            // the device's hardware_config and instance data.
+            let flake_ref = std::env::var("HEARTH_FLAKE_REF")
+                .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
+            let machine_filter = serde_json::json!({
+                "machine_ids": [id.to_string()]
+            });
+            match repo::enqueue_build_job(
+                &state.pool,
+                &flake_ref,
+                Some(&machine_filter),
+                1,   // canary_size: 1 for single machine
+                1,   // batch_size: 1 for single machine
+                1.0, // failure_threshold: no tolerance
+            )
+            .await
+            {
+                Ok(job) => {
+                    info!(
+                        machine_id = %id,
+                        build_job_id = %job.id,
+                        "queued machine-specific build job after enrollment approval"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        machine_id = %id,
+                        error = %e,
+                        "failed to queue build job (machine will use role template closure)"
+                    );
+                }
+            }
+
             Ok(Json(EnrollmentResponse {
                 machine_id: machine.id,
                 status: machine.enrollment_status,

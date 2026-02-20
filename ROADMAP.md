@@ -220,6 +220,20 @@ Hearth ships its own observability stack as part of the control plane deployment
 
 - [x] **VictoriaMetrics vmagent NixOS module option:** `modules/metrics.nix` with `services.hearth.metrics.enable` — deploys vmagent with disk-backed WAL buffering (`/var/lib/vmagent`). Scrapes local node_exporter (including Hearth textfile metrics) at configurable interval (default 15s) and pushes via `remote_write` to the control plane. Handles intermittent connectivity automatically. Also enables node_exporter with textfile collector for Hearth agent metrics.
 
+### 4G: Per-Machine Closure Builds & Hardware Capture ✓
+
+Close the enrollment → build → deploy pipeline so that every machine gets a unique NixOS closure incorporating its actual hardware configuration, role, tags, and instance data — rather than a static per-role closure.
+
+- [x] **Device hardware capture:** Enrollment TUI runs `nixos-generate-config --show-hardware-config --no-filesystems` to capture real kernel modules, CPU microcode, firmware, and PCI/USB device requirements. Detects serial number via `dmidecode`. Generates a JSON hardware report (CPU/RAM/disk/NIC) for the control plane.
+- [x] **Hardware data transmission:** `EnrollmentRequest` extended with `hardware_report` (JSON), `serial_number`, and `hardware_config` (raw NixOS hardware-configuration.nix content). All stored on the machine record for builds.
+- [x] **Database schema:** Migration 012 adds `hardware_config TEXT`, `hardware_report JSONB`, `serial_number TEXT`, `instance_data_hash TEXT`, `module_library_ref TEXT` columns to the machines table.
+- [x] **`lib.buildMachineConfig` flake function:** Reads per-machine instance data JSON, uses `builtins.toFile` to inject the device's hardware-configuration.nix as a NixOS module, resolves role/tags/extra_config/kanidm/cache settings into a full `mkFleetHost` call.
+- [x] **Build pipeline rewrite:** The orchestrator now generates a temp directory with per-machine JSON files + an `eval.nix` wrapper that creates `nixosConfigurations.<hostname>` for each machine. `nix-eval-jobs --expr 'import eval.nix'` evaluates all machines in a single process with shared thunk efficiency. Each machine gets its own closure path via a `hostname → out_path` map.
+- [x] **Per-machine closure assignment:** Deployments track per-machine closures rather than one shared closure. Canary machines receive their machine-specific closure. Instance data hash computed for reproducibility tracking.
+- [x] **Auto-rebuild triggers:** When `role` or `extra_config` change on a machine via the API, a build job is automatically enqueued for that specific machine. Enrollment approval also queues a machine-specific build job.
+- [x] **Provisioning safety net:** `mk-fleet-host.nix` imports `not-detected.nix` (redistributable firmware + common initrd modules) when no hardware config is provided, preventing non-bootable systems.
+- [x] **Provisioning hardening:** `nixos-install` runs with `--no-channel-copy`. Mount verification after disko ensures `/mnt` and `/mnt/boot` are properly mounted before proceeding.
+
 ### Stats
 - **hearth-api:** 4 new source files (routes/actions.rs, routes/reports.rs, identity_sync.rs, metrics.rs), auth extractors wired to all routes (OperatorIdentity + AdminIdentity for writes, UserIdentity for reads, MachineIdentity for device endpoints), repo.rs extended with pending_actions/user_envs in heartbeat, JSON logging
 - **hearth-agent:** 2 new files (actions.rs: lock/restart/rebuild/run_command executor; metrics.rs: Prometheus textfile exporter), poller.rs extended with action processing + metrics writing + action_result replay, JSON logging
@@ -228,8 +242,11 @@ Hearth ships its own observability stack as part of the control plane deployment
 - **Frontend:** 4 new files in console (api/actions.ts, api/reports.ts, hooks/useRoles.ts, routes/reports.tsx, components/MachineActions.tsx), router.tsx + __root.tsx updated with Reports nav
 - **NixOS:** 3 new modules (tpm-fde.nix, logging.nix, metrics.nix), secure-boot.nix, 2 disko configs (standard, luks-lvm), 3 hardware profiles (thinkpad-t14s, framework-13, dell-latitude)
 - **Observability:** deploy/grafana/fleet-overview.json (8-panel dashboard), deploy/promtail-config.yml, docker-compose.yml +loki +grafana
-- **SQL:** migration 010 (pending_actions, action_type/action_status enums, compliance/timeline views)
-- **mk-fleet-host.nix:** Extended with hardwareProfile, secureBoot, tpmFde, tpmDevice, diskoConfig, metricsRemoteWriteUrl, lokiUrl params
+- **SQL:** migration 010 (pending_actions, action_type/action_status enums, compliance/timeline views), migration 012 (hardware_config, hardware_report, serial_number, instance_data_hash, module_library_ref)
+- **mk-fleet-host.nix:** Extended with hardwareProfile, secureBoot, tpmFde, tpmDevice, diskoConfig, metricsRemoteWriteUrl, lokiUrl params; `not-detected.nix` safety net when no hardware config
+- **Build pipeline:** config_gen.rs (MachineConfig + instance_data_hash + write_build_dir), evaluator.rs (+evaluate_expr), orchestrator.rs (full rewrite for per-machine closures)
+- **Enrollment TUI:** hw.rs (+generate_hardware_config, +detect_serial_number, +to_hardware_report), screens/enroll.rs (sends hardware data), screens/provision.rs (+mount verification, +--no-channel-copy)
+- **Flake:** `lib.buildMachineConfig` function for per-machine NixOS evaluation
 
 ---
 
@@ -332,7 +349,8 @@ hearth/
 │   ├── 006_deployment_machines.sql
 │   ├── 008_identity.sql
 │   ├── 009_build_jobs.sql
-│   └── 010_phase4_enterprise.sql
+│   ├── 010_phase4_enterprise.sql
+│   └── 012_hardware_and_instance_data.sql
 ├── modules/                    # NixOS modules
 │   ├── agent.nix
 │   ├── greeter.nix

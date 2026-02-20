@@ -44,9 +44,50 @@ pub async fn update_machine(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateMachineRequest>,
 ) -> Result<Json<Machine>, AppError> {
+    // Track whether role or extra_config changed — these trigger a rebuild.
+    let triggers_rebuild = req.role.is_some() || req.extra_config.is_some();
+
     let row = repo::update_machine(&state.pool, id, &req).await?;
     match row {
-        Some(r) => Ok(Json(r.into())),
+        Some(r) => {
+            let machine: Machine = r.into();
+
+            // Auto-queue a build job when role or extra_config changes.
+            if triggers_rebuild {
+                let flake_ref = std::env::var("HEARTH_FLAKE_REF")
+                    .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
+                let machine_filter = serde_json::json!({
+                    "machine_ids": [id.to_string()]
+                });
+                match repo::enqueue_build_job(
+                    &state.pool,
+                    &flake_ref,
+                    Some(&machine_filter),
+                    1,
+                    1,
+                    1.0,
+                )
+                .await
+                {
+                    Ok(job) => {
+                        tracing::info!(
+                            machine_id = %id,
+                            build_job_id = %job.id,
+                            "queued rebuild after machine config change"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            machine_id = %id,
+                            error = %e,
+                            "failed to queue rebuild job"
+                        );
+                    }
+                }
+            }
+
+            Ok(Json(machine))
+        }
         None => Err(AppError::NotFound(format!("machine {id} not found"))),
     }
 }

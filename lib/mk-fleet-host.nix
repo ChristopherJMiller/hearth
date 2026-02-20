@@ -166,8 +166,15 @@ nixpkgs.lib.nixosSystem {
       i18n.defaultLocale = lib.mkDefault "en_US.UTF-8";
     })
 
-    # --- Hardware configuration (if provided) ---
-  ] ++ lib.optional (hardware != null) hardware
+    # --- Safety net: when no hardware config is provided, import not-detected.nix
+    # which enables redistributable firmware and common initrd modules.
+    # This prevents non-bootable systems when hardware-configuration.nix is missing. ---
+  ] ++ lib.optional (hardware == null) ({ modulesPath, ... }: {
+      imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
+    })
+
+    # --- Hardware configuration (if provided as a path to .nix file) ---
+    ++ lib.optional (hardware != null) hardware
 
     # --- Hardware profile (if provided) ---
     ++ lib.optional (hardwareProfile != null) hardwareProfile

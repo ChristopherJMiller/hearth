@@ -170,11 +170,15 @@ impl EnrollScreen {
             Some(token) => ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone()),
             None => ReqwestApiClient::new(data.server_url.clone()),
         };
+        let hardware_report = Some(crate::hw::to_hardware_report(data));
         let req = EnrollmentRequest {
             hostname: data.hostname.clone(),
             hardware_fingerprint: data.hardware_fingerprint.clone(),
             os_version: None,
             role_hint: None,
+            hardware_report,
+            serial_number: data.serial_number.clone(),
+            hardware_config: data.hardware_config.clone(),
         };
 
         match client.enroll(&req).await {

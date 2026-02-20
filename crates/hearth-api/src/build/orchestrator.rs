@@ -51,19 +51,46 @@ pub async fn run_build_pipeline(
 ) -> Result<OrchestrateResult, OrchestrateError> {
     info!(flake_ref, "starting build pipeline");
 
-    // Step 1: Generate fleet config to know which machines we're targeting.
-    let fleet_config = config_gen::generate_fleet_config(pool, target_filter)
+    // Step 1: Generate fleet config with per-machine instance data.
+    let mut fleet_config = config_gen::generate_fleet_config(pool, target_filter)
         .await
         .map_err(|e| OrchestrateError::ConfigGen(e.to_string()))?;
 
     let total_machines = fleet_config.machines.len();
+    if total_machines == 0 {
+        return Err(OrchestrateError::ConfigGen(
+            "no machines matched the target filter".into(),
+        ));
+    }
     info!(total_machines, "fleet config generated");
 
-    // Step 2: Evaluate the flake.
-    let eval_results = evaluator::evaluate_flake(flake_ref).await?;
+    // Inject global settings from environment into each machine config.
+    let server_url =
+        std::env::var("HEARTH_SERVER_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let kanidm_url = std::env::var("HEARTH_KANIDM_URL").ok();
+    let binary_cache_url = std::env::var("HEARTH_BINARY_CACHE_URL").ok();
+
+    for mc in &mut fleet_config.machines {
+        mc.server_url = Some(server_url.clone());
+        mc.kanidm_url = kanidm_url.clone();
+        mc.binary_cache_url = binary_cache_url.clone();
+    }
+
+    // Step 2: Write per-machine instance data JSONs + eval.nix to a temp dir.
+    let build_dir = std::env::temp_dir().join(format!("hearth-build-{}", uuid::Uuid::new_v4()));
+    let eval_path = config_gen::write_build_dir(&build_dir, &fleet_config, flake_ref)
+        .map_err(|e| OrchestrateError::ConfigGen(format!("failed to write build dir: {e}")))?;
+
+    info!(build_dir = %build_dir.display(), "build directory prepared");
+
+    // Step 3: Evaluate per-machine closures via nix-eval-jobs --expr.
+    let eval_path_str = eval_path.to_string_lossy().to_string();
+    let eval_results = evaluator::evaluate_expr(&eval_path_str).await?;
     let successful_evals: Vec<_> = eval_results.iter().filter(|r| r.error.is_none()).collect();
 
     if successful_evals.is_empty() {
+        // Clean up temp dir
+        let _ = std::fs::remove_dir_all(&build_dir);
         return Err(OrchestrateError::NoBuilds);
     }
 
@@ -73,7 +100,7 @@ pub async fn run_build_pipeline(
         "evaluation complete"
     );
 
-    // Step 3: Build all derivations.
+    // Step 4: Build all derivations in parallel.
     let drv_paths: Vec<String> = successful_evals
         .iter()
         .map(|r| r.drv_path.clone())
@@ -82,14 +109,27 @@ pub async fn run_build_pipeline(
 
     let successful_builds: Vec<_> = build_results.iter().filter(|r| r.success).collect();
     if successful_builds.is_empty() {
+        let _ = std::fs::remove_dir_all(&build_dir);
         return Err(OrchestrateError::NoBuilds);
     }
 
-    // The "closure" for the deployment is the first successful output path.
-    // In a fleet setup, this would typically be the system closure.
+    // Build a hostname → out_path map so we can assign per-machine closures.
+    let mut closure_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for eval in &successful_evals {
+        // Find the matching build result by drv_path.
+        if let Some(build) = successful_builds
+            .iter()
+            .find(|b| b.drv_path == eval.drv_path)
+        {
+            closure_map.insert(eval.attr.clone(), build.out_path.clone());
+        }
+    }
+
+    // The "primary" closure for the deployment record — use the first one.
     let primary_closure = successful_builds[0].out_path.clone();
 
-    // Step 4: Push to Attic cache.
+    // Step 5: Push all closures to Attic cache.
     let cache_name = std::env::var("HEARTH_ATTIC_CACHE").unwrap_or_else(|_| "hearth".to_string());
     let out_paths: Vec<String> = successful_builds
         .iter()
@@ -99,11 +139,24 @@ pub async fn run_build_pipeline(
 
     info!(pushed, total = out_paths.len(), "cache push complete");
 
-    // Step 5: Create deployment record.
+    // Compute aggregate instance data hash for reproducibility.
+    let instance_hashes: Vec<String> = fleet_config
+        .machines
+        .iter()
+        .map(config_gen::instance_data_hash)
+        .collect();
+    let aggregate_hash = format!("{:x}", {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        instance_hashes.hash(&mut h);
+        h.finish()
+    });
+
+    // Step 6: Create deployment record.
     let deployment_req = CreateDeploymentRequest {
         closure: primary_closure.clone(),
         module_library_ref: Some(flake_ref.to_string()),
-        instance_data_hash: None,
+        instance_data_hash: Some(aggregate_hash),
         target_filter: target_filter.cloned(),
         canary_size,
         batch_size,
@@ -119,7 +172,7 @@ pub async fn run_build_pipeline(
         "deployment created"
     );
 
-    // Step 6: Create deployment_machine entries (Pending, no target_closure yet).
+    // Step 7: Create deployment_machine entries and assign per-machine closures.
     for machine in &fleet_config.machines {
         let machine_id: uuid::Uuid = match machine.machine_id.parse() {
             Ok(id) => id,
@@ -143,7 +196,7 @@ pub async fn run_build_pipeline(
         }
     }
 
-    // Step 7: Select canary machines and set target_closure only on them.
+    // Step 8: Select canary machines and set their per-machine target_closure.
     let canaries =
         crate::rollout::select_canary_machines(pool, deployment_id, canary_size as usize)
             .await
@@ -155,11 +208,20 @@ pub async fn run_build_pipeline(
             })?;
 
     for machine_id in &canaries {
+        // Look up this machine's hostname to find its per-machine closure.
+        let machine_closure = fleet_config
+            .machines
+            .iter()
+            .find(|mc| mc.machine_id == machine_id.to_string())
+            .and_then(|mc| closure_map.get(&mc.hostname))
+            .cloned()
+            .unwrap_or_else(|| primary_closure.clone());
+
         let update_req = hearth_common::api_types::UpdateMachineRequest {
             hostname: None,
             role: None,
             tags: None,
-            target_closure: Some(primary_closure.clone()),
+            target_closure: Some(machine_closure),
             extra_config: None,
         };
         if let Err(e) = repo::update_machine(pool, *machine_id, &update_req).await {
@@ -187,6 +249,9 @@ pub async fn run_build_pipeline(
 
     // Advance deployment to Canary state.
     let _ = repo::update_deployment_status(pool, deployment_id, DeploymentStatusDb::Canary).await;
+
+    // Clean up temp build directory.
+    let _ = std::fs::remove_dir_all(&build_dir);
 
     Ok(OrchestrateResult {
         deployment_id,
