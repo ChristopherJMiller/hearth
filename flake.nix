@@ -174,34 +174,6 @@
           }).config.system.build.vm;
         };
 
-        # Role template closures (Linux only)
-        # Generic NixOS system images — one per role. The agent reads its
-        # machine identity from /var/lib/hearth/machine-id at first boot.
-        mkRoleTemplate = role: (import ./lib/mk-fleet-host.nix {
-          inherit self nixpkgs;
-        }) {
-          hostname = "hearth-${role}";
-          inherit role;
-          machineId = "";
-          serverUrl = "http://10.0.2.2:3000";
-          inherit system;
-          # Placeholder filesystems — nixos-install overwrites the hardware
-          # config, but evaluation requires at least a root fs to pass assertions.
-          extraConfig = {
-            fileSystems."/" = { device = "/dev/disk/by-label/nixos"; fsType = "ext4"; };
-            fileSystems."/boot" = { device = "/dev/disk/by-label/boot"; fsType = "vfat"; };
-            # No IdP available in generic templates; use local users only.
-            services.hearth.pam.authBackend = "none";
-          };
-        };
-
-        roleTemplates = lib.optionalAttrs pkgs.stdenv.isLinux {
-          role-template-default   = (mkRoleTemplate "default").config.system.build.toplevel;
-          role-template-developer = (mkRoleTemplate "developer").config.system.build.toplevel;
-          role-template-designer  = (mkRoleTemplate "designer").config.system.build.toplevel;
-          role-template-admin     = (mkRoleTemplate "admin").config.system.build.toplevel;
-        };
-
       in {
         checks = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api hearth-build-worker;
@@ -211,7 +183,7 @@
         packages = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api hearth-build-worker;
           default = hearth-agent;
-        } // enrollmentImage // fleetVm // roleTemplates // ociImages;
+        } // enrollmentImage // fleetVm // ociImages;
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};

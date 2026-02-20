@@ -124,18 +124,6 @@ pub fn build_job_routes() -> Router<AppState> {
         .route("/{id}", get(routes::build_jobs::get_build_job))
 }
 
-pub fn role_closure_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/",
-            get(routes::role_closures::list).put(routes::role_closures::upsert),
-        )
-        .route(
-            "/{role}",
-            get(routes::role_closures::get).delete(routes::role_closures::delete),
-        )
-}
-
 pub fn enrollment_routes() -> Router<AppState> {
     Router::new()
         .route("/enroll", post(routes::enrollment::enroll))
@@ -207,7 +195,6 @@ pub fn build_router(
         .nest("/api/v1/requests", request_routes())
         .nest("/api/v1/deployments", deployments_routes())
         .nest("/api/v1/build-jobs", build_job_routes())
-        .nest("/api/v1/role-closures", role_closure_routes())
         .nest("/api/v1", enrollment_routes())
         .nest("/api/v1/auth", auth_me_route())
         .nest("/api/v1/actions", action_result_routes())

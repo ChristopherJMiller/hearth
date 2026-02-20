@@ -78,13 +78,7 @@ pub async fn approve(
     Path(id): Path<Uuid>,
     Json(req): Json<ApproveEnrollmentRequest>,
 ) -> Result<Json<EnrollmentResponse>, AppError> {
-    // If no explicit closure was provided, look up the role's pre-built closure.
-    let target_closure = match req.target_closure {
-        Some(ref c) => Some(c.as_str().to_owned()),
-        None => repo::get_role_closure(&state.pool, &req.role)
-            .await?
-            .map(|rc| rc.closure),
-    };
+    let target_closure = req.target_closure.clone();
 
     let disko_config = req.disko_config.unwrap_or_else(|| "standard".to_string());
 
@@ -152,9 +146,8 @@ pub async fn approve(
             info!(machine_id = %id, "enrollment approved, machine token minted");
 
             // Queue an async build job for the machine-specific closure.
-            // The role template closure is used for initial provisioning, but
-            // the build worker will produce a machine-specific closure incorporating
-            // the device's hardware_config and instance data.
+            // The build worker will produce a closure incorporating the
+            // device's hardware_config and instance data.
             let flake_ref = std::env::var("HEARTH_FLAKE_REF")
                 .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
             let machine_filter = serde_json::json!({
@@ -181,7 +174,7 @@ pub async fn approve(
                     tracing::warn!(
                         machine_id = %id,
                         error = %e,
-                        "failed to queue build job (machine will use role template closure)"
+                        "failed to queue build job after enrollment approval"
                     );
                 }
             }

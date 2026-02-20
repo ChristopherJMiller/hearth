@@ -13,7 +13,7 @@ use crate::db::{
     ActionTypeDb, ActiveDeploymentRow, AuditEventRow, BuildJobRow, BuildJobStatusDb,
     CatalogEntryRow, DeploymentClosureRow, DeploymentMachineRow, DeploymentRow, DeploymentStatusDb,
     HeartbeatResultRow, InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingActionRow,
-    PendingInstallRow, PendingUserEnvRow, RoleClosureRow, SoftwareRequestRow,
+    PendingInstallRow, PendingUserEnvRow, SoftwareRequestRow,
     SoftwareRequestStatusDb, TargetStateRow, UserEnvStatusDb, UserEnvironmentRow, UserRow,
 };
 use crate::routes::reports::{ComplianceReport, DeploymentTimelineEntry, EnrollmentTimelineEntry};
@@ -673,58 +673,6 @@ pub async fn get_user_by_username(
     .bind(username)
     .fetch_optional(pool)
     .await
-}
-
-// --- Role closure queries ---
-
-pub async fn list_role_closures(pool: &PgPool) -> Result<Vec<RoleClosureRow>, sqlx::Error> {
-    sqlx::query_as::<_, RoleClosureRow>(
-        "SELECT role, closure, built_at, updated_at
-         FROM role_closures
-         ORDER BY role",
-    )
-    .fetch_all(pool)
-    .await
-}
-
-pub async fn get_role_closure(
-    pool: &PgPool,
-    role: &str,
-) -> Result<Option<RoleClosureRow>, sqlx::Error> {
-    sqlx::query_as::<_, RoleClosureRow>(
-        "SELECT role, closure, built_at, updated_at
-         FROM role_closures
-         WHERE role = $1",
-    )
-    .bind(role)
-    .fetch_optional(pool)
-    .await
-}
-
-pub async fn upsert_role_closure(
-    pool: &PgPool,
-    role: &str,
-    closure: &str,
-) -> Result<RoleClosureRow, sqlx::Error> {
-    sqlx::query_as::<_, RoleClosureRow>(
-        "INSERT INTO role_closures (role, closure)
-         VALUES ($1, $2)
-         ON CONFLICT (role)
-         DO UPDATE SET closure = $2, updated_at = now()
-         RETURNING role, closure, built_at, updated_at",
-    )
-    .bind(role)
-    .bind(closure)
-    .fetch_one(pool)
-    .await
-}
-
-pub async fn delete_role_closure(pool: &PgPool, role: &str) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query("DELETE FROM role_closures WHERE role = $1")
-        .bind(role)
-        .execute(pool)
-        .await?;
-    Ok(result.rows_affected() > 0)
 }
 
 // --- Deployment queries ---

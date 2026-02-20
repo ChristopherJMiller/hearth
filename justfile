@@ -34,27 +34,13 @@ setup:
     echo "==> Building web frontends..."
     cd web && pnpm install && pnpm build
     cd ..
-    echo "==> Starting API server for role registration..."
-    cargo build -p hearth-api
-    cargo run -p hearth-api &
-    API_PID=$!
-    # Wait for API to be ready
-    until curl -sf http://localhost:3000/healthz >/dev/null 2>&1; do sleep 1; done
-    echo "    API server ready"
-    echo "==> Building role templates..."
-    just build-roles
-    echo "==> Building enrollment ISO..."
-    nix build .#enrollment-iso
-    # Stop the temporary API server
-    kill $API_PID 2>/dev/null || true
-    wait $API_PID 2>/dev/null || true
     echo ""
     echo "=== Setup complete! ==="
     echo ""
     echo "  just dev       — Start API server"
     echo "  just worker    — Start build worker"
+    echo "  just build-iso — Build enrollment ISO"
     echo "  just enroll    — Boot enrollment ISO in QEMU"
-    echo "  just fleet-vm  — Run pre-built fleet VM"
     echo "  just check     — Run all checks"
 
 # Start the API server
@@ -131,23 +117,3 @@ build-iso:
 cache-push PATH:
     attic push hearth {{PATH}}
 
-# Build all role template closures, push to Attic, and register in the API
-build-roles:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ROLES="default developer designer admin"
-    for role in $ROLES; do
-        echo "==> Building role-template-${role}..."
-        CLOSURE=$(nix build ".#role-template-${role}" --print-out-paths --no-link)
-        echo "    Built: ${CLOSURE}"
-        echo "    Pushing to Attic cache..."
-        attic push hearth "$CLOSURE"
-        echo "    Registering in API..."
-        curl -sf -X PUT http://localhost:3000/api/v1/role-closures \
-            -H 'Content-Type: application/json' \
-            -d "{\"role\": \"${role}\", \"closure\": \"${CLOSURE}\"}"
-        echo ""
-        echo "    Done: ${role} -> ${CLOSURE}"
-    done
-    echo ""
-    echo "=== All role templates built and registered ==="

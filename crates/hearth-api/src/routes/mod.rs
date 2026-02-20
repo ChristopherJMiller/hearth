@@ -11,5 +11,4 @@ pub mod heartbeat;
 pub mod machines;
 pub mod reports;
 pub mod requests;
-pub mod role_closures;
 pub mod stats;

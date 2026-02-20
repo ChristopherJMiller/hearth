@@ -438,22 +438,6 @@ pub struct UpsertUserEnvRequest {
     pub status: Option<UserEnvStatus>,
 }
 
-// --- Role closure types ---
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoleClosure {
-    pub role: String,
-    pub closure: String,
-    pub built_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpsertRoleClosureRequest {
-    pub role: String,
-    pub closure: String,
-}
-
 // --- Audit types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
