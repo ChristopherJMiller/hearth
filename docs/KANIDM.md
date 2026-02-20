@@ -7,12 +7,17 @@ Hearth uses [Kanidm](https://kanidm.github.io/kanidm/) as its identity provider.
 ### Prerequisites
 
 ```bash
+just setup                    # Full dev setup (infra + Kanidm + DB + web)
+# or manually:
 docker compose up -d kanidm   # Start the Kanidm 1.9 container
 bash dev/kanidm/bootstrap.sh  # Provision groups, users, OAuth2 clients
-source dev/kanidm/.env         # Load credentials into shell
 ```
 
-The bootstrap script is idempotent — safe to re-run. It generates a self-signed TLS cert on first run (covers `localhost` and `10.0.2.2` for QEMU VMs).
+The bootstrap script is idempotent — safe to re-run. It generates a self-signed TLS cert on first run (covers `kanidm.hearth.local`, `localhost`, and `10.0.2.2` for QEMU VMs) and a `HEARTH_MACHINE_TOKEN_SECRET` for machine token signing (preserved across re-runs).
+
+> **Host setup:** Add `kanidm.hearth.local` to your system's `/etc/hosts` (or NixOS `networking.hosts`) pointing to `127.0.0.1` for browser-based flows (console, enrollment) to work from the host. The enrollment VM has this configured automatically.
+
+`just dev` automatically sources `dev/kanidm/.env` so the API server starts with Kanidm auth and machine token validation enabled.
 
 ### Container Configuration
 
@@ -30,8 +35,8 @@ Kanidm has two built-in admin accounts with different roles:
 
 | Account | Purpose | Use For |
 |---------|---------|---------|
-| `admin` | System administrator | OAuth2 clients, service accounts, system config |
-| `idm_admin` | Identity manager | Groups, persons, credential management |
+| `admin` | System administrator | Service accounts, domain/system config |
+| `idm_admin` | Identity manager | Groups, persons, credentials, OAuth2 clients (via `idm_oauth2_admins`) |
 
 Passwords are recovered via `kanidmd recover-account <name>` inside the container. Each recovery generates a new random password.
 
@@ -48,10 +53,12 @@ The bootstrap creates four test users covering all role groups. Passwords are ra
 
 ### OAuth2 Clients
 
-| Client ID | Flow | Used By |
-|-----------|------|---------|
-| `hearth-console` | Authorization Code + PKCE | Admin console SPA |
-| `hearth-enrollment` | Device Authorization Grant | Enrollment TUI |
+| Client ID | Type | Flow | Used By |
+|-----------|------|------|---------|
+| `hearth-console` | Confidential (`_basic`) | Authorization Code + PKCE | Admin console SPA |
+| `hearth-enrollment` | Public (`_public`) | Authorization Code + PKCE | Enrollment TUI (kiosk browser) |
+
+Public clients use PKCE without a client secret. The `oauth2_allow_localhost_redirect` attribute is only valid on public clients.
 
 ## REST API Reference
 
@@ -221,28 +228,49 @@ Returns the token string directly.
 
 ### OAuth2 Resource Servers
 
-**Create:**
+> **Permission:** OAuth2 management requires `idm_admin` (member of `idm_oauth2_admins`), not `admin`. Using the `admin` token returns `"accessdenied"`.
+
+**Create confidential client:**
 ```bash
-POST /v1/system/oauth2
-{"attrs":{"oauth2_rs_name":["my-client"],"displayname":["My Client"],"oauth2_rs_origin":["https://example.com"]}}
+POST /v1/oauth2/_basic
+{"attrs":{"name":["my-client"],"displayname":["My Client"],"oauth2_rs_origin_landing":["https://example.com"]}}
+```
+
+**Create public client (PKCE-only, no secret):**
+```bash
+POST /v1/oauth2/_public
+{"attrs":{"name":["my-client"],"displayname":["My Client"],"oauth2_rs_origin_landing":["https://example.com"]}}
 ```
 
 **Get:**
 ```bash
-GET /v1/system/oauth2/{name}
+GET /v1/oauth2/{name}
+```
+
+**Get basic secret (confidential clients only):**
+```bash
+GET /v1/oauth2/{name}/_basic_secret
 ```
 
 **Set scope map:**
 ```bash
-POST /v1/system/oauth2/{name}/_scopemap/{group}
+POST /v1/oauth2/{name}/_scopemap/{group}
 ["openid","profile","email","groups"]
 ```
 
-**Configure settings (e.g. localhost redirects):**
+**Configure settings:**
 ```bash
-PATCH /v1/system/oauth2/{name}
+PATCH /v1/oauth2/{name}
+{"attrs":{"oauth2_prefer_short_username":["true"]}}
+```
+
+**Enable localhost redirects (public clients only):**
+```bash
+PATCH /v1/oauth2/{name}
 {"attrs":{"oauth2_allow_localhost_redirect":["true"]}}
 ```
+
+Note: `oauth2_allow_localhost_redirect` is only valid on public (`_public`) clients — setting it on a confidential (`_basic`) client returns a `schemaviolation` error.
 
 ### Account Policies
 
@@ -275,13 +303,14 @@ PUT /v1/group/{name}/_attr/credential_type_minimum
 
 ### Enrollment TUI (`hearth-enrollment`)
 
-Uses the **OAuth2 Device Authorization Grant** (RFC 8628):
+Uses **OAuth2 Authorization Code + PKCE** with a kiosk browser:
 
-1. `POST /oauth2/device` with `client_id=hearth-enrollment` — starts the device flow
-2. Displays verification URL + QR code to the operator
-3. Polls `POST /oauth2/token` with the device code until the user authenticates
+1. Binds a local HTTP callback server on a random port
+2. Launches Firefox in kiosk mode (inside `cage` Wayland compositor) pointed at the Kanidm authorization URL with PKCE `code_challenge`
+3. User authenticates in the browser; Kanidm redirects to `http://localhost:{port}/callback` with the authorization code
+4. Exchanges the code + `code_verifier` at `POST /oauth2/token` for an access token
 
-The Kanidm URL is injected via `HEARTH_KANIDM_URL` env var (set by the NixOS enrollment module from `flake.nix`).
+The enrollment ISO includes `cage`, `firefox`, `mesa.drivers`, and `seatd` for the kiosk browser. The Kanidm URL is injected via `HEARTH_KANIDM_URL` env var (set by the NixOS enrollment module).
 
 ### Admin Console (`@hearth/catalog`)
 
@@ -306,9 +335,19 @@ Does not directly authenticate with Kanidm. The API server validates tokens from
 
 ## Troubleshooting
 
+### 404 on `/oauth2/openid/{client_id}`
+
+The OAuth2 client doesn't exist in Kanidm. Common causes:
+
+1. **Bootstrap not run** — run `bash dev/kanidm/bootstrap.sh`
+2. **Bootstrap silently failed** — OAuth2 creation requires `idm_admin`, not `admin`. Check the bootstrap output for `ERROR:` lines.
+3. **Stale Kanidm data** — wipe and recreate: `docker volume rm hearth_kanidm-data`
+
+Verify with: `curl -sk https://kanidm.hearth.local:8443/oauth2/openid/hearth-enrollment/.well-known/openid-configuration`
+
 ### "error sending request for url" in enrollment VM
 
-The Kanidm container must be running and reachable from the VM at `https://10.0.2.2:8443` (QEMU user-mode networking gateway). Check:
+The Kanidm container must be running and reachable from the VM at `https://kanidm.hearth.local:8443` (resolves to `10.0.2.2` via the enrollment module's hosts entry). Check:
 
 ```bash
 docker compose up -d kanidm
@@ -328,8 +367,8 @@ Or generate manually:
 ```bash
 openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -keyout dev/kanidm/key.pem -out dev/kanidm/cert.pem \
-  -subj "/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.2.2,IP:::1"
+  -subj "/CN=kanidm.hearth.local" \
+  -addext "subjectAltName=DNS:kanidm.hearth.local,DNS:localhost,IP:127.0.0.1,IP:10.0.2.2,IP:::1"
 ```
 
 ### "invalid credential state" on login

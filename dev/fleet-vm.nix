@@ -11,7 +11,7 @@
 #   nix run .#fleet-vm
 #
 # The VM boots with GNOME, auto-logs in as 'dev', and the agent talks to the
-# host API server at 10.0.2.2:3000 (QEMU user-mode networking gateway).
+# host API server at api.hearth.local:3000 (resolves to 10.0.2.2 via hosts entry).
 
 { self, nixpkgs, system ? "x86_64-linux" }:
 
@@ -53,14 +53,16 @@ nixpkgs.lib.nixosSystem {
         hostName = "hearth-fleet-vm";
         useDHCP = true;
         firewall.enable = false;
+        # Resolve *.hearth.local to the QEMU host gateway
+        hosts."10.0.2.2" = [ "api.hearth.local" "cache.hearth.local" "kanidm.hearth.local" ];
       };
 
       # --- Hearth agent (pre-enrolled) ---
       services.hearth.agent = {
         enable = true;
-        serverUrl = "http://10.0.2.2:3000";
+        serverUrl = "http://api.hearth.local:3000";
         machineId = "00000000-0000-0000-0000-000000000001";
-        binaryCacheUrl = "http://10.0.2.2:8080/hearth";
+        binaryCacheUrl = "http://cache.hearth.local:8080/hearth";
         pollInterval = 10;
         logLevel = "debug";
       };
@@ -112,8 +114,8 @@ nixpkgs.lib.nixosSystem {
           Agent config:   cat /etc/hearth/agent.toml
           Agent socket:   /run/hearth/agent.sock
 
-          Host API:       http://10.0.2.2:3000
-          Binary cache:   http://10.0.2.2:8080/hearth
+          Host API:       http://api.hearth.local:3000
+          Binary cache:   http://cache.hearth.local:8080/hearth
 
         '';
       };

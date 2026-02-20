@@ -39,8 +39,8 @@ if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
     openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
         -keyout "$KEY_FILE" \
         -out "$CERT_FILE" \
-        -subj "/CN=localhost" \
-        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:10.0.2.2,IP:::1" \
+        -subj "/CN=kanidm.hearth.local" \
+        -addext "subjectAltName=DNS:kanidm.hearth.local,DNS:localhost,IP:127.0.0.1,IP:10.0.2.2,IP:::1" \
         2>/dev/null
     echo "    Generated cert.pem and key.pem"
 else
@@ -121,52 +121,51 @@ echo ""
 echo "==> Configuring dev credential policy..."
 
 # Enable account_policy class on idm_all_persons
+# These calls require idm_admin (identity management), not admin (system).
 $C -X POST "$KANIDM_URL/v1/group/idm_all_persons/_attr/class" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Authorization: Bearer $IDM_TOKEN" \
     -H "Content-Type: application/json" \
     -d '["account_policy"]' > /dev/null 2>&1 || true
 
 # Set credential_type_minimum to "any" (allows password-only)
 $C -X PUT "$KANIDM_URL/v1/group/idm_all_persons/_attr/credential_type_minimum" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Authorization: Bearer $IDM_TOKEN" \
     -H "Content-Type: application/json" \
     -d '["any"]' > /dev/null 2>&1 || true
 
-echo "    Set credential_type_minimum=any on idm_all_persons"
+# Disable minimum password length for dev convenience
+$C -X PUT "$KANIDM_URL/v1/group/idm_all_persons/_attr/auth_password_minimum_length" \
+    -H "Authorization: Bearer $IDM_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '["1"]' > /dev/null 2>&1 || true
+
+echo "    Set credential_type_minimum=any, auth_password_minimum_length=1 on idm_all_persons"
 
 # ---------------------------------------------------------------------------
 # REST API helpers
 # ---------------------------------------------------------------------------
-# admin token: system config, OAuth2
-# idm_admin token: groups, persons, credentials
-
-idm_get() {
-    $C "$KANIDM_URL$1" -H "Authorization: Bearer $IDM_TOKEN" -w '\n%{http_code}'
-}
+# admin token: system config (domain, service accounts)
+# idm_admin token: groups, persons, credentials, OAuth2 (via idm_oauth2_admins)
 
 idm_post() {
     $C -X POST "$KANIDM_URL$1" \
         -H "Authorization: Bearer $IDM_TOKEN" \
         -H "Content-Type: application/json" \
-        -d "$2" -w '\n%{http_code}'
+        -d "$2"
 }
 
-admin_get() {
-    $C "$KANIDM_URL$1" -H "Authorization: Bearer $ADMIN_TOKEN" -w '\n%{http_code}'
+idm_patch() {
+    $C -X PATCH "$KANIDM_URL$1" \
+        -H "Authorization: Bearer $IDM_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$2"
 }
 
 admin_post() {
     $C -X POST "$KANIDM_URL$1" \
         -H "Authorization: Bearer $ADMIN_TOKEN" \
         -H "Content-Type: application/json" \
-        -d "$2" -w '\n%{http_code}'
-}
-
-admin_patch() {
-    $C -X PATCH "$KANIDM_URL$1" \
-        -H "Authorization: Bearer $ADMIN_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "$2" -w '\n%{http_code}'
+        -d "$2"
 }
 
 # Check if resource exists (returns 0 if exists)
@@ -174,7 +173,28 @@ admin_patch() {
 resource_exists() {
     local body
     body=$($C "$KANIDM_URL$1" -H "Authorization: Bearer ${2:-$IDM_TOKEN}")
-    [ "$body" != "null" ] && [ -n "$body" ]
+    [ "$body" != "null" ] && [ -n "$body" ] && [ "$body" != "\"notauthenticated\"" ] && [ "$body" != "\"accessdenied\"" ]
+}
+
+# Run a REST call and abort if it returns an error
+checked_post() {
+    local label="$1" response
+    shift
+    response=$(idm_post "$@")
+    if echo "$response" | grep -qE '"(accessdenied|notauthenticated|invalidentrystate|schemaviolation)"'; then
+        echo "    ERROR: $label failed: $response" >&2
+        exit 1
+    fi
+}
+
+checked_patch() {
+    local label="$1" response
+    shift
+    response=$(idm_patch "$@")
+    if echo "$response" | grep -qE '"(accessdenied|notauthenticated|invalidentrystate|schemaviolation)"'; then
+        echo "    ERROR: $label failed: $response" >&2
+        exit 1
+    fi
 }
 
 create_group() {
@@ -182,7 +202,7 @@ create_group() {
     if resource_exists "/v1/group/$name"; then
         echo "    Group '$name' already exists"
     else
-        idm_post "/v1/group" "{\"attrs\":{\"name\":[\"$name\"]}}" > /dev/null
+        checked_post "create group '$name'" "/v1/group" "{\"attrs\":{\"name\":[\"$name\"]}}"
         echo "    Created group '$name'"
     fi
 }
@@ -197,26 +217,61 @@ create_person() {
     if resource_exists "/v1/person/$name"; then
         echo "    Person '$name' already exists"
     else
-        idm_post "/v1/person" "{\"attrs\":{\"name\":[\"$name\"],\"displayname\":[\"$display\"]}}" > /dev/null
+        checked_post "create person '$name'" "/v1/person" "{\"attrs\":{\"name\":[\"$name\"],\"displayname\":[\"$display\"]}}"
         echo "    Created person '$name'"
     fi
 }
 
 set_person_password() {
-    local name="$1"
-    # Use kanidmd recover-account inside the container to set a password.
-    # This bypasses credential policy checks (MFA requirements etc.)
-    # and generates a random password.
-    local recover_out password
+    local name="$1" desired_password="$2"
+
+    # Step 1: Always recover-account first — this guarantees valid credentials
+    # even if the REST API password change below fails.
+    local recover_out fallback_pw
     recover_out=$(docker exec "$KANIDM_CONTAINER" kanidmd recover-account "$name" 2>&1)
-    password=$(echo "$recover_out" | grep -oP 'new_password:\s*"\K[^"]+' || true)
-    if [ -n "$password" ]; then
-        # Store the password in an associative array for the .env file
-        USER_PASSWORDS["$name"]="$password"
+    fallback_pw=$(echo "$recover_out" | grep -oP 'new_password:\s*"\K[^"]+' || true)
+    if [ -z "$fallback_pw" ]; then
+        echo "    Warning: could not set credentials for '$name'"
+        return
+    fi
+
+    # Step 2: Try to change to the simple dev password via the credential
+    # update REST API. If this fails, the recover-account password still works.
+    local session_resp cu_token
+    session_resp=$($C -X GET "$KANIDM_URL/v1/person/$name/_credential/_update" \
+        -H "Authorization: Bearer $IDM_TOKEN")
+    cu_token=$(echo "$session_resp" | jq -r '.[0].token // empty' 2>/dev/null)
+
+    if [ -z "$cu_token" ]; then
+        echo "    Set password for '$name' (random — credential update API unavailable)"
+        USER_PASSWORDS["$name"]="$fallback_pw"
+        return
+    fi
+
+    # Set the simple password
+    $C -X POST "$KANIDM_URL/v1/credential/_update" \
+        -H "Content-Type: application/json" \
+        -d "[{\"password\":\"$desired_password\"},{\"token\":\"$cu_token\"}]" > /dev/null 2>&1
+
+    # Commit
+    local commit_resp
+    commit_resp=$($C -X POST "$KANIDM_URL/v1/credential/_commit" \
+        -H "Content-Type: application/json" \
+        -d "{\"token\":\"$cu_token\"}")
+
+    # If commit returned null, it succeeded
+    if [ "$commit_resp" = "null" ] || [ -z "$commit_resp" ]; then
+        echo "    Set password for '$name': $desired_password"
+        USER_PASSWORDS["$name"]="$desired_password"
     else
-        echo "    Warning: could not set password for '$name'"
+        echo "    Set password for '$name' (random — simple password rejected)"
+        USER_PASSWORDS["$name"]="$fallback_pw"
     fi
 }
+
+# Dev password — must pass Kanidm's zxcvbn Score::Four entropy check.
+# A short passphrase satisfies the strength requirement while being easy to type.
+DEV_PASSWORD="test-demo-enrollment"
 
 # ---------------------------------------------------------------------------
 # Step 2: Create groups
@@ -241,21 +296,21 @@ echo "==> Creating test users..."
 create_person "testadmin" "Test Admin"
 add_group_member "hearth-admins" "testadmin"
 add_group_member "hearth-users" "testadmin"
-set_person_password "testadmin"
+set_person_password "testadmin" "$DEV_PASSWORD"
 
 create_person "testdev" "Test Developer"
 add_group_member "hearth-developers" "testdev"
 add_group_member "hearth-users" "testdev"
-set_person_password "testdev"
+set_person_password "testdev" "$DEV_PASSWORD"
 
 create_person "testdesigner" "Test Designer"
 add_group_member "hearth-designers" "testdesigner"
 add_group_member "hearth-users" "testdesigner"
-set_person_password "testdesigner"
+set_person_password "testdesigner" "$DEV_PASSWORD"
 
 create_person "testuser" "Test User"
 add_group_member "hearth-users" "testuser"
-set_person_password "testuser"
+set_person_password "testuser" "$DEV_PASSWORD"
 
 # ---------------------------------------------------------------------------
 # Step 4: Create service account for API → Kanidm communication
@@ -283,34 +338,40 @@ API_TOKEN=$($C -X POST "$KANIDM_URL/v1/service_account/hearth-api-svc/_api_token
 echo ""
 echo "==> Registering OAuth2 clients..."
 
-# hearth-console: Authorization Code + PKCE for the web admin console
-if resource_exists "/v1/system/oauth2/hearth-console" "$ADMIN_TOKEN"; then
+# OAuth2 management requires idm_admin (member of idm_oauth2_admins), NOT admin.
+
+# hearth-console: Confidential OAuth2 client for the web admin console
+if resource_exists "/v1/oauth2/hearth-console" "$IDM_TOKEN"; then
     echo "    OAuth2 client 'hearth-console' already exists"
 else
-    admin_post "/v1/system/oauth2" \
-        '{"attrs":{"oauth2_rs_name":["hearth-console"],"displayname":["Hearth Admin Console"],"oauth2_rs_origin":["https://localhost:3000"]}}' > /dev/null
+    checked_post "create OAuth2 client 'hearth-console'" "/v1/oauth2/_basic" \
+        '{"attrs":{"name":["hearth-console"],"displayname":["Hearth Admin Console"],"oauth2_rs_origin_landing":["https://localhost:3000"]}}'
     echo "    Created OAuth2 client 'hearth-console'"
 fi
 
 # Configure hearth-console
-admin_post "/v1/system/oauth2/hearth-console/_scopemap/hearth-users" \
-    '["openid","profile","email","groups"]' > /dev/null 2>&1 || true
+checked_post "scopemap hearth-console" "/v1/oauth2/hearth-console/_scopemap/hearth-users" \
+    '["openid","profile","email","groups"]'
 
-# Enable PKCE + localhost redirects
-admin_patch "/v1/system/oauth2/hearth-console" \
-    '{"attrs":{"oauth2_allow_localhost_redirect":["true"],"oauth2_prefer_short_username":["true"]}}' > /dev/null 2>&1 || true
+# Prefer short usernames (oauth2_allow_localhost_redirect is only valid on public clients)
+checked_patch "configure hearth-console" "/v1/oauth2/hearth-console" \
+    '{"attrs":{"oauth2_prefer_short_username":["true"]}}'
 
-# hearth-enrollment: Device Authorization Grant for the enrollment TUI
-if resource_exists "/v1/system/oauth2/hearth-enrollment" "$ADMIN_TOKEN"; then
+# hearth-enrollment: Public OAuth2 client (PKCE, no secret) for the enrollment kiosk browser
+if resource_exists "/v1/oauth2/hearth-enrollment" "$IDM_TOKEN"; then
     echo "    OAuth2 client 'hearth-enrollment' already exists"
 else
-    admin_post "/v1/system/oauth2" \
-        '{"attrs":{"oauth2_rs_name":["hearth-enrollment"],"displayname":["Hearth Device Enrollment"],"oauth2_rs_origin":["https://localhost:8443"]}}' > /dev/null
+    checked_post "create OAuth2 client 'hearth-enrollment'" "/v1/oauth2/_public" \
+        '{"attrs":{"name":["hearth-enrollment"],"displayname":["Hearth Device Enrollment"],"oauth2_rs_origin_landing":["https://kanidm.hearth.local:8443"]}}'
     echo "    Created OAuth2 client 'hearth-enrollment'"
 fi
 
-admin_post "/v1/system/oauth2/hearth-enrollment/_scopemap/hearth-users" \
-    '["openid","profile","groups"]' > /dev/null 2>&1 || true
+checked_post "scopemap hearth-enrollment" "/v1/oauth2/hearth-enrollment/_scopemap/hearth-users" \
+    '["openid","profile","groups"]'
+
+# Enable localhost redirects for enrollment kiosk browser
+checked_patch "configure hearth-enrollment" "/v1/oauth2/hearth-enrollment" \
+    '{"attrs":{"oauth2_allow_localhost_redirect":["true"],"oauth2_prefer_short_username":["true"]}}'
 
 # ---------------------------------------------------------------------------
 # Step 6: Write .env for local dev
@@ -318,9 +379,15 @@ admin_post "/v1/system/oauth2/hearth-enrollment/_scopemap/hearth-users" \
 echo ""
 echo "==> Writing dev environment file..."
 
-CONSOLE_SECRET=$($C "$KANIDM_URL/v1/system/oauth2/hearth-console" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    | jq -r '.attrs.oauth2_rs_basic_secret[0] // "pkce-no-secret"' 2>/dev/null || echo "pkce-no-secret")
+CONSOLE_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-console/_basic_secret" \
+    -H "Authorization: Bearer $IDM_TOKEN" \
+    | jq -r '. // "pkce-no-secret"' 2>/dev/null || echo "pkce-no-secret")
+
+# Generate a stable machine token secret — reuse existing if present
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    EXISTING_SECRET=$(grep '^HEARTH_MACHINE_TOKEN_SECRET=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
+fi
+MACHINE_TOKEN_SECRET="${EXISTING_SECRET:-$(openssl rand -base64 32)}"
 
 cat > "$SCRIPT_DIR/.env" <<EOF
 # Generated by bootstrap.sh — do not commit
@@ -328,11 +395,12 @@ KANIDM_URL=$KANIDM_URL
 KANIDM_ADMIN_PASSWORD=$ADMIN_PASS
 KANIDM_IDM_ADMIN_PASSWORD=$IDM_ADMIN_PASS
 KANIDM_OIDC_ISSUER=${KANIDM_URL}/oauth2/openid/hearth-console
-KANIDM_OIDC_AUDIENCE=hearth-console
+KANIDM_OIDC_AUDIENCE=hearth-console,hearth-enrollment
 KANIDM_ENROLLMENT_CLIENT_ID=hearth-enrollment
 KANIDM_CONSOLE_CLIENT_ID=hearth-console
 KANIDM_CONSOLE_SECRET=$CONSOLE_SECRET
 HEARTH_API_SVC_TOKEN=$API_TOKEN
+HEARTH_MACHINE_TOKEN_SECRET=$MACHINE_TOKEN_SECRET
 TESTADMIN_PASSWORD=${USER_PASSWORDS[testadmin]:-}
 TESTDEV_PASSWORD=${USER_PASSWORDS[testdev]:-}
 TESTDESIGNER_PASSWORD=${USER_PASSWORDS[testdesigner]:-}
@@ -358,8 +426,8 @@ echo "    testdesigner / ${USER_PASSWORDS[testdesigner]:-???}  (hearth-designers
 echo "    testuser     / ${USER_PASSWORDS[testuser]:-???}  (hearth-users)"
 echo ""
 echo "  OAuth2 clients:"
-echo "    hearth-console     (PKCE, web admin console)"
-echo "    hearth-enrollment  (device flow, enrollment TUI)"
+echo "    hearth-console     (confidential, web admin console)"
+echo "    hearth-enrollment  (public + PKCE, enrollment kiosk)"
 echo ""
 echo "  Load env vars: source dev/kanidm/.env"
 echo ""

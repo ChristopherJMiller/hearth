@@ -235,4 +235,15 @@ impl App {
             _ => false,
         }
     }
+
+    /// Take a pending browser request from the login screen, if any.
+    /// The main loop uses this to suspend the TUI and launch a kiosk browser.
+    pub fn take_browser_request(&mut self) -> Option<String> {
+        self.login.take_browser_request()
+    }
+
+    /// Notify the login screen that the browser failed to launch.
+    pub fn notify_browser_failed(&mut self, err: String) {
+        self.login.notify_browser_failed(err);
+    }
 }

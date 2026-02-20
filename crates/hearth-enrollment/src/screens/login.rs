@@ -1,29 +1,26 @@
-//! Login screen: OAuth2 Device Authorization Flow with QR code.
+//! Login screen: OAuth2 Authorization Code + PKCE with kiosk browser.
 //!
-//! Displays a verification URL + user code + QR code. The operator
-//! scans the QR or visits the URL on their phone/laptop to authenticate
-//! via Kanidm. Background polling waits for the token.
+//! Launches Firefox in kiosk mode inside `cage` (Wayland kiosk compositor)
+//! for the user to authenticate via Kanidm. A local HTTP callback server
+//! receives the authorization code redirect.
 
 use crossterm::event::{KeyCode, KeyEvent};
-use qrcode::QrCode;
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
-use tracing::{error, info, warn};
+use tokio::sync::oneshot;
+use tracing::{error, info};
 
 use crate::app::EnrollmentData;
-use crate::oauth::{self, DeviceFlowState, PollStatus};
+use crate::oauth::{self, AuthToken};
 use crate::ui;
 
-#[derive(Debug)]
 enum LoginState {
-    /// Waiting for user to start the flow (initial state).
+    /// Waiting for the flow to start (initial state).
     Ready,
-    /// Device flow started, waiting for user to authenticate.
-    Waiting {
-        flow: DeviceFlowState,
-        qr_lines: Vec<String>,
-        poll_interval: u64,
-        elapsed_polls: u64,
+    /// Browser launched, waiting for user to authenticate.
+    WaitingForAuth {
+        token_rx: Option<oneshot::Receiver<Result<AuthToken, String>>>,
+        elapsed_ticks: u64,
     },
     /// Authentication succeeded, user token acquired.
     Authenticated { username: String },
@@ -31,20 +28,42 @@ enum LoginState {
     Error(String),
 }
 
+impl std::fmt::Debug for LoginState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ready => write!(f, "Ready"),
+            Self::WaitingForAuth { elapsed_ticks, .. } => {
+                f.debug_struct("WaitingForAuth")
+                    .field("elapsed_ticks", elapsed_ticks)
+                    .finish_non_exhaustive()
+            }
+            Self::Authenticated { username } => {
+                f.debug_struct("Authenticated")
+                    .field("username", username)
+                    .finish()
+            }
+            Self::Error(e) => f.debug_tuple("Error").field(e).finish(),
+        }
+    }
+}
+
 pub struct LoginScreen {
     state: LoginState,
-    /// Kanidm URL for the device flow.
+    /// Kanidm URL for the auth flow.
     kanidm_url: String,
     /// OAuth2 client ID for enrollment.
     client_id: String,
-    /// Whether the initial device flow has been kicked off.
+    /// Whether the initial flow has been kicked off.
     started: bool,
+    /// Auth URL that needs to be opened in a kiosk browser.
+    /// Set by `start_flow`, consumed by the main loop via `take_browser_request`.
+    pending_browser_url: Option<String>,
 }
 
 impl LoginScreen {
     pub fn new() -> Self {
         let kanidm_url =
-            std::env::var("HEARTH_KANIDM_URL").unwrap_or_else(|_| "https://localhost:8443".into());
+            std::env::var("HEARTH_KANIDM_URL").unwrap_or_else(|_| "https://kanidm.hearth.local:8443".into());
         let client_id =
             std::env::var("HEARTH_KANIDM_CLIENT_ID").unwrap_or_else(|_| "hearth-enrollment".into());
         Self {
@@ -52,6 +71,7 @@ impl LoginScreen {
             kanidm_url,
             client_id,
             started: false,
+            pending_browser_url: None,
         }
     }
 
@@ -68,19 +88,14 @@ impl LoginScreen {
                 let items = vec![
                     Line::from(""),
                     Line::from(Span::styled(
-                        "  Authenticating with identity provider...",
+                        "  Preparing authentication...",
                         Style::default().fg(Color::Yellow),
                     )),
                 ];
                 frame.render_widget(Paragraph::new(items), inner);
             }
-            LoginState::Waiting {
-                flow,
-                qr_lines,
-                elapsed_polls,
-                ..
-            } => {
-                render_waiting(frame, inner, flow, qr_lines, *elapsed_polls);
+            LoginState::WaitingForAuth { elapsed_ticks, .. } => {
+                render_waiting(frame, inner, *elapsed_ticks);
             }
             LoginState::Authenticated { username } => {
                 let items = vec![
@@ -127,7 +142,7 @@ impl LoginScreen {
 
     /// Returns true when login is complete and we should advance.
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
-        match &self.state {
+        match &mut self.state {
             LoginState::Authenticated { .. } => {
                 matches!(key.code, KeyCode::Enter)
             }
@@ -138,11 +153,28 @@ impl LoginScreen {
                 }
                 false
             }
+            LoginState::WaitingForAuth { .. } => {
+                if matches!(key.code, KeyCode::Esc) {
+                    self.state =
+                        LoginState::Error("Authentication cancelled. Press Enter to retry.".into());
+                }
+                false
+            }
             _ => false,
         }
     }
 
-    /// Called on each tick. Starts the device flow or polls for the token.
+    /// Take the pending browser URL (if any) for the main loop to launch.
+    pub fn take_browser_request(&mut self) -> Option<String> {
+        self.pending_browser_url.take()
+    }
+
+    /// Notify the login screen that the browser failed to launch.
+    pub fn notify_browser_failed(&mut self, err: String) {
+        self.state = LoginState::Error(err);
+    }
+
+    /// Called on each tick. Starts the auth flow or checks for completion.
     pub async fn tick(&mut self, data: &mut EnrollmentData) -> bool {
         match &self.state {
             LoginState::Ready => {
@@ -152,8 +184,8 @@ impl LoginScreen {
                 }
                 false
             }
-            LoginState::Waiting { .. } => {
-                self.poll_token(data).await;
+            LoginState::WaitingForAuth { .. } => {
+                self.check_auth(data).await;
                 matches!(self.state, LoginState::Authenticated { .. })
             }
             LoginState::Authenticated { .. } => true,
@@ -162,190 +194,93 @@ impl LoginScreen {
     }
 
     async fn start_flow(&mut self) {
-        match oauth::start_device_flow(&self.kanidm_url, &self.client_id).await {
-            Ok(flow) => {
-                let qr_url = flow
-                    .verification_uri_complete
-                    .as_deref()
-                    .unwrap_or(&flow.verification_uri);
-                let qr_lines = render_qr_to_lines(qr_url);
-                let interval = flow.interval;
-                self.state = LoginState::Waiting {
-                    flow,
-                    qr_lines,
-                    poll_interval: interval,
-                    elapsed_polls: 0,
+        match oauth::start_auth_code_flow(&self.kanidm_url, &self.client_id).await {
+            Ok(handle) => {
+                // Store the auth URL for the main loop to open in a kiosk browser.
+                // The main loop handles terminal suspension and cage launch.
+                self.pending_browser_url = Some(handle.auth_url);
+                info!("OAuth flow started, browser launch requested");
+                self.state = LoginState::WaitingForAuth {
+                    token_rx: Some(handle.token_rx),
+                    elapsed_ticks: 0,
                 };
             }
             Err(e) => {
-                error!(error = %e, "failed to start device flow");
+                error!(error = %e, "failed to start auth flow");
                 self.state = LoginState::Error(e);
             }
         }
     }
 
-    async fn poll_token(&mut self, data: &mut EnrollmentData) {
-        // Extract what we need without holding a mutable ref
-        let (device_code, poll_interval, elapsed) = match &self.state {
-            LoginState::Waiting {
-                flow,
-                poll_interval,
-                elapsed_polls,
-                ..
-            } => (flow.device_code.clone(), *poll_interval, *elapsed_polls),
-            _ => return,
+    async fn check_auth(&mut self, data: &mut EnrollmentData) {
+        let LoginState::WaitingForAuth {
+            token_rx,
+            elapsed_ticks,
+        } = &mut self.state
+        else {
+            return;
         };
 
-        // Only poll at the specified interval (tick is ~250ms, so count ticks)
-        let ticks_per_poll = (poll_interval * 4).max(1);
-        let new_elapsed = elapsed + 1;
+        *elapsed_ticks += 1;
 
-        // Update the counter
-        if let LoginState::Waiting { elapsed_polls, .. } = &mut self.state {
-            *elapsed_polls = new_elapsed;
-        }
-
-        if new_elapsed % ticks_per_poll != 0 {
-            return;
-        }
-
-        let status = oauth::poll_for_token(&self.kanidm_url, &self.client_id, &device_code).await;
-
-        match status {
-            PollStatus::Pending => {}
-            PollStatus::SlowDown => {
-                // Increase the interval
-                if let LoginState::Waiting { poll_interval, .. } = &mut self.state {
-                    *poll_interval += 1;
+        // Check if the token channel has a result
+        if let Some(rx) = token_rx.as_mut() {
+            match rx.try_recv() {
+                Ok(Ok(token)) => {
+                    info!("authentication succeeded");
+                    let username = extract_username_from_jwt(&token.access_token);
+                    data.user_token = Some(token.access_token);
+                    data.kanidm_url = Some(self.kanidm_url.clone());
+                    self.state = LoginState::Authenticated {
+                        username: username.unwrap_or_else(|| "unknown".into()),
+                    };
+                }
+                Ok(Err(e)) => {
+                    error!(error = %e, "authentication failed");
+                    self.state = LoginState::Error(e);
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {
+                    // Still waiting
+                }
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    self.state = LoginState::Error(
+                        "Authentication callback failed unexpectedly.".into(),
+                    );
                 }
             }
-            PollStatus::Success(token) => {
-                info!("device flow authentication succeeded");
-                // Decode the JWT to get the username (without full validation — the
-                // server will validate it properly)
-                let username = extract_username_from_jwt(&token.access_token);
-                data.user_token = Some(token.access_token);
-                data.kanidm_url = Some(self.kanidm_url.clone());
-                self.state = LoginState::Authenticated {
-                    username: username.unwrap_or_else(|| "unknown".into()),
-                };
-            }
-            PollStatus::Expired => {
-                warn!("device code expired");
-                self.state =
-                    LoginState::Error("Authentication timed out. Please try again.".into());
-            }
-            PollStatus::AccessDenied => {
-                warn!("user denied access");
-                self.state = LoginState::Error("Access denied. Please try again.".into());
-            }
-            PollStatus::Error(e) => {
-                error!(error = %e, "token polling error");
-                self.state = LoginState::Error(e);
-            }
         }
     }
 }
 
-fn render_waiting(
-    frame: &mut Frame,
-    area: Rect,
-    flow: &DeviceFlowState,
-    qr_lines: &[String],
-    elapsed_polls: u64,
-) {
+fn render_waiting(frame: &mut Frame, area: Rect, elapsed_ticks: u64) {
     let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spin = spinner[(elapsed_polls as usize) % spinner.len()];
+    let spin = spinner[(elapsed_ticks as usize) % spinner.len()];
 
-    let display_url = flow
-        .verification_uri_complete
-        .as_deref()
-        .unwrap_or(&flow.verification_uri);
-
-    let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  Visit this URL to sign in:",
-        Style::default().fg(Color::White),
-    )));
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        format!("    {display_url}"),
-        Style::default().fg(Color::Cyan).bold().underlined(),
-    )));
-    lines.push(Line::from(""));
-
-    // Show user code if the verification_uri_complete isn't available
-    if flow.verification_uri_complete.is_none() {
-        lines.push(Line::from(Span::styled(
-            format!("  Enter code: {}", flow.user_code),
-            Style::default().fg(Color::Yellow).bold(),
-        )));
-        lines.push(Line::from(""));
-    }
-
-    // QR code
-    lines.push(Line::from(Span::styled(
-        "  Scan with your phone:",
-        Style::default().fg(ui::MUTED),
-    )));
-    lines.push(Line::from(""));
-    for qr_line in qr_lines {
-        lines.push(Line::from(Span::styled(
-            format!("    {qr_line}"),
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  A browser window has opened for authentication.",
             Style::default().fg(Color::White),
-        )));
-    }
-    lines.push(Line::from(""));
-
-    lines.push(Line::from(Span::styled(
-        format!("  {spin} Waiting for authentication..."),
-        Style::default().fg(Color::Yellow),
-    )));
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Complete sign-in in the browser to continue.",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  {spin} Waiting for authentication..."),
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Press Esc to cancel",
+            Style::default().fg(ui::MUTED),
+        )),
+    ];
 
     frame.render_widget(Paragraph::new(lines), area);
-}
-
-/// Render a QR code as Unicode half-block characters for terminal display.
-fn render_qr_to_lines(data: &str) -> Vec<String> {
-    let code = match QrCode::new(data.as_bytes()) {
-        Ok(c) => c,
-        Err(_) => return vec!["[QR code generation failed]".into()],
-    };
-
-    let modules = code.to_colors();
-    let width = code.width();
-    let mut lines = Vec::new();
-
-    // Process two rows at a time using Unicode half-blocks
-    let mut y = 0;
-    while y < width {
-        let mut line = String::new();
-        for x in 0..width {
-            let top = modules[y * width + x] == qrcode::Color::Dark;
-            let bottom = if y + 1 < width {
-                modules[(y + 1) * width + x] == qrcode::Color::Dark
-            } else {
-                false
-            };
-
-            // Use Unicode half-block characters:
-            // ▀ = top half (U+2580)
-            // ▄ = bottom half (U+2584)
-            // █ = full block (U+2588)
-            //   = space (both light)
-            line.push(match (top, bottom) {
-                (true, true) => '█',
-                (true, false) => '▀',
-                (false, true) => '▄',
-                (false, false) => ' ',
-            });
-        }
-        lines.push(line);
-        y += 2;
-    }
-
-    lines
 }
 
 /// Extract the preferred_username or sub from a JWT without validating it.
@@ -366,9 +301,17 @@ fn extract_username_from_jwt(token: &str) -> Option<String> {
         #[serde(default)]
         preferred_username: Option<String>,
         #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        spn: Option<String>,
+        #[serde(default)]
         sub: Option<String>,
     }
 
     let claims: Claims = serde_json::from_slice(&payload).ok()?;
-    claims.preferred_username.or(claims.sub)
+    claims
+        .preferred_username
+        .or(claims.name)
+        .or(claims.spn)
+        .or(claims.sub)
 }

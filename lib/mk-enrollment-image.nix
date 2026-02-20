@@ -11,16 +11,18 @@
 #   }).config.system.build.image;
 #
 
-{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null, kanidmUrl ? null, kanidmClientId ? "hearth-enrollment" }:
+{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null, kanidmUrl ? null, kanidmClientId ? "hearth-enrollment", kanidmCaCert ? null }:
 
 let
   lib = nixpkgs.lib;
 in
 nixpkgs.lib.nixosSystem {
   modules = [
-    # NixOS ISO image infrastructure
+    # NixOS ISO image infrastructure — import iso-image.nix directly (not
+    # installation-cd-*.nix) for maximum control over what goes in the ISO.
     "${nixpkgs}/nixos/modules/installer/cd-dvd/iso-image.nix"
-    "${nixpkgs}/nixos/modules/profiles/all-hardware.nix"
+    # Minimal profile: disables docs, default packages, logrotate, udisks2, XDG
+    "${nixpkgs}/nixos/modules/profiles/minimal.nix"
 
     # Hearth overlay so pkgs.hearth-enrollment is available
     {
@@ -52,6 +54,8 @@ nixpkgs.lib.nixosSystem {
         inherit serverUrl wifiSupport;
       } // lib.optionalAttrs (kanidmUrl != null) {
         inherit kanidmUrl kanidmClientId;
+      } // lib.optionalAttrs (kanidmCaCert != null) {
+        inherit kanidmCaCert;
       };
 
       # --- System basics ---
@@ -59,6 +63,28 @@ nixpkgs.lib.nixosSystem {
 
       # Boot — the ISO infrastructure handles the bootloader
       boot.loader.grub.enable = false;
+
+      # --- Fast, silent boot ---
+      # Skip boot menu (1 = 0.1s, effectively instant; iso-image.nix sets 10)
+      boot.loader.timeout = lib.mkForce 1;
+      # Suppress kernel/systemd boot messages — straight to the TUI
+      boot.kernelParams = [ "quiet" "loglevel=3" "systemd.show_status=false" "rd.udev.log_level=3" ];
+      boot.consoleLogLevel = 0;
+      boot.initrd.verbose = false;
+
+      # Only include filesystem support we actually need
+      boot.supportedFilesystems = lib.mkForce [ "vfat" "ext4" "btrfs" ];
+
+      # Strip pre-cached build dependencies (saves ~200MB)
+      system.extraDependencies = lib.mkForce [];
+
+      # Disable services that add boot time but aren't needed for enrollment
+      services.speechd.enable = false;
+
+      # Minimal fonts — just enough for browser rendering
+      fonts.enableDefaultPackages = false;
+      fonts.fontconfig.enable = true;
+      fonts.packages = [ pkgs.dejavu_fonts ];
 
       # Nix — needed to install the target system (enrollment module also sets this)
       nix.settings = {

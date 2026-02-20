@@ -42,16 +42,26 @@ in
       default = null;
       example = "https://idm.hearth.example.com";
       description = ''
-        URL of the Kanidm server for OAuth2 device authorization flow.
-        When set, the enrollment TUI will require user authentication
-        before device enrollment.
+        URL of the Kanidm server for OAuth2 authorization code flow.
+        When set, the enrollment TUI will launch a kiosk browser for
+        user authentication before device enrollment.
       '';
     };
 
     kanidmClientId = lib.mkOption {
       type = lib.types.str;
       default = "hearth-enrollment";
-      description = "OAuth2 client ID for the enrollment device flow.";
+      description = "OAuth2 client ID for the enrollment authorization code flow.";
+    };
+
+    kanidmCaCert = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = ''
+        Path to a CA certificate (PEM) to trust for the Kanidm server.
+        Use this for self-signed dev certs so the kiosk browser accepts
+        the TLS connection without user interaction.
+      '';
     };
   };
 
@@ -66,10 +76,19 @@ in
       networkmanager.enable = cfg.wifiSupport;
       # Basic firewall: enrollment only makes outbound connections
       firewall.enable = true;
+      # Resolve *.hearth.local hostnames to the QEMU host gateway so the
+      # enrollment VM can reach dev services running on the host.
+      hosts = {
+        "10.0.2.2" = [ "api.hearth.local" "cache.hearth.local" ]
+          ++ lib.optionals (cfg.kanidmUrl != null) [ "kanidm.hearth.local" ];
+      };
     };
 
-    # WiFi firmware if needed
+    # Only include redistributable firmware when WiFi is needed — this avoids
+    # pulling in the full linux-firmware blob (~500MB) for wired-only enrollment.
     hardware.enableRedistributableFirmware = lib.mkIf cfg.wifiSupport true;
+    # Broad hardware support for varied enrollment targets (NVMe, USB, SATA, etc.)
+    hardware.enableAllHardware = lib.mkDefault true;
 
     # --- Auto-login as root ---
     # The enrollment ISO is a single-purpose system. Disk partitioning,
@@ -120,6 +139,10 @@ in
       mode = "0644";
     };
 
+    # --- Seat management for kiosk browser (cage needs DRM access) ---
+    services.seatd.enable = lib.mkIf (cfg.kanidmUrl != null) true;
+    users.users.root.extraGroups = lib.mkIf (cfg.kanidmUrl != null) [ "seat" ];
+
     # --- Minimal package set ---
     environment.systemPackages = with pkgs; [
       cfg.package
@@ -140,12 +163,9 @@ in
       iproute2
       iputils
       curl
-      networkmanager
 
       # System utilities
       util-linux
-      coreutils
-      bash
 
       # Nix for installing the system
       nix
@@ -155,6 +175,21 @@ in
       usbutils
       dmidecode
       lshw
+    ]
+    # Kiosk browser only needed when Kanidm OAuth2 is configured
+    ++ lib.optionals (cfg.kanidmUrl != null) [
+      cage          # Wayland kiosk compositor
+      firefox       # Web browser for Kanidm login
+      mesa.drivers  # GPU/software rendering for Wayland
+    ]
+    # NetworkManager only needed for WiFi
+    ++ lib.optionals cfg.wifiSupport [
+      networkmanager
+    ];
+
+    # --- Trust custom CA cert for Kanidm (e.g. self-signed dev certs) ---
+    security.pki.certificateFiles = lib.mkIf (cfg.kanidmCaCert != null) [
+      cfg.kanidmCaCert
     ];
 
     # --- Disable unnecessary services for a minimal enrollment image ---

@@ -20,7 +20,7 @@ until docker-compose exec -T postgres pg_isready -U hearth >/dev/null 2>&1; do s
 echo "    PostgreSQL ready"
 until docker-compose exec -T attic curl -sf http://localhost:8080/ >/dev/null 2>&1; do sleep 2; done
 echo "    Attic ready"
-until docker-compose exec -T kanidm curl -sf --insecure https://localhost:8443/status >/dev/null 2>&1; do sleep 2; done
+until curl -sf --insecure https://localhost:8443/status >/dev/null 2>&1; do sleep 2; done
 echo "    Kanidm ready"
 
 echo "==> Configuring Attic cache..."
@@ -51,7 +51,7 @@ cd "$REPO_ROOT"
 echo ""
 echo "=== Setup complete! ==="
 echo ""
-echo "  cargo run -p hearth-api  — Start API server"
+echo "  just dev                   — Start API server (with Kanidm auth)"
 echo "  bash dev/run-enrollment.sh — Boot enrollment ISO in QEMU"
-echo "  nix run .#fleet-vm       — Run pre-built fleet VM"
+echo "  nix run .#fleet-vm         — Run pre-built fleet VM"
 echo ""

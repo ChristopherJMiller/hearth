@@ -15,6 +15,8 @@ setup:
     echo "    PostgreSQL ready"
     until docker compose exec -T attic wget -q --spider http://localhost:8080/ >/dev/null 2>&1; do sleep 2; done
     echo "    Attic ready"
+    until curl -sf --insecure https://localhost:8443/status >/dev/null 2>&1; do sleep 2; done
+    echo "    Kanidm ready"
     echo "==> Configuring Attic cache..."
     TOKEN=$(docker compose exec -T attic atticadm make-token \
         --config /etc/attic/server.toml \
@@ -29,6 +31,8 @@ setup:
     else
         echo "    WARNING: Could not create Attic token (is atticd running?)"
     fi
+    echo "==> Bootstrapping Kanidm identity provider..."
+    bash dev/kanidm/bootstrap.sh
     echo "==> Running database migrations..."
     sqlx migrate run
     echo "==> Building web frontends..."
@@ -37,19 +41,35 @@ setup:
     echo ""
     echo "=== Setup complete! ==="
     echo ""
-    echo "  just dev       — Start API server"
+    echo "  just dev       — Start API server (with Kanidm auth)"
     echo "  just worker    — Start build worker"
     echo "  just build-iso — Build enrollment ISO"
     echo "  just enroll    — Boot enrollment ISO in QEMU"
     echo "  just check     — Run all checks"
 
-# Start the API server
+# Start the API server (sources Kanidm auth config from dev/kanidm/.env)
 dev:
-    cargo run -p hearth-api
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f dev/kanidm/.env ]; then
+        set -a; source dev/kanidm/.env; set +a
+        echo "Loaded auth config from dev/kanidm/.env (auth enabled)"
+    else
+        echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
+    fi
+    exec cargo run -p hearth-api
 
 # Start API server with file watching
 dev-watch:
-    cargo watch -x 'run -p hearth-api'
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f dev/kanidm/.env ]; then
+        set -a; source dev/kanidm/.env; set +a
+        echo "Loaded auth config from dev/kanidm/.env (auth enabled)"
+    else
+        echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
+    fi
+    exec cargo watch -x 'run -p hearth-api'
 
 # Start a build worker
 worker:

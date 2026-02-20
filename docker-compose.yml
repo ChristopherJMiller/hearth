@@ -35,11 +35,10 @@ services:
       - ./dev/kanidm/cert.pem:/data/cert.pem:ro
       - ./dev/kanidm/key.pem:/data/key.pem:ro
       - kanidm-data:/data/db
+    # Kanidm 1.9.0 is a distroless image (no /bin/sh), so we disable the
+    # healthcheck. Use `curl -sk https://localhost:8443/status` from the host.
     healthcheck:
-      test: ["CMD", "curl", "-sf", "--insecure", "https://localhost:8443/status"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      disable: true
 
   loki:
     image: grafana/loki:3.0.0

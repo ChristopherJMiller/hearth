@@ -27,7 +27,8 @@ result-*
 dev/*.qcow2
 dev/*.img
 dev/kanidm/.env
-dev/kanidm/*.pem
+# Only ignore the private key — the cert is public and needed by the enrollment ISO
+dev/kanidm/key.pem
 
 # OS
 .DS_Store

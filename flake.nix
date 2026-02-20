@@ -162,9 +162,10 @@
         enrollmentImage = lib.optionalAttrs pkgs.stdenv.isLinux {
           enrollment-iso = (import ./lib/mk-enrollment-image.nix {
             inherit self nixpkgs system;
-            serverUrl = "http://10.0.2.2:3000";
-            cacheUrl = "http://10.0.2.2:8080/hearth";
-            kanidmUrl = "https://10.0.2.2:8443";
+            serverUrl = "http://api.hearth.local:3000";
+            cacheUrl = "http://cache.hearth.local:8080/hearth";
+            kanidmUrl = "https://kanidm.hearth.local:8443";
+            kanidmCaCert = ./dev/kanidm/cert.pem;
           }).config.system.build.image;
         };
 

@@ -33,8 +33,8 @@ pub struct AuthConfig {
     /// Kanidm OIDC issuer URL (e.g. `https://localhost:8443/oauth2/openid/hearth-console`).
     /// If None, auth is disabled (dev mode).
     pub oidc_issuer: Option<String>,
-    /// Expected audience for user tokens.
-    pub oidc_audience: Option<String>,
+    /// Expected audiences for user tokens (comma-separated in env var).
+    pub oidc_audiences: Vec<String>,
     /// HS256 secret for minting/validating machine tokens.
     pub machine_token_secret: Option<Vec<u8>>,
     /// Cached JWKS keys for RS256 validation.
@@ -67,9 +67,11 @@ impl AuthConfig {
         let oidc_issuer = std::env::var("KANIDM_OIDC_ISSUER")
             .ok()
             .filter(|s| !s.is_empty());
-        let oidc_audience = std::env::var("KANIDM_OIDC_AUDIENCE")
+        let oidc_audiences: Vec<String> = std::env::var("KANIDM_OIDC_AUDIENCE")
             .ok()
-            .filter(|s| !s.is_empty());
+            .filter(|s| !s.is_empty())
+            .map(|s| s.split(',').map(|a| a.trim().to_string()).collect())
+            .unwrap_or_default();
         let machine_token_secret = std::env::var("HEARTH_MACHINE_TOKEN_SECRET")
             .ok()
             .filter(|s| !s.is_empty())
@@ -84,7 +86,7 @@ impl AuthConfig {
 
         Self {
             oidc_issuer,
-            oidc_audience,
+            oidc_audiences,
             machine_token_secret,
             jwks_cache: Arc::new(RwLock::new(JwksCache::default())),
         }
@@ -247,7 +249,7 @@ struct OidcClaims {
 fn validate_user_token(
     token: &str,
     keys: &[JwkEntry],
-    audience: Option<&str>,
+    audiences: &[String],
 ) -> Result<AuthClaims, String> {
     let header =
         jsonwebtoken::decode_header(token).map_err(|e| format!("invalid JWT header: {e}"))?;
@@ -261,10 +263,10 @@ fn validate_user_token(
     };
 
     let mut validation = Validation::new(Algorithm::RS256);
-    if let Some(aud) = audience {
-        validation.set_audience(&[aud]);
-    } else {
+    if audiences.is_empty() {
         validation.validate_aud = false;
+    } else {
+        validation.set_audience(audiences);
     }
     validation.validate_exp = true;
     validation.leeway = 60;
@@ -348,7 +350,7 @@ impl FromRequestParts<AppState> for UserIdentity {
             .await
             .map_err(|e| AuthError(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-        let claims = validate_user_token(token, &keys, state.auth_config.oidc_audience.as_deref())
+        let claims = validate_user_token(token, &keys, &state.auth_config.oidc_audiences)
             .map_err(|e| AuthError(StatusCode::UNAUTHORIZED, e))?;
 
         Ok(UserIdentity(claims))
@@ -417,7 +419,7 @@ impl FromRequestParts<AppState> for OptionalIdentity {
         // Try user token first, then machine token
         if let Ok(keys) = get_jwks(&state.auth_config).await
             && let Ok(claims) =
-                validate_user_token(token, &keys, state.auth_config.oidc_audience.as_deref())
+                validate_user_token(token, &keys, &state.auth_config.oidc_audiences)
         {
             return Ok(OptionalIdentity(Some(AuthIdentity::User(claims))));
         }
