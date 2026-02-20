@@ -35,6 +35,8 @@ pub struct EnrollmentData {
     pub kanidm_url: Option<String>,
     /// Machine auth token received after enrollment approval.
     pub machine_token: Option<String>,
+    /// Disko config name for disk partitioning (e.g., "standard", "luks-lvm").
+    pub disko_config: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +158,8 @@ impl App {
                     self.data.cache_token = token;
                     // Take the machine token from the approval response.
                     self.data.machine_token = self.status.take_machine_token();
+                    // Take the disko config name for disk partitioning.
+                    self.data.disko_config = self.status.take_disko_config();
                     self.screen = Screen::Provisioning;
                 }
             }

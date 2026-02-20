@@ -110,16 +110,30 @@ in
       mode = "0644";
     };
 
+    # --- Disko partition configs bundled in the enrollment image ---
+    environment.etc."hearth/disko-configs/standard.nix" = {
+      source = ../lib/disko-configs/standard.nix;
+      mode = "0644";
+    };
+    environment.etc."hearth/disko-configs/luks-lvm.nix" = {
+      source = ../lib/disko-configs/luks-lvm.nix;
+      mode = "0644";
+    };
+
     # --- Minimal package set ---
     environment.systemPackages = with pkgs; [
       cfg.package
 
-      # Disk utilities for partitioning and formatting
+      # Declarative disk partitioning
+      disko
+
+      # Disk utilities for partitioning and formatting (fallback + disko deps)
       gptfdisk    # sgdisk for GPT partitioning
       parted
       e2fsprogs   # mkfs.ext4
       dosfstools  # mkfs.fat
       cryptsetup
+      lvm2        # LVM support for luks-lvm disko config
       nixos-install-tools
 
       # Network utilities

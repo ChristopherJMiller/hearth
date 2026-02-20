@@ -23,6 +23,7 @@ enum ProvisionState {
         devices: Vec<BlockDevice>,
         selected: usize,
     },
+    RunningDisko,
     Partitioning,
     Formatting,
     Mounting,
@@ -46,6 +47,9 @@ pub struct ProvisionScreen {
     cache_token: Option<String>,
     machine_token: Option<String>,
     target_disk: Option<String>,
+    /// Disko config name (e.g., "standard", "luks-lvm"). When set, disko is used
+    /// instead of manual sgdisk/mkfs partitioning.
+    disko_config: Option<String>,
     last_poll: Option<Instant>,
     dots: usize,
     log_lines: Vec<String>,
@@ -63,6 +67,7 @@ impl ProvisionScreen {
             cache_token: None,
             machine_token: None,
             target_disk: None,
+            disko_config: None,
             last_poll: None,
             dots: 0,
             log_lines: Vec::new(),
@@ -86,9 +91,11 @@ impl ProvisionScreen {
         self.cache_url = data.cache_url.clone();
         self.cache_token = data.cache_token.clone();
         self.machine_token = data.machine_token.clone();
+        self.disko_config = data.disko_config.clone();
         info!(
             machine_id = ?self.machine_id,
             has_cache_token = self.cache_token.is_some(),
+            disko_config = ?self.disko_config,
             "provisioning screen started"
         );
     }
@@ -373,6 +380,72 @@ impl ProvisionScreen {
         self.install_system().await;
     }
 
+    /// Run disko to partition, format, and mount the selected disk.
+    ///
+    /// The disko config is a Nix file bundled in the enrollment ISO at
+    /// `/etc/hearth/disko-configs/{name}.nix`. It is a function `{ device }: ...`
+    /// that disko evaluates to determine the partition layout.
+    async fn run_disko(&mut self) {
+        let disk = match &self.target_disk {
+            Some(d) => d.clone(),
+            None => {
+                self.state = ProvisionState::Error {
+                    step: "disko".into(),
+                    message: "No disk selected".into(),
+                };
+                return;
+            }
+        };
+
+        let config_name = self.disko_config.as_deref().unwrap_or("standard");
+        let config_path = format!("/etc/hearth/disko-configs/{config_name}.nix");
+        let dev = format!("/dev/{disk}");
+
+        self.state = ProvisionState::RunningDisko;
+        self.log(format!(
+            "Running disko with config '{config_name}' on {dev}..."
+        ));
+
+        // disko --mode format+mount partitions, formats, and mounts to /mnt.
+        // --arg-str passes the device path to the Nix function.
+        match Self::run_cmd(
+            "disko",
+            &[
+                "--mode",
+                "format+mount",
+                "--arg-str",
+                "device",
+                &dev,
+                &config_path,
+            ],
+        )
+        .await
+        {
+            Ok(output) => {
+                for line in output
+                    .lines()
+                    .rev()
+                    .take(10)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                {
+                    self.log(format!("  {line}"));
+                }
+                self.log("disko complete: disk partitioned, formatted, and mounted at /mnt");
+                // Proceed to NixOS installation
+                self.install_system().await;
+            }
+            Err(e) => {
+                error!("disko failed: {e}");
+                self.state = ProvisionState::Error {
+                    step: "disko".into(),
+                    message: format!("disko failed: {e}"),
+                };
+            }
+        }
+    }
+
     /// Write /etc/nix/netrc with bearer credentials for the cache server,
     /// enabling authenticated access during nixos-install.
     async fn write_netrc(&mut self, cache_url: &str, token: &str) -> Result<(), String> {
@@ -549,7 +622,8 @@ impl ProvisionScreen {
             // These are transient — they're driven by the async methods
             // and shouldn't appear during tick (they complete within a single
             // handle_key or tick call). But in case they do, don't do anything.
-            ProvisionState::Partitioning
+            ProvisionState::RunningDisko
+            | ProvisionState::Partitioning
             | ProvisionState::Formatting
             | ProvisionState::Mounting
             | ProvisionState::Installing { .. } => {}
@@ -572,6 +646,9 @@ impl ProvisionScreen {
             }
             ProvisionState::SelectDisk { devices, selected } => {
                 self.render_select_disk(frame, inner, devices, *selected);
+            }
+            ProvisionState::RunningDisko => {
+                self.render_progress(frame, inner, "Partitioning (disko)", Color::Yellow);
             }
             ProvisionState::Partitioning => {
                 self.render_progress(frame, inner, "Partitioning", Color::Yellow);
@@ -871,7 +948,13 @@ impl ProvisionScreen {
                             self.log(format!("Selected disk: /dev/{disk_name}"));
                             self.target_disk = Some(disk_name);
                         }
-                        self.partition_disk().await;
+                        // Use disko if a config was provided, otherwise fall back
+                        // to manual sgdisk/mkfs partitioning.
+                        if self.disko_config.is_some() {
+                            self.run_disko().await;
+                        } else {
+                            self.partition_disk().await;
+                        }
                     }
                     _ => {}
                 }
@@ -890,6 +973,9 @@ impl ProvisionScreen {
                         "disk discovery" => {
                             self.state = ProvisionState::WaitingForClosure;
                             // Will re-enter disk discovery on next tick if closure exists
+                        }
+                        "disko" => {
+                            self.run_disko().await;
                         }
                         "partitioning" => {
                             self.partition_disk().await;

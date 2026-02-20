@@ -30,6 +30,8 @@ pub struct StatusScreen {
     cache_token: Option<String>,
     /// Machine auth token for the agent, received after approval.
     machine_token: Option<String>,
+    /// Disko config name for disk partitioning during provisioning.
+    disko_config: Option<String>,
 }
 
 impl StatusScreen {
@@ -44,6 +46,7 @@ impl StatusScreen {
             cache_url: None,
             cache_token: None,
             machine_token: None,
+            disko_config: None,
         }
     }
 
@@ -60,6 +63,11 @@ impl StatusScreen {
     /// Returns the machine token received after approval.
     pub fn take_machine_token(&mut self) -> Option<String> {
         self.machine_token.take()
+    }
+
+    /// Returns the disko config name for disk partitioning.
+    pub fn take_disko_config(&mut self) -> Option<String> {
+        self.disko_config.take()
     }
 
     pub fn start_polling(&mut self, data: &EnrollmentData) {
@@ -189,6 +197,19 @@ impl StatusScreen {
                             if self.machine_token.is_some() {
                                 info!("received machine auth token from control plane");
                             }
+                        }
+                        // Capture provisioning data from the extended response.
+                        if self.approved_closure.is_none() {
+                            self.approved_closure = resp.target_closure;
+                        }
+                        if self.cache_url.is_none() {
+                            self.cache_url = resp.cache_url;
+                        }
+                        if self.cache_token.is_none() {
+                            self.cache_token = resp.cache_token;
+                        }
+                        if self.disko_config.is_none() {
+                            self.disko_config = resp.disko_config;
                         }
                         self.status = PollStatus::Approved;
                     }

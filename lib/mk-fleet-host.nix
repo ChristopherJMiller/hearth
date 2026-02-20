@@ -41,6 +41,7 @@
 , tpmFde ? false
 , tpmDevice ? "/dev/disk/by-partlabel/cryptroot"
 , diskoConfig ? null
+, diskoDevice ? "/dev/sda"
 , metricsRemoteWriteUrl ? null
 , lokiUrl ? null
 , branding ? { }
@@ -172,7 +173,7 @@ nixpkgs.lib.nixosSystem {
     ++ lib.optional (hardwareProfile != null) hardwareProfile
 
     # --- Disko configuration (if provided) ---
-    ++ lib.optional (diskoConfig != null) (import diskoConfig { device = "/dev/sda"; })
+    ++ lib.optional (diskoConfig != null) (import diskoConfig { device = diskoDevice; })
 
     # --- Enrollment module (if this is an enrollment image) ---
     ++ lib.optional enableEnrollment (

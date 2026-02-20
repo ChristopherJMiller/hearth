@@ -371,6 +371,19 @@ pub struct EnrollmentResponse {
     /// Machine auth token, present only in the approval response after admin approves.
     #[serde(default)]
     pub machine_token: Option<String>,
+    /// Target NixOS system closure to install during provisioning.
+    #[serde(default)]
+    pub target_closure: Option<String>,
+    /// Attic cache URL for pulling the closure.
+    #[serde(default)]
+    pub cache_url: Option<String>,
+    /// Attic cache pull token (short-lived JWT).
+    #[serde(default)]
+    pub cache_token: Option<String>,
+    /// Disko config name for disk partitioning (e.g., "standard", "luks-lvm").
+    /// The enrollment TUI resolves this to /etc/hearth/disko-configs/{name}.nix.
+    #[serde(default)]
+    pub disko_config: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -381,6 +394,10 @@ pub struct ApproveEnrollmentRequest {
     pub target_closure: Option<String>,
     #[serde(default)]
     pub cache_url: Option<String>,
+    /// Disko config name for disk partitioning during enrollment.
+    /// Defaults to "standard" if not specified.
+    #[serde(default)]
+    pub disko_config: Option<String>,
 }
 
 // --- User environment request types ---

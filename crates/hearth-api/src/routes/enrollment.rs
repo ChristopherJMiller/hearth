@@ -60,6 +60,10 @@ pub async fn enroll(
         message: "enrollment request submitted, awaiting approval".into(),
         enrolled_by,
         machine_token: None,
+        target_closure: None,
+        cache_url: None,
+        cache_token: None,
+        disko_config: None,
     };
 
     Ok((StatusCode::CREATED, Json(resp)))
@@ -79,6 +83,8 @@ pub async fn approve(
             .map(|rc| rc.closure),
     };
 
+    let disko_config = req.disko_config.unwrap_or_else(|| "standard".to_string());
+
     // Mint a short-lived pull-only cache token for this device.
     let extra_config = match cache_token::mint_pull_token(
         &format!("enrollment-{id}"),
@@ -89,12 +95,17 @@ pub async fn approve(
             Some(serde_json::json!({
                 "cache_url": creds.cache_url,
                 "cache_token": creds.cache_token,
+                "disko_config": disko_config,
             }))
         }
-        Ok(None) => None,
+        Ok(None) => Some(serde_json::json!({
+            "disko_config": disko_config,
+        })),
         Err(e) => {
             tracing::warn!(error = %e, "failed to mint cache token, proceeding without");
-            None
+            Some(serde_json::json!({
+                "disko_config": disko_config,
+            }))
         }
     };
 
@@ -114,6 +125,27 @@ pub async fn approve(
     match row {
         Some(r) => {
             let machine: Machine = r.into();
+            // Extract cache credentials from the stored extra_config.
+            let (resp_cache_url, resp_cache_token, resp_disko) = machine
+                .extra_config
+                .as_ref()
+                .map(|ec| {
+                    let cu = ec
+                        .get("cache_url")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let ct = ec
+                        .get("cache_token")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let dc = ec
+                        .get("disko_config")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    (cu, ct, dc)
+                })
+                .unwrap_or((None, None, None));
+
             info!(machine_id = %id, "enrollment approved, machine token minted");
             Ok(Json(EnrollmentResponse {
                 machine_id: machine.id,
@@ -121,6 +153,10 @@ pub async fn approve(
                 message: "enrollment approved".into(),
                 enrolled_by: machine.enrolled_by,
                 machine_token: Some(machine_token),
+                target_closure: machine.target_closure,
+                cache_url: resp_cache_url,
+                cache_token: resp_cache_token,
+                disko_config: resp_disko,
             }))
         }
         None => Err(AppError::NotFound(format!(
@@ -167,12 +203,43 @@ pub async fn enrollment_status(
                 None
             };
 
+            // Extract provisioning data when the device is approved.
+            let (target_closure, resp_cache_url, resp_cache_token, resp_disko) = if is_approved {
+                let tc = machine.target_closure.clone();
+                let (cu, ct, dc) = machine
+                    .extra_config
+                    .as_ref()
+                    .map(|ec| {
+                        let cu = ec
+                            .get("cache_url")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        let ct = ec
+                            .get("cache_token")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        let dc = ec
+                            .get("disko_config")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        (cu, ct, dc)
+                    })
+                    .unwrap_or((None, None, None));
+                (tc, cu, ct, dc)
+            } else {
+                (None, None, None, None)
+            };
+
             Ok(Json(EnrollmentResponse {
                 machine_id: machine.id,
                 status: machine.enrollment_status,
                 message: "enrollment status".into(),
                 enrolled_by: machine.enrolled_by,
                 machine_token,
+                target_closure,
+                cache_url: resp_cache_url,
+                cache_token: resp_cache_token,
+                disko_config: resp_disko,
             }))
         }
         None => Err(AppError::NotFound(format!("machine {id} not found"))),

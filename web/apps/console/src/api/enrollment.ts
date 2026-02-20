@@ -16,13 +16,13 @@ export function usePendingEnrollments() {
 export function useApproveEnrollment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, role, admin, target_closure, cache_url }: {
+    mutationFn: ({ id, role, admin, target_closure, cache_url, disko_config }: {
       id: string; role: string; admin: string;
-      target_closure?: string; cache_url?: string;
+      target_closure?: string; cache_url?: string; disko_config?: string;
     }) =>
       apiFetch<Machine>(`/machines/${id}/approve`, {
         method: 'POST',
-        body: JSON.stringify({ role, admin, target_closure, cache_url }),
+        body: JSON.stringify({ role, admin, target_closure, cache_url, disko_config }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['machines'] });
