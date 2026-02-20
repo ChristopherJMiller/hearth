@@ -164,6 +164,7 @@
             inherit self nixpkgs system;
             serverUrl = "http://10.0.2.2:3000";
             cacheUrl = "http://10.0.2.2:8080/hearth";
+            kanidmUrl = "https://10.0.2.2:8443";
           }).config.system.build.image;
         };
 
@@ -227,6 +228,11 @@
             nodejs_22
             pnpm
             nodePackages.typescript
+
+            # Identity management (kanidm 1.9 needs Rust 1.93, built via rust-overlay)
+            (pkgs.callPackage ./nix/kanidm-cli.nix {
+              inherit (pkgs) rust-bin;
+            })
 
             # Utilities
             jq

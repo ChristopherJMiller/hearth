@@ -2,8 +2,8 @@ import { UserManager, WebStorageStateStore, type User } from 'oidc-client-ts';
 
 // OIDC configuration — reads from Vite env vars with sensible dev defaults.
 // In production, these are baked in at build time via VITE_* environment variables.
-const OIDC_AUTHORITY = import.meta.env.VITE_OIDC_AUTHORITY as string | undefined
-  ?? 'https://localhost:8443/oauth2/openid/hearth-console';
+// When VITE_OIDC_AUTHORITY is not set, auth is disabled (dev without Kanidm).
+const OIDC_AUTHORITY = import.meta.env.VITE_OIDC_AUTHORITY as string | undefined;
 const OIDC_CLIENT_ID = import.meta.env.VITE_OIDC_CLIENT_ID as string | undefined
   ?? 'hearth-console';
 const OIDC_REDIRECT_URI = import.meta.env.VITE_OIDC_REDIRECT_URI as string | undefined
@@ -12,7 +12,7 @@ const OIDC_POST_LOGOUT_URI = import.meta.env.VITE_OIDC_POST_LOGOUT_URI as string
   ?? `${window.location.origin}/console/`;
 
 export const userManager = new UserManager({
-  authority: OIDC_AUTHORITY,
+  authority: OIDC_AUTHORITY ?? 'https://localhost:8443/oauth2/openid/hearth-console',
   client_id: OIDC_CLIENT_ID,
   redirect_uri: OIDC_REDIRECT_URI,
   post_logout_redirect_uri: OIDC_POST_LOGOUT_URI,

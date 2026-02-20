@@ -28,10 +28,12 @@ services:
       retries: 5
 
   kanidm:
-    image: kanidm/server:latest
+    image: kanidm/server:1.9.0
     ports: ["8443:8443"]
     volumes:
       - ./dev/kanidm/server.toml:/data/server.toml:ro
+      - ./dev/kanidm/cert.pem:/data/cert.pem:ro
+      - ./dev/kanidm/key.pem:/data/key.pem:ro
       - kanidm-data:/data/db
     healthcheck:
       test: ["CMD", "curl", "-sf", "--insecure", "https://localhost:8443/status"]
