@@ -1,15 +1,21 @@
 import { useState, useMemo } from 'react';
-import { useCatalog, useRequests, getRequestStatus } from '../api';
-import { CatalogHeader } from '../components/CatalogHeader';
-import { FilterPills } from '../components/FilterPills';
-import { CatalogGrid } from '../components/CatalogGrid';
-import { SoftwareDetail } from '../components/SoftwareDetail';
-import type { CatalogEntry } from '../types';
+import { SearchInput, PageHeader } from '@hearth/ui';
+import { useCatalog, useRequests, getRequestStatus } from '../../api/catalog';
+import { useAuth } from '../../useAuth';
+import { FilterPills } from './components/FilterPills';
+import { CatalogGrid } from './components/CatalogGrid';
+import { SoftwareDetail } from './components/SoftwareDetail';
+import type { CatalogEntry } from '../../api/types';
 
-export function CatalogPage() {
+export function CatalogBrowsePage() {
   const params = new URLSearchParams(window.location.search);
+  const { user } = useAuth();
+
+  // Use URL params if provided, otherwise derive from auth context
   const machineId = params.get('machine_id') || '';
-  const username = params.get('username') || '';
+  const username = params.get('username')
+    || user?.profile?.preferred_username as string
+    || '';
 
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
@@ -52,12 +58,21 @@ export function CatalogPage() {
     : null;
 
   return (
-    <>
-      <CatalogHeader
-        search={search}
-        onSearchChange={setSearch}
-        username={username}
+    <div>
+      <PageHeader
+        title="Software Catalog"
+        description="Browse and request software for your workstation"
       />
+
+      <div className="max-w-sm">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search software..."
+          autoComplete="off"
+        />
+      </div>
+
       <FilterPills
         categories={categories}
         active={activeCategory}
@@ -79,6 +94,6 @@ export function CatalogPage() {
         username={username}
         onClose={() => setSelectedEntry(null)}
       />
-    </>
+    </div>
   );
 }

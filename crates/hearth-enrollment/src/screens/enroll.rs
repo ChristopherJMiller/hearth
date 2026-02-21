@@ -11,6 +11,8 @@ use hearth_common::api_types::EnrollmentRequest;
 
 #[derive(Debug)]
 enum EnrollState {
+    /// Auto-submitting with the pre-configured URL (no user input shown).
+    AutoSubmitting,
     Input,
     Submitting,
     Success(String), // message
@@ -21,16 +23,23 @@ pub struct EnrollScreen {
     url_input: String,
     cursor_pos: usize,
     state: EnrollState,
+    /// Whether the auto-submit has been kicked off (to avoid re-triggering).
+    auto_submitted: bool,
 }
 
 impl EnrollScreen {
     pub fn new() -> Self {
-        let url_input = std::env::var("HEARTH_SERVER_URL").unwrap_or_else(|_| "http://".into());
+        let preconfigured = std::env::var("HEARTH_SERVER_URL").ok().filter(|s| s.len() > 7);
+        let (url_input, initial_state) = match preconfigured {
+            Some(url) => (url, EnrollState::AutoSubmitting),
+            None => ("http://".to_string(), EnrollState::Input),
+        };
         let cursor_pos = url_input.len();
         Self {
             url_input,
             cursor_pos,
-            state: EnrollState::Input,
+            state: initial_state,
+            auto_submitted: false,
         }
     }
 
@@ -43,6 +52,16 @@ impl EnrollScreen {
         frame.render_widget(block, center);
 
         match &self.state {
+            EnrollState::AutoSubmitting => {
+                let items = vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  Connecting to {}...", self.url_input),
+                        Style::default().fg(Color::Yellow),
+                    )),
+                ];
+                frame.render_widget(Paragraph::new(items), inner);
+            }
             EnrollState::Input => {
                 let items = vec![
                     Line::from(Span::styled(
@@ -119,6 +138,7 @@ impl EnrollScreen {
     /// Returns Some(true) to advance to status screen, Some(false) to stay, None for no change.
     pub async fn handle_key(&mut self, key: KeyEvent, data: &mut EnrollmentData) -> Option<bool> {
         match &self.state {
+            EnrollState::AutoSubmitting | EnrollState::Submitting => None,
             EnrollState::Input => match key.code {
                 KeyCode::Enter => {
                     if self.url_input.len() > 7 {
@@ -160,7 +180,16 @@ impl EnrollScreen {
                 }
                 _ => None,
             },
-            EnrollState::Submitting => None,
+        }
+    }
+
+    /// Called on each tick. Kicks off auto-submit when HEARTH_SERVER_URL was set.
+    pub async fn tick(&mut self, data: &mut EnrollmentData) {
+        if matches!(self.state, EnrollState::AutoSubmitting) && !self.auto_submitted {
+            self.auto_submitted = true;
+            let url = self.url_input.trim_end_matches('/').to_string();
+            data.server_url = url;
+            self.submit_enrollment(data).await;
         }
     }
 

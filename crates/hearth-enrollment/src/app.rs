@@ -190,6 +190,9 @@ impl App {
                     self.net_checked = true;
                 }
             }
+            Screen::Enroll => {
+                self.enroll.tick(&mut self.data).await;
+            }
             Screen::Login => {
                 if !self.login_started {
                     self.login_started = true;

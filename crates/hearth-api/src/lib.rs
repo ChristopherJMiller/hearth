@@ -21,7 +21,8 @@ use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 /// Start the deployment monitor background loop.
 pub async fn deployment_monitor_run(pool: PgPool, cancel: CancellationToken) {
@@ -166,16 +167,12 @@ pub fn reports_routes() -> Router<AppState> {
 /// Build the complete application router.
 pub fn build_router(
     state: AppState,
-    catalog_dist: &str,
-    console_dist: &str,
+    web_dist: &str,
     metrics_handle: PrometheusHandle,
 ) -> Router {
-    let catalog_spa = ServeDir::new(catalog_dist).not_found_service(ServeFile::new(
-        std::path::Path::new(catalog_dist).join("index.html"),
-    ));
-
-    let console_spa = ServeDir::new(console_dist).not_found_service(ServeFile::new(
-        std::path::Path::new(console_dist).join("index.html"),
+    // Serve the unified SPA as a fallback for all non-API routes.
+    let spa = ServeDir::new(web_dist).not_found_service(ServeFile::new(
+        std::path::Path::new(web_dist).join("index.html"),
     ));
 
     let cors = CorsLayer::new()
@@ -205,10 +202,24 @@ pub fn build_router(
             "/api/v1/machines/{machine_id}/environments",
             environments_routes(),
         )
-        .nest_service("/catalog", catalog_spa)
-        .nest_service("/console", console_spa)
+        .fallback_service(spa)
         .layer(middleware::from_fn(metrics::track_request))
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    tracing::info_span!(
+                        "http_request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                    )
+                })
+                .on_response(
+                    DefaultOnResponse::new()
+                        .level(Level::INFO)
+                        .include_headers(false)
+                        .latency_unit(tower_http::LatencyUnit::Millis),
+                ),
+        )
         .with_state(state)
 }

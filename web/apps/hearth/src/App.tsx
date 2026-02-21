@@ -13,7 +13,7 @@ const queryClient = new QueryClient({
 export function App() {
   // Handle OIDC callback before anything else — this path must be reachable
   // without authentication since it completes the login flow.
-  if (window.location.pathname === '/console/callback') {
+  if (window.location.pathname === '/auth/callback') {
     return <CallbackPage />;
   }
 

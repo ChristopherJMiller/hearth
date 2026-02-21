@@ -20,8 +20,8 @@ pub async fn enroll(
     identity: OptionalIdentity,
     Json(req): Json<EnrollmentRequest>,
 ) -> Result<(StatusCode, Json<EnrollmentResponse>), AppError> {
-    // Extract the enrolling user's username from their auth token (if present).
-    let enrolled_by = match &identity.0 {
+    // Extract the enrolling user's identity from their auth token (if present).
+    let (enrolled_by, is_admin) = match &identity.0 {
         Some(AuthIdentity::User(claims)) => {
             let username = claims.preferred_username.as_deref().unwrap_or(&claims.sub);
             // Upsert the user record so we track known identities.
@@ -34,9 +34,10 @@ pub async fn enroll(
                 &claims.groups,
             )
             .await;
-            Some(username.to_string())
+            let admin = claims.groups.iter().any(|g| g == "hearth-admins");
+            (Some(username.to_string()), admin)
         }
-        _ => None,
+        _ => (None, false),
     };
 
     let row = repo::enroll_machine(
@@ -57,6 +58,16 @@ pub async fn enroll(
         "enrollment request submitted"
     );
 
+    // Auto-approve the first fleet enrollment when an admin is bootstrapping.
+    // This solves the chicken-and-egg problem: you need an approved machine to
+    // have an admin workstation, but you need an admin to approve machines.
+    if is_admin {
+        let approved_count = repo::count_approved_machines(&state.pool).await?;
+        if approved_count == 0 {
+            return auto_approve_enrollment(&state, machine, &req, enrolled_by).await;
+        }
+    }
+
     let resp = EnrollmentResponse {
         machine_id: machine.id,
         status: machine.enrollment_status,
@@ -70,6 +81,140 @@ pub async fn enroll(
     };
 
     Ok((StatusCode::CREATED, Json(resp)))
+}
+
+/// Auto-approve an enrollment for admin bootstrap (first machine in the fleet).
+async fn auto_approve_enrollment(
+    state: &AppState,
+    machine: Machine,
+    req: &EnrollmentRequest,
+    enrolled_by: Option<String>,
+) -> Result<(StatusCode, Json<EnrollmentResponse>), AppError> {
+    let id = machine.id;
+    let role = req.role_hint.as_deref().unwrap_or("admin");
+    let disko_config = "standard".to_string();
+
+    // Mint a short-lived pull-only cache token for this device.
+    let extra_config = match cache_token::mint_pull_token(
+        &format!("enrollment-{id}"),
+        Duration::from_secs(4 * 3600),
+    ) {
+        Ok(Some(creds)) => {
+            info!(machine_id = %id, "minted cache pull token for auto-approved enrollment");
+            Some(serde_json::json!({
+                "cache_url": creds.cache_url,
+                "cache_token": creds.cache_token,
+                "disko_config": disko_config,
+            }))
+        }
+        Ok(None) => Some(serde_json::json!({
+            "disko_config": disko_config,
+        })),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to mint cache token, proceeding without");
+            Some(serde_json::json!({
+                "disko_config": disko_config,
+            }))
+        }
+    };
+
+    // Mint a long-lived machine auth token.
+    let (machine_token, token_hash) = crate::auth::mint_machine_token(id, &state.auth_config)?;
+
+    let row = repo::approve_enrollment(
+        &state.pool,
+        id,
+        role,
+        None, // no target_closure at bootstrap time
+        extra_config.as_ref(),
+        Some(&token_hash),
+    )
+    .await?;
+
+    match row {
+        Some(r) => {
+            let approved: Machine = r.into();
+            let (resp_cache_url, resp_cache_token, resp_disko) = approved
+                .extra_config
+                .as_ref()
+                .map(|ec| {
+                    let cu = ec.get("cache_url").and_then(|v| v.as_str()).map(String::from);
+                    let ct = ec.get("cache_token").and_then(|v| v.as_str()).map(String::from);
+                    let dc = ec.get("disko_config").and_then(|v| v.as_str()).map(String::from);
+                    (cu, ct, dc)
+                })
+                .unwrap_or((None, None, None));
+
+            info!(
+                machine_id = %id,
+                role = role,
+                "auto-approved first fleet enrollment (admin bootstrap)"
+            );
+
+            // Queue a build job for the machine.
+            let flake_ref = std::env::var("HEARTH_FLAKE_REF")
+                .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
+            let machine_filter = serde_json::json!({ "machine_ids": [id.to_string()] });
+            match repo::enqueue_build_job(
+                &state.pool,
+                &flake_ref,
+                Some(&machine_filter),
+                1,
+                1,
+                1.0,
+            )
+            .await
+            {
+                Ok(job) => {
+                    info!(
+                        machine_id = %id,
+                        build_job_id = %job.id,
+                        "queued build job after auto-approved enrollment"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        machine_id = %id,
+                        error = %e,
+                        "failed to queue build job after auto-approved enrollment"
+                    );
+                }
+            }
+
+            Ok((
+                StatusCode::CREATED,
+                Json(EnrollmentResponse {
+                    machine_id: approved.id,
+                    status: approved.enrollment_status,
+                    message: "auto-approved: first fleet enrollment by admin".into(),
+                    enrolled_by,
+                    machine_token: Some(machine_token),
+                    target_closure: approved.target_closure,
+                    cache_url: resp_cache_url,
+                    cache_token: resp_cache_token,
+                    disko_config: resp_disko,
+                }),
+            ))
+        }
+        None => {
+            // Shouldn't happen — we just created this machine in pending status.
+            tracing::error!(machine_id = %id, "auto-approval failed: machine not in pending status");
+            Ok((
+                StatusCode::CREATED,
+                Json(EnrollmentResponse {
+                    machine_id: id,
+                    status: machine.enrollment_status,
+                    message: "enrollment request submitted, awaiting approval".into(),
+                    enrolled_by,
+                    machine_token: None,
+                    target_closure: None,
+                    cache_url: None,
+                    cache_token: None,
+                    disko_config: None,
+                }),
+            ))
+        }
+    }
 }
 
 pub async fn approve(

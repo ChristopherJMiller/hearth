@@ -561,6 +561,16 @@ pub async fn record_user_login(
 
 // --- Enrollment queries ---
 
+/// Count machines that have passed through the approval gate (not pending or decommissioned).
+pub async fn count_approved_machines(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM machines WHERE enrollment_status NOT IN ('pending', 'decommissioned')",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0)
+}
+
 pub async fn enroll_machine(
     pool: &PgPool,
     hostname: &str,

@@ -7,9 +7,9 @@ const OIDC_AUTHORITY = import.meta.env.VITE_OIDC_AUTHORITY as string | undefined
 const OIDC_CLIENT_ID = import.meta.env.VITE_OIDC_CLIENT_ID as string | undefined
   ?? 'hearth-console';
 const OIDC_REDIRECT_URI = import.meta.env.VITE_OIDC_REDIRECT_URI as string | undefined
-  ?? `${window.location.origin}/console/callback`;
+  ?? `${window.location.origin}/auth/callback`;
 const OIDC_POST_LOGOUT_URI = import.meta.env.VITE_OIDC_POST_LOGOUT_URI as string | undefined
-  ?? `${window.location.origin}/console/`;
+  ?? `${window.location.origin}/`;
 
 export const userManager = new UserManager({
   authority: OIDC_AUTHORITY ?? 'https://kanidm.hearth.local:8443/oauth2/openid/hearth-console',

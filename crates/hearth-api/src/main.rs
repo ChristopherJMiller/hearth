@@ -77,13 +77,10 @@ async fn main() {
         std::time::Duration::from_secs(30),
     ));
 
-    let catalog_dist =
-        std::env::var("HEARTH_WEB_DIST").unwrap_or_else(|_| "web/apps/catalog/dist".to_string());
+    let web_dist =
+        std::env::var("HEARTH_WEB_DIST").unwrap_or_else(|_| "web/apps/hearth/dist".to_string());
 
-    let console_dist = std::env::var("HEARTH_CONSOLE_DIST")
-        .unwrap_or_else(|_| "web/apps/console/dist".to_string());
-
-    let app = build_router(state, &catalog_dist, &console_dist, metrics_handle);
+    let app = build_router(state, &web_dist, metrics_handle);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await

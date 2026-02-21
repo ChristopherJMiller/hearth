@@ -30,7 +30,7 @@ function Pill({
 
 export function FilterPills({ categories, active, onSelect }: FilterPillsProps) {
   return (
-    <div className="max-w-6xl mx-auto mt-6 px-8 flex gap-2 flex-wrap">
+    <div className="mt-6 flex gap-2 flex-wrap">
       <Pill label="All" isActive={active === 'all'} onClick={() => onSelect('all')} />
       {categories.map((cat) => (
         <Pill

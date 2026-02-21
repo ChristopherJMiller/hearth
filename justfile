@@ -113,17 +113,9 @@ test *ARGS:
 web-build:
     cd web && pnpm install && pnpm build
 
-# Run both web dev servers (catalog :5173, console :5174)
+# Run web dev server (:5174)
 web-dev:
     cd web && pnpm dev
-
-# Run only catalog dev server
-web-dev-catalog:
-    cd web && pnpm dev:catalog
-
-# Run only console dev server
-web-dev-console:
-    cd web && pnpm dev:console
 
 # Typecheck web frontends
 web-check:

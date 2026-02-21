@@ -340,12 +340,12 @@ echo "==> Registering OAuth2 clients..."
 
 # OAuth2 management requires idm_admin (member of idm_oauth2_admins), NOT admin.
 
-# hearth-console: Confidential OAuth2 client for the web admin console
+# hearth-console: Public OAuth2 client (PKCE, no secret) for the web SPA
 if resource_exists "/v1/oauth2/hearth-console" "$IDM_TOKEN"; then
     echo "    OAuth2 client 'hearth-console' already exists"
 else
-    checked_post "create OAuth2 client 'hearth-console'" "/v1/oauth2/_basic" \
-        '{"attrs":{"name":["hearth-console"],"displayname":["Hearth Admin Console"],"oauth2_rs_origin_landing":["https://localhost:3000"]}}'
+    checked_post "create OAuth2 client 'hearth-console'" "/v1/oauth2/_public" \
+        '{"attrs":{"name":["hearth-console"],"displayname":["Hearth Admin Console"],"oauth2_rs_origin_landing":["http://localhost:5174"]}}'
     echo "    Created OAuth2 client 'hearth-console'"
 fi
 
@@ -353,9 +353,9 @@ fi
 checked_post "scopemap hearth-console" "/v1/oauth2/hearth-console/_scopemap/hearth-users" \
     '["openid","profile","email","groups"]'
 
-# Prefer short usernames (oauth2_allow_localhost_redirect is only valid on public clients)
+# Prefer short usernames + enable localhost redirect for dev
 checked_patch "configure hearth-console" "/v1/oauth2/hearth-console" \
-    '{"attrs":{"oauth2_prefer_short_username":["true"]}}'
+    '{"attrs":{"oauth2_prefer_short_username":["true"],"oauth2_allow_localhost_redirect":["true"]}}'
 
 # hearth-enrollment: Public OAuth2 client (PKCE, no secret) for the enrollment kiosk browser
 if resource_exists "/v1/oauth2/hearth-enrollment" "$IDM_TOKEN"; then
@@ -379,9 +379,8 @@ checked_patch "configure hearth-enrollment" "/v1/oauth2/hearth-enrollment" \
 echo ""
 echo "==> Writing dev environment file..."
 
-CONSOLE_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-console/_basic_secret" \
-    -H "Authorization: Bearer $IDM_TOKEN" \
-    | jq -r '. // "pkce-no-secret"' 2>/dev/null || echo "pkce-no-secret")
+# hearth-console is a public client (PKCE) — no client secret
+CONSOLE_SECRET="pkce-no-secret"
 
 # Generate a stable machine token secret — reuse existing if present
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -394,7 +393,7 @@ cat > "$SCRIPT_DIR/.env" <<EOF
 KANIDM_URL=$KANIDM_URL
 KANIDM_ADMIN_PASSWORD=$ADMIN_PASS
 KANIDM_IDM_ADMIN_PASSWORD=$IDM_ADMIN_PASS
-KANIDM_OIDC_ISSUER=${KANIDM_URL}/oauth2/openid/hearth-console
+KANIDM_OIDC_ISSUER=${KANIDM_URL}/oauth2/openid/hearth-console,${KANIDM_URL}/oauth2/openid/hearth-enrollment
 KANIDM_OIDC_AUDIENCE=hearth-console,hearth-enrollment
 KANIDM_ENROLLMENT_CLIENT_ID=hearth-enrollment
 KANIDM_CONSOLE_CLIENT_ID=hearth-console
@@ -426,7 +425,7 @@ echo "    testdesigner / ${USER_PASSWORDS[testdesigner]:-???}  (hearth-designers
 echo "    testuser     / ${USER_PASSWORDS[testuser]:-???}  (hearth-users)"
 echo ""
 echo "  OAuth2 clients:"
-echo "    hearth-console     (confidential, web admin console)"
+echo "    hearth-console     (public + PKCE, web SPA)"
 echo "    hearth-enrollment  (public + PKCE, enrollment kiosk)"
 echo ""
 echo "  Load env vars: source dev/kanidm/.env"

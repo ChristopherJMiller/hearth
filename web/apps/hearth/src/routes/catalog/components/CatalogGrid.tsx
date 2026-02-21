@@ -1,6 +1,6 @@
 import { CatalogCard } from './CatalogCard';
-import { getRequestStatus } from '../api';
-import type { CatalogEntry, SoftwareRequest } from '../types';
+import { getRequestStatus } from '../../../api/catalog';
+import type { CatalogEntry, SoftwareRequest } from '../../../api/types';
 
 interface CatalogGridProps {
   entries: CatalogEntry[] | undefined;
@@ -84,7 +84,7 @@ export function CatalogGrid({
 }: CatalogGridProps) {
   if (isLoading || !entries) {
     return (
-      <div className="max-w-6xl mx-auto mt-6 mb-12 px-8 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-5">
+      <div className="mt-6 mb-12 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-5">
         {Array.from({ length: 6 }, (_, i) => (
           <SkeletonCard key={i} index={i} />
         ))}
@@ -94,14 +94,14 @@ export function CatalogGrid({
 
   if (entries.length === 0) {
     return (
-      <div className="max-w-6xl mx-auto mt-6 mb-12 px-8 grid grid-cols-1">
+      <div className="mt-6 mb-12 grid grid-cols-1">
         <EmptyState hasSearchQuery={hasSearchQuery} />
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto mt-6 mb-12 px-8 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-5">
+    <div className="mt-6 mb-12 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-5">
       {entries.map((entry, i) => (
         <CatalogCard
           key={entry.id}

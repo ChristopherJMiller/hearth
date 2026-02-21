@@ -1,10 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "dev": "concurrently -n catalog,console -c blue,magenta \"pnpm --filter @hearth/catalog dev\" \"pnpm --filter @hearth/console dev\"",
-    "dev:catalog": "pnpm --filter @hearth/catalog dev",
-    "dev:console": "pnpm --filter @hearth/console dev",
-    "build": "pnpm --filter @hearth/ui build && pnpm --filter @hearth/catalog build && pnpm --filter @hearth/console build",
+    "dev": "pnpm --filter @hearth/web dev",
+    "build": "pnpm --filter @hearth/ui build && pnpm --filter @hearth/web build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
@@ -21,7 +19,6 @@
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@tanstack/react-table": "^8.21.3",
-    "concurrently": "^9.2.1"
+    "@tanstack/react-table": "^8.21.3"
   }
 }

@@ -105,7 +105,7 @@ const columns: ColumnDef<CatalogEntry, unknown>[] = [
   },
 ];
 
-export function CatalogPage() {
+export function CatalogManagePage() {
   const { data: catalog, isLoading } = useCatalog();
   const [search, setSearch] = useState('');
 

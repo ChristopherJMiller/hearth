@@ -12,7 +12,8 @@ import { EnrollmentPage } from './routes/enrollment/index';
 import { DeploymentsPage } from './routes/deployments/index';
 import { DeploymentDetailPage } from './routes/deployments/$deploymentId';
 import { NewDeploymentPage } from './routes/deployments/new';
-import { CatalogPage } from './routes/catalog/index';
+import { CatalogManagePage } from './routes/catalog/manage';
+import { CatalogBrowsePage } from './routes/catalog/browse';
 import { RequestsPage } from './routes/requests/index';
 import { AuditPage } from './routes/audit/index';
 import { ReportsPage } from './routes/reports';
@@ -25,7 +26,7 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
-    throw redirect({ to: '/dashboard' });
+    throw redirect({ to: '/catalog' });
   },
 });
 
@@ -71,10 +72,16 @@ const newDeploymentRoute = createRoute({
   component: NewDeploymentPage,
 });
 
-const catalogRoute = createRoute({
+const catalogBrowseRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/catalog',
-  component: CatalogPage,
+  component: CatalogBrowsePage,
+});
+
+const catalogManageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/catalog/manage',
+  component: CatalogManagePage,
 });
 
 const requestsRoute = createRoute({
@@ -104,7 +111,8 @@ const routeTree = rootRoute.addChildren([
   deploymentsRoute,
   newDeploymentRoute,
   deploymentDetailRoute,
-  catalogRoute,
+  catalogBrowseRoute,
+  catalogManageRoute,
   requestsRoute,
   auditRoute,
   reportsRoute,
@@ -112,7 +120,7 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
-  basepath: '/console',
+  basepath: '/',
 });
 
 declare module '@tanstack/react-router' {

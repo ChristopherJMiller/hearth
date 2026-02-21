@@ -11,7 +11,7 @@ export function CallbackPage() {
   useEffect(() => {
     handleCallback()
       .then(() => {
-        window.location.replace('/console/dashboard');
+        window.location.replace('/catalog');
       })
       .catch((err) => {
         console.error('OIDC callback failed:', err);
@@ -28,10 +28,10 @@ export function CallbackPage() {
           </h1>
           <p className="text-sm text-[var(--color-text-secondary)] mb-4">{error}</p>
           <a
-            href="/console/"
+            href="/"
             className="text-sm text-[var(--color-ember)] hover:underline"
           >
-            Return to console
+            Return to Hearth
           </a>
         </div>
       </div>

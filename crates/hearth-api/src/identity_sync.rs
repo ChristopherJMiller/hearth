@@ -26,14 +26,14 @@ pub async fn run(pool: PgPool, auth_config: AuthConfig, cancel: CancellationToke
         return;
     }
 
-    let issuer = match &auth_config.oidc_issuer {
+    let issuer = match auth_config.oidc_issuers.first() {
         Some(url) => url.clone(),
         None => return,
     };
 
     // Kanidm's SCIM-like endpoint for listing users.
     // Kanidm exposes its own JSON API at the base domain, not at the OAuth2 path.
-    // We derive the base URL from the issuer (strip `/oauth2/openid/<client-id>`).
+    // We derive the base URL from the first issuer (strip `/oauth2/openid/<client-id>`).
     let base_url = issuer
         .find("/oauth2/")
         .map(|pos| &issuer[..pos])

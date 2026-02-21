@@ -1,7 +1,7 @@
 //! Authentication and authorization middleware for the Hearth API.
 //!
 //! Supports two token types:
-//! - **User tokens** (RS256): Kanidm OIDC JWTs validated against the JWKS endpoint
+//! - **User tokens** (ES256/RS256): Kanidm OIDC JWTs validated against the JWKS endpoint
 //! - **Machine tokens** (HS256): Minted at enrollment approval, used by agents
 //!
 //! If `KANIDM_OIDC_ISSUER` is not set, auth is disabled (dev mode).
@@ -11,6 +11,7 @@ use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
+use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -30,43 +31,46 @@ use crate::error::AppError;
 
 #[derive(Debug, Clone)]
 pub struct AuthConfig {
-    /// Kanidm OIDC issuer URL (e.g. `https://localhost:8443/oauth2/openid/hearth-console`).
-    /// If None, auth is disabled (dev mode).
-    pub oidc_issuer: Option<String>,
+    /// Kanidm OIDC issuer URLs (comma-separated in env var).
+    /// Each OAuth2 client in Kanidm has its own signing key, so we need
+    /// JWKS from every issuer that may produce tokens we accept.
+    /// If empty, auth is disabled (dev mode).
+    pub oidc_issuers: Vec<String>,
     /// Expected audiences for user tokens (comma-separated in env var).
     pub oidc_audiences: Vec<String>,
     /// HS256 secret for minting/validating machine tokens.
     pub machine_token_secret: Option<Vec<u8>>,
-    /// Cached JWKS keys for RS256 validation.
+    /// Cached JWKS keyset for token validation.
     pub jwks_cache: Arc<RwLock<JwksCache>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct JwksCache {
-    pub keys: Vec<JwkEntry>,
+    pub keyset: JwkSet,
     pub fetched_at: Option<std::time::Instant>,
 }
 
-#[derive(Clone)]
-pub struct JwkEntry {
-    pub kid: Option<String>,
-    pub decoding_key: DecodingKey,
-}
-
-impl std::fmt::Debug for JwkEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("JwkEntry")
-            .field("kid", &self.kid)
-            .field("decoding_key", &"<redacted>")
-            .finish()
+impl Default for JwksCache {
+    fn default() -> Self {
+        Self {
+            keyset: JwkSet { keys: Vec::new() },
+            fetched_at: None,
+        }
     }
 }
 
 impl AuthConfig {
     pub fn from_env() -> Self {
-        let oidc_issuer = std::env::var("KANIDM_OIDC_ISSUER")
+        let oidc_issuers: Vec<String> = std::env::var("KANIDM_OIDC_ISSUER")
             .ok()
-            .filter(|s| !s.is_empty());
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                s.split(',')
+                    .map(|a| a.trim().to_string())
+                    .filter(|a| !a.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
         let oidc_audiences: Vec<String> = std::env::var("KANIDM_OIDC_AUDIENCE")
             .ok()
             .filter(|s| !s.is_empty())
@@ -75,17 +79,24 @@ impl AuthConfig {
         let machine_token_secret = std::env::var("HEARTH_MACHINE_TOKEN_SECRET")
             .ok()
             .filter(|s| !s.is_empty())
-            .and_then(|s| base64::engine::general_purpose::STANDARD.decode(&s).ok());
+            .and_then(|s| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(&s)
+                    .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(&s))
+                    .ok()
+            });
 
-        if oidc_issuer.is_none() {
+        if oidc_issuers.is_empty() {
             warn!("KANIDM_OIDC_ISSUER not set — auth is DISABLED (dev mode)");
+        } else {
+            info!(issuers = ?oidc_issuers, "OIDC issuers configured");
         }
         if machine_token_secret.is_none() {
             warn!("HEARTH_MACHINE_TOKEN_SECRET not set — machine token auth disabled");
         }
 
         Self {
-            oidc_issuer,
+            oidc_issuers,
             oidc_audiences,
             machine_token_secret,
             jwks_cache: Arc::new(RwLock::new(JwksCache::default())),
@@ -93,7 +104,7 @@ impl AuthConfig {
     }
 
     pub fn is_enabled(&self) -> bool {
-        self.oidc_issuer.is_some()
+        !self.oidc_issuers.is_empty()
     }
 }
 
@@ -103,29 +114,17 @@ impl AuthConfig {
 
 const JWKS_REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
+/// OIDC discovery document (we only need `jwks_uri`).
 #[derive(Deserialize)]
-struct JwksResponse {
-    keys: Vec<JwkKey>,
+struct OidcDiscovery {
+    jwks_uri: String,
 }
 
-#[derive(Deserialize)]
-struct JwkKey {
-    kid: Option<String>,
-    kty: String,
-    #[serde(default)]
-    n: Option<String>,
-    #[serde(default)]
-    e: Option<String>,
-}
-
-async fn refresh_jwks(config: &AuthConfig) -> Result<Vec<JwkEntry>, String> {
-    let issuer = config
-        .oidc_issuer
-        .as_ref()
-        .ok_or("no OIDC issuer configured")?;
-
-    let jwks_url = format!("{issuer}/jwks");
-    debug!(url = %jwks_url, "fetching JWKS");
+/// Fetch JWKS keys from all configured OIDC issuers via their discovery documents.
+async fn refresh_jwks(config: &AuthConfig) -> Result<JwkSet, String> {
+    if config.oidc_issuers.is_empty() {
+        return Err("no OIDC issuers configured".into());
+    }
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true) // dev: self-signed Kanidm certs
@@ -133,51 +132,89 @@ async fn refresh_jwks(config: &AuthConfig) -> Result<Vec<JwkEntry>, String> {
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let resp: JwksResponse = client
-        .get(&jwks_url)
-        .send()
-        .await
-        .map_err(|e| format!("JWKS fetch failed: {e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("JWKS parse failed: {e}"))?;
+    let mut all_keys = Vec::new();
 
-    let mut entries = Vec::new();
-    for key in resp.keys {
-        if key.kty == "RSA"
-            && let (Some(n), Some(e)) = (&key.n, &key.e)
-        {
-            match DecodingKey::from_rsa_components(n, e) {
-                Ok(dk) => entries.push(JwkEntry {
-                    kid: key.kid.clone(),
-                    decoding_key: dk,
-                }),
-                Err(err) => warn!(kid = ?key.kid, error = %err, "skipping invalid RSA JWK"),
+    for issuer in &config.oidc_issuers {
+        // Fetch the OIDC discovery document to get the correct jwks_uri
+        let discovery_url = format!("{}/.well-known/openid-configuration", issuer);
+        debug!(url = %discovery_url, "fetching OIDC discovery");
+
+        let discovery: OidcDiscovery = match client.get(&discovery_url).send().await {
+            Ok(r) => match r.json().await {
+                Ok(d) => d,
+                Err(e) => {
+                    warn!(issuer = %issuer, error = %e, "OIDC discovery parse failed, skipping");
+                    continue;
+                }
+            },
+            Err(e) => {
+                warn!(issuer = %issuer, error = %e, "OIDC discovery fetch failed, skipping");
+                continue;
             }
-        }
+        };
+
+        // Kanidm's jwks_uri uses the configured origin which may differ from
+        // the URL we used. Rewrite it to use the same base we can actually reach.
+        let jwks_url = if let Some(pos) = issuer.find("/oauth2/") {
+            let reachable_base = &issuer[..pos];
+            if let Some(path_pos) = discovery.jwks_uri.find("/oauth2/") {
+                format!("{reachable_base}{}", &discovery.jwks_uri[path_pos..])
+            } else {
+                discovery.jwks_uri.clone()
+            }
+        } else {
+            discovery.jwks_uri.clone()
+        };
+
+        debug!(url = %jwks_url, "fetching JWKS");
+
+        let keyset: JwkSet = match client.get(&jwks_url).send().await {
+            Ok(r) => match r.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    warn!(issuer = %issuer, error = %e, "JWKS parse failed, skipping");
+                    continue;
+                }
+            },
+            Err(e) => {
+                warn!(issuer = %issuer, error = %e, "JWKS fetch failed, skipping");
+                continue;
+            }
+        };
+
+        debug!(
+            issuer = %issuer,
+            key_count = keyset.keys.len(),
+            "fetched JWKS keys from issuer"
+        );
+        all_keys.extend(keyset.keys);
     }
 
-    info!(count = entries.len(), "refreshed JWKS keys");
-    Ok(entries)
+    info!(
+        total_keys = all_keys.len(),
+        issuers = config.oidc_issuers.len(),
+        "refreshed JWKS keys"
+    );
+    Ok(JwkSet { keys: all_keys })
 }
 
-async fn get_jwks(config: &AuthConfig) -> Result<Vec<JwkEntry>, String> {
+async fn get_jwks(config: &AuthConfig) -> Result<JwkSet, String> {
     {
         let cache = config.jwks_cache.read().await;
         if let Some(fetched_at) = cache.fetched_at
             && fetched_at.elapsed() < JWKS_REFRESH_INTERVAL
         {
-            return Ok(cache.keys.clone());
+            return Ok(cache.keyset.clone());
         }
     }
 
-    let keys = refresh_jwks(config).await?;
+    let keyset = refresh_jwks(config).await?;
     {
         let mut cache = config.jwks_cache.write().await;
-        cache.keys = keys.clone();
+        cache.keyset = keyset.clone();
         cache.fetched_at = Some(std::time::Instant::now());
     }
-    Ok(keys)
+    Ok(keyset)
 }
 
 // ---------------------------------------------------------------------------
@@ -248,21 +285,39 @@ struct OidcClaims {
 
 fn validate_user_token(
     token: &str,
-    keys: &[JwkEntry],
+    keyset: &JwkSet,
     audiences: &[String],
 ) -> Result<AuthClaims, String> {
     let header =
         jsonwebtoken::decode_header(token).map_err(|e| format!("invalid JWT header: {e}"))?;
 
-    let key = if let Some(kid) = &header.kid {
-        keys.iter()
-            .find(|k| k.kid.as_deref() == Some(kid))
-            .ok_or_else(|| format!("no JWK with kid={kid}"))?
+    let jwk = if let Some(kid) = &header.kid {
+        keyset
+            .find(kid)
+            .ok_or_else(|| {
+                let available: Vec<_> = keyset
+                    .keys
+                    .iter()
+                    .filter_map(|k| k.common.key_id.as_deref())
+                    .collect();
+                format!("no JWK with kid={kid} (available: {available:?})")
+            })?
     } else {
-        keys.first().ok_or("no JWK keys available")?
+        keyset.keys.first().ok_or("no JWK keys available")?
     };
 
-    let mut validation = Validation::new(Algorithm::RS256);
+    let decoding_key = DecodingKey::from_jwk(jwk)
+        .map_err(|e| format!("failed to build decoding key from JWK: {e}"))?;
+
+    // Use the algorithm declared in the JWK, falling back to the JWT header's alg
+    let algorithm = jwk
+        .common
+        .key_algorithm
+        .and_then(|a| a.to_string().parse::<Algorithm>().ok())
+        .or(header.alg.into())
+        .unwrap_or(Algorithm::ES256);
+
+    let mut validation = Validation::new(algorithm);
     if audiences.is_empty() {
         validation.validate_aud = false;
     } else {
@@ -271,11 +326,18 @@ fn validate_user_token(
     validation.validate_exp = true;
     validation.leeway = 60;
 
-    let data = decode::<OidcClaims>(token, &key.decoding_key, &validation)
+    let data = decode::<OidcClaims>(token, &decoding_key, &validation)
         .map_err(|e| format!("JWT validation failed: {e}"))?;
 
     let mut groups = data.claims.groups;
     groups.extend(data.claims.scoped_groups);
+
+    info!(
+        sub = %data.claims.sub,
+        preferred_username = ?data.claims.preferred_username,
+        groups = ?groups,
+        "validated user JWT claims"
+    );
 
     Ok(AuthClaims {
         sub: data.claims.sub,
@@ -346,12 +408,16 @@ impl FromRequestParts<AppState> for UserIdentity {
         let token = extract_bearer(parts)
             .ok_or_else(|| AuthError(StatusCode::UNAUTHORIZED, "missing Bearer token".into()))?;
 
-        let keys = get_jwks(&state.auth_config)
-            .await
-            .map_err(|e| AuthError(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let keyset = get_jwks(&state.auth_config).await.map_err(|e| {
+            warn!(error = %e, "JWKS fetch failed during user auth");
+            AuthError(StatusCode::INTERNAL_SERVER_ERROR, e)
+        })?;
 
-        let claims = validate_user_token(token, &keys, &state.auth_config.oidc_audiences)
-            .map_err(|e| AuthError(StatusCode::UNAUTHORIZED, e))?;
+        let claims =
+            validate_user_token(token, &keyset, &state.auth_config.oidc_audiences).map_err(|e| {
+                warn!(error = %e, "user token validation failed");
+                AuthError(StatusCode::UNAUTHORIZED, e)
+            })?;
 
         Ok(UserIdentity(claims))
     }
@@ -417,18 +483,32 @@ impl FromRequestParts<AppState> for OptionalIdentity {
         };
 
         // Try user token first, then machine token
-        if let Ok(keys) = get_jwks(&state.auth_config).await
-            && let Ok(claims) =
-                validate_user_token(token, &keys, &state.auth_config.oidc_audiences)
-        {
-            return Ok(OptionalIdentity(Some(AuthIdentity::User(claims))));
-        }
+        let user_err = match get_jwks(&state.auth_config).await {
+            Ok(keyset) => match validate_user_token(token, &keyset, &state.auth_config.oidc_audiences)
+            {
+                Ok(claims) => {
+                    return Ok(OptionalIdentity(Some(AuthIdentity::User(claims))));
+                }
+                Err(e) => Some(e),
+            },
+            Err(e) => Some(e),
+        };
 
-        if let Some(secret) = &state.auth_config.machine_token_secret
-            && let Ok(machine_id) = validate_machine_token(token, secret)
-        {
-            return Ok(OptionalIdentity(Some(AuthIdentity::Machine { machine_id })));
-        }
+        let machine_err = match &state.auth_config.machine_token_secret {
+            Some(secret) => match validate_machine_token(token, secret) {
+                Ok(machine_id) => {
+                    return Ok(OptionalIdentity(Some(AuthIdentity::Machine { machine_id })));
+                }
+                Err(e) => Some(e),
+            },
+            None => Some("machine token auth not configured".into()),
+        };
+
+        warn!(
+            user_token_error = ?user_err,
+            machine_token_error = ?machine_err,
+            "token validation failed for both user and machine token types"
+        );
 
         Err(AuthError(StatusCode::UNAUTHORIZED, "invalid token".into()))
     }

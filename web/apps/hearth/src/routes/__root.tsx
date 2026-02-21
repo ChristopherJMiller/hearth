@@ -1,4 +1,5 @@
 import { Outlet, useRouter } from '@tanstack/react-router';
+import { useMemo } from 'react';
 import { Sidebar } from '@hearth/ui';
 import type { SidebarItem } from '@hearth/ui';
 import {
@@ -12,26 +13,35 @@ import {
   LuBarChart3,
   LuFlame,
   LuLogOut,
+  LuSettings,
 } from 'react-icons/lu';
 import { useAuth } from '../useAuth';
+import { useRoles } from '../hooks/useRoles';
 
-const navItems: SidebarItem[] = [
+// All users see the catalog
+const userItems: SidebarItem[] = [
+  { id: 'catalog', label: 'Software Catalog', icon: <LuBookOpen size={18} /> },
+];
+
+// Admins/operators see the full admin nav
+const adminItems: SidebarItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LuLayoutDashboard size={18} /> },
   { id: 'machines', label: 'Machines', icon: <LuMonitor size={18} /> },
   { id: 'enrollment', label: 'Enrollment', icon: <LuUserPlus size={18} /> },
   { id: 'deployments', label: 'Deployments', icon: <LuLayers size={18} /> },
-  { id: 'catalog', label: 'Catalog', icon: <LuBookOpen size={18} /> },
+  { id: 'catalog-manage', label: 'Manage Catalog', icon: <LuSettings size={18} /> },
   { id: 'requests', label: 'Requests', icon: <LuFilePlus2 size={18} /> },
   { id: 'audit', label: 'Audit Log', icon: <LuFileText size={18} /> },
   { id: 'reports', label: 'Reports', icon: <LuBarChart3 size={18} /> },
 ];
 
 const routeMap: Record<string, string> = {
+  catalog: '/catalog',
   dashboard: '/dashboard',
   machines: '/machines',
   enrollment: '/enrollment',
   deployments: '/deployments',
-  catalog: '/catalog',
+  'catalog-manage': '/catalog/manage',
   requests: '/requests',
   audit: '/audit',
   reports: '/reports',
@@ -41,9 +51,22 @@ export function RootLayout() {
   const router = useRouter();
   const pathname = router.state.location.pathname;
   const { user, signOut, enabled } = useAuth();
+  const { isOperator } = useRoles();
 
-  const activeId =
-    navItems.find((item) => pathname.startsWith(`/console/${item.id}`))?.id ?? 'dashboard';
+  const navItems = useMemo(() => {
+    if (isOperator) return [...userItems, ...adminItems];
+    return userItems;
+  }, [isOperator]);
+
+  const activeId = useMemo(() => {
+    // Match most specific routes first
+    if (pathname.startsWith('/catalog/manage')) return 'catalog-manage';
+    for (const item of navItems) {
+      const route = routeMap[item.id];
+      if (route && pathname.startsWith(route)) return item.id;
+    }
+    return 'catalog';
+  }, [pathname, navItems]);
 
   const displayName = user?.profile?.preferred_username
     ?? user?.profile?.name

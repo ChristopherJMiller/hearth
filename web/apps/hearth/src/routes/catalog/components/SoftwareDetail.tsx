@@ -1,8 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { Badge, Button, StatusChip } from '@hearth/ui';
 import type { BadgeVariant } from '@hearth/ui';
-import { useRequestSoftware } from '../api';
-import type { CatalogEntry, InstallMethod, SoftwareRequestStatus } from '../types';
+import { useRequestSoftware } from '../../../api/catalog';
+import type { CatalogEntry, InstallMethod, SoftwareRequestStatus } from '../../../api/types';
 
 interface SoftwareDetailProps {
   entry: CatalogEntry | null;

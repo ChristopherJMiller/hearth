@@ -24,8 +24,8 @@ Enter the dev shell first: `nix develop` (provides Rust toolchain, sqlx-cli, GTK
 ### Frontend (web/)
 
 - **Install deps:** `cd web && pnpm install`
-- **Dev server:** `cd web && pnpm dev` (runs @hearth/catalog Vite dev server)
-- **Build:** `cd web && pnpm build` (builds @hearth/ui first, then @hearth/catalog)
+- **Dev server:** `cd web && pnpm dev` (runs @hearth/web Vite dev server on port 5174)
+- **Build:** `cd web && pnpm build` (builds @hearth/ui first, then @hearth/web)
 - **Typecheck:** `cd web && pnpm typecheck`
 
 ### Database
@@ -45,7 +45,7 @@ Enter the dev shell first: `nix develop` (provides Rust toolchain, sqlx-cli, GTK
 
 - **hearth-common** — Shared library: IPC message types, API client trait + reqwest impl, config structs, API request/response types, Nix store path utilities
 - **hearth-agent** — On-device systemd service: polls control plane for target state, sends heartbeats, runs IPC server (Unix socket) for greeter, handles software installs (Flatpak), compares system closures. Uses `CancellationToken` for coordinated shutdown.
-- **hearth-api** — Control plane: Axum REST API on port 3000, PostgreSQL via sqlx with compile-time checked queries (offline mode via `.sqlx/`), auto-runs migrations on startup. Routes at `/api/v1/{machines,heartbeat,catalog,requests}`. Serves the catalog SPA at `/catalog`.
+- **hearth-api** — Control plane: Axum REST API on port 3000, PostgreSQL via sqlx with compile-time checked queries (offline mode via `.sqlx/`), auto-runs migrations on startup. Routes at `/api/v1/{machines,heartbeat,catalog,requests}`. Serves the unified web SPA as a fallback for all non-API routes.
 - **hearth-greeter** — GTK4 greetd greeter (stub)
 - **hearth-enrollment** — ratatui TUI for device enrollment (stub)
 
@@ -53,7 +53,7 @@ Enter the dev shell first: `nix develop` (provides Rust toolchain, sqlx-cli, GTK
 
 pnpm monorepo with two packages:
 - **@hearth/ui** (`web/packages/ui/`) — shared design system (tokens, components)
-- **@hearth/catalog** (`web/apps/catalog/`) — Software Center SPA (React 19, Vite 6, TanStack Query v5)
+- **@hearth/web** (`web/apps/hearth/`) — unified web app: software catalog (user-facing) + admin console (React 19, Vite 6, TanStack Router, TanStack Query v5, OIDC auth via oidc-client-ts)
 
 ### NixOS Integration
 
