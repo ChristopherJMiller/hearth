@@ -64,6 +64,9 @@ RE_ENROLLMENT_STATUS = re.compile(
 RE_TEST_APPROVE = re.compile(
     r"^/api/v1/test/approve/(?P<id>[0-9a-fA-F-]+)$"
 )
+RE_TEST_ENROLLMENT = re.compile(
+    r"^/api/v1/test/enrollments/(?P<id>[0-9a-fA-F-]+)$"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +119,27 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 resp["enrolled_by"] = record.get("enrolled_by", None)
 
             json_response(self, 200, resp)
+            return
+
+        # GET /api/v1/test/enrollments — list all enrollments (test introspection)
+        if path == "/api/v1/test/enrollments":
+            json_response(self, 200, enrollments)
+            return
+
+        # GET /api/v1/test/enrollments/<id> — single enrollment (test introspection)
+        m = RE_TEST_ENROLLMENT.match(path)
+        if m:
+            machine_id = m.group("id")
+            record = enrollments.get(machine_id)
+            if record is None:
+                json_response(self, 404, {"error": "not found"})
+                return
+            json_response(self, 200, {**record, "machine_id": machine_id})
+            return
+
+        # GET /api/v1/test/heartbeats — list all received heartbeats (test introspection)
+        if path == "/api/v1/test/heartbeats":
+            json_response(self, 200, {"heartbeats": heartbeats})
             return
 
         # Fallback
