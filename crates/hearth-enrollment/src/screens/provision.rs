@@ -183,6 +183,26 @@ impl ProvisionScreen {
                         })
                         .collect();
 
+                    // Check for HEARTH_TARGET_DISK env var to auto-select a disk.
+                    if let Ok(target) = std::env::var("HEARTH_TARGET_DISK") {
+                        if devices.iter().any(|d| d.name == target) {
+                            self.log(format!(
+                                "Auto-selecting disk from HEARTH_TARGET_DISK: /dev/{target}"
+                            ));
+                            self.target_disk = Some(target);
+                            if self.disko_config.is_some() {
+                                self.run_disko().await;
+                            } else {
+                                self.partition_disk().await;
+                            }
+                            return;
+                        } else {
+                            self.log(format!(
+                                "Warning: HEARTH_TARGET_DISK={target} not found, falling back to selection"
+                            ));
+                        }
+                    }
+
                     if devices.is_empty() {
                         self.state = ProvisionState::Error {
                             step: "disk discovery".into(),
@@ -492,6 +512,36 @@ impl ProvisionScreen {
         Ok(())
     }
 
+    /// Persist the enrollment-assigned machine identity to /mnt so the agent
+    /// can read it on first boot. Called before nixos-install so that identity
+    /// is preserved even if the install is interrupted or fails.
+    async fn persist_machine_identity(&mut self) {
+        if let Some(mid) = self.machine_id {
+            let id_dir = "/mnt/var/lib/hearth";
+            let id_path = format!("{id_dir}/machine-id");
+            if let Err(e) = Self::run_cmd("mkdir", &["-p", id_dir]).await {
+                warn!("failed to create {id_dir}: {e}");
+                return;
+            }
+            if let Err(e) = tokio::fs::write(&id_path, mid.to_string()).await {
+                warn!("failed to write machine-id to {id_path}: {e}");
+            } else {
+                self.log(format!("Machine identity written to {id_path}"));
+            }
+
+            // Write the machine auth token so the agent can
+            // authenticate on first boot.
+            if let Some(ref token) = self.machine_token {
+                let token_path = format!("{id_dir}/machine-token");
+                if let Err(e) = tokio::fs::write(&token_path, token).await {
+                    warn!("failed to write machine-token to {token_path}: {e}");
+                } else {
+                    self.log("Machine auth token written");
+                }
+            }
+        }
+    }
+
     /// Run nixos-install with the target closure.
     async fn install_system(&mut self) {
         let closure = match &self.target_closure {
@@ -504,6 +554,10 @@ impl ProvisionScreen {
                 return;
             }
         };
+
+        // Persist machine identity BEFORE nixos-install so it survives
+        // interrupted installs and is available for test harnesses.
+        self.persist_machine_identity().await;
 
         self.state = ProvisionState::Installing {
             progress: "Starting NixOS installation...".into(),
@@ -556,31 +610,6 @@ impl ProvisionScreen {
                     self.log(format!("  {line}"));
                 }
                 self.log("NixOS installation complete!");
-
-                // Persist the enrollment-assigned machine identity so the
-                // agent can read it on first boot.
-                if let Some(mid) = self.machine_id {
-                    let id_dir = "/mnt/var/lib/hearth";
-                    let id_path = format!("{id_dir}/machine-id");
-                    if let Err(e) = Self::run_cmd("mkdir", &["-p", id_dir]).await {
-                        warn!("failed to create {id_dir}: {e}");
-                    } else if let Err(e) = tokio::fs::write(&id_path, mid.to_string()).await {
-                        warn!("failed to write machine-id to {id_path}: {e}");
-                    } else {
-                        self.log(format!("Machine identity written to {id_path}"));
-                    }
-
-                    // Write the machine auth token so the agent can
-                    // authenticate on first boot.
-                    if let Some(ref token) = self.machine_token {
-                        let token_path = format!("{id_dir}/machine-token");
-                        if let Err(e) = tokio::fs::write(&token_path, token).await {
-                            warn!("failed to write machine-token to {token_path}: {e}");
-                        } else {
-                            self.log("Machine auth token written");
-                        }
-                    }
-                }
 
                 self.state = ProvisionState::Complete;
             }

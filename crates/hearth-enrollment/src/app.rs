@@ -1,6 +1,12 @@
+use std::fmt;
+
 use crossterm::event::KeyEvent;
 use ratatui::prelude::*;
+use tracing::info;
 use uuid::Uuid;
+
+/// Runtime directory for enrollment state files, used by VM test harnesses.
+const RUNTIME_DIR: &str = "/run/hearth";
 
 use crate::screens::enroll::EnrollScreen;
 use crate::screens::hardware::HardwareScreen;
@@ -55,6 +61,22 @@ enum Screen {
     Done,
 }
 
+impl fmt::Display for Screen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::Welcome => "welcome",
+            Self::Hardware => "hardware",
+            Self::Network => "network",
+            Self::Login => "login",
+            Self::Enroll => "enroll",
+            Self::Status => "status",
+            Self::Provisioning => "provisioning",
+            Self::Done => "done",
+        };
+        f.write_str(name)
+    }
+}
+
 pub struct App {
     screen: Screen,
     data: EnrollmentData,
@@ -69,16 +91,27 @@ pub struct App {
     hw_detected: bool,
     /// Set to true once network check has been triggered for the current visit.
     net_checked: bool,
-    /// Set to true once login flow has been started.
-    login_started: bool,
     /// Set to true once status polling has been started.
     polling_started: bool,
     /// Set to true once provisioning has been started.
     provisioning_started: bool,
+    /// When true, auto-advance through screens without waiting for Enter keypresses.
+    /// Set from `HEARTH_HEADLESS=1` env var.
+    headless: bool,
+    /// Tracks whether login tick returned authenticated (for headless auto-advance).
+    login_authenticated: bool,
+    /// Whether the machine_id file has been written (avoid repeated writes every tick).
+    machine_id_written: bool,
 }
 
 impl App {
     pub fn new() -> Self {
+        let headless = std::env::var("HEARTH_HEADLESS")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        if headless {
+            info!("headless mode enabled");
+        }
         Self {
             screen: Screen::Welcome,
             data: EnrollmentData::default(),
@@ -91,9 +124,11 @@ impl App {
             provision: ProvisionScreen::new(),
             hw_detected: false,
             net_checked: false,
-            login_started: false,
             polling_started: false,
             provisioning_started: false,
+            headless,
+            login_authenticated: false,
+            machine_id_written: false,
         }
     }
 
@@ -115,6 +150,7 @@ impl App {
             Screen::Welcome => {
                 if self.welcome.handle_key(key) {
                     self.screen = Screen::Hardware;
+                    self.write_state_file();
                 }
             }
             Screen::Hardware => {
@@ -124,6 +160,7 @@ impl App {
                 }
                 if self.hardware.handle_key(key) {
                     self.screen = Screen::Network;
+                    self.write_state_file();
                 }
             }
             Screen::Network => {
@@ -133,11 +170,13 @@ impl App {
                 }
                 if self.network.handle_key(key) {
                     self.screen = Screen::Login;
+                    self.write_state_file();
                 }
             }
             Screen::Login => {
                 if self.login.handle_key(key) {
                     self.screen = Screen::Enroll;
+                    self.write_state_file();
                 }
             }
             Screen::Enroll => {
@@ -145,43 +184,63 @@ impl App {
                     && advance
                 {
                     self.screen = Screen::Status;
+                    self.write_state_file();
                 }
             }
             Screen::Status => {
                 if self.status.handle_key(key) {
-                    // Transfer the target closure and cache credentials captured
-                    // during approval into enrollment data so the provision screen
-                    // gets them.
-                    if let Some(closure) = self.status.take_approved_closure() {
-                        self.data.target_closure = Some(closure);
-                    }
-                    let (url, token) = self.status.take_cache_credentials();
-                    if url.is_some() {
-                        self.data.cache_url = url;
-                    }
-                    self.data.cache_token = token;
-                    // Take the machine token from the approval response.
-                    self.data.machine_token = self.status.take_machine_token();
-                    // Take the disko config name for disk partitioning.
-                    self.data.disko_config = self.status.take_disko_config();
+                    self.transfer_status_to_provisioning();
                     self.screen = Screen::Provisioning;
+                    self.write_state_file();
                 }
             }
             Screen::Provisioning => {
                 if self.provision.handle_key(key).await {
                     self.screen = Screen::Done;
+                    self.write_state_file();
                 }
             }
             Screen::Done => {}
         }
     }
 
+    /// Transfer approval data from the status screen into enrollment data
+    /// for the provisioning screen. Used by both handle_key and headless auto-advance.
+    fn transfer_status_to_provisioning(&mut self) {
+        if let Some(closure) = self.status.take_approved_closure() {
+            self.data.target_closure = Some(closure);
+        }
+        let (url, token) = self.status.take_cache_credentials();
+        if url.is_some() {
+            self.data.cache_url = url;
+        }
+        self.data.cache_token = token;
+        self.data.machine_token = self.status.take_machine_token();
+        self.data.disko_config = self.status.take_disko_config();
+    }
+
     pub async fn tick(&mut self) {
         match self.screen {
+            Screen::Welcome => {
+                if self.headless {
+                    self.screen = Screen::Hardware;
+                    self.write_state_file();
+                    // Trigger hw detection immediately
+                    self.hardware.detect(&mut self.data);
+                    self.hw_detected = true;
+                }
+            }
             Screen::Hardware => {
                 if !self.hw_detected {
                     self.hardware.detect(&mut self.data);
                     self.hw_detected = true;
+                }
+                if self.headless && self.hw_detected {
+                    self.screen = Screen::Network;
+                    self.write_state_file();
+                    // Trigger network check immediately
+                    self.network.check(&mut self.data);
+                    self.net_checked = true;
                 }
             }
             Screen::Network => {
@@ -189,15 +248,38 @@ impl App {
                     self.network.check(&mut self.data);
                     self.net_checked = true;
                 }
+                if self.headless && self.net_checked {
+                    self.screen = Screen::Login;
+                    self.write_state_file();
+                }
+            }
+            Screen::Login => {
+                let authenticated = self.login.tick(&mut self.data).await;
+                if authenticated {
+                    self.login_authenticated = true;
+                }
+                if self.headless && self.login_authenticated {
+                    self.screen = Screen::Enroll;
+                    self.write_state_file();
+                }
             }
             Screen::Enroll => {
                 self.enroll.tick(&mut self.data).await;
-            }
-            Screen::Login => {
-                if !self.login_started {
-                    self.login_started = true;
+                // Write machine_id file once when enrollment succeeds
+                if let Some(id) = self.data.machine_id
+                    && !self.machine_id_written
+                {
+                    let _ = std::fs::create_dir_all(RUNTIME_DIR);
+                    let _ = std::fs::write(
+                        format!("{RUNTIME_DIR}/enrollment-machine-id"),
+                        id.to_string(),
+                    );
+                    self.machine_id_written = true;
                 }
-                self.login.tick(&mut self.data).await;
+                if self.headless && self.enroll.is_success() {
+                    self.screen = Screen::Status;
+                    self.write_state_file();
+                }
             }
             Screen::Status => {
                 if !self.polling_started {
@@ -205,9 +287,10 @@ impl App {
                     self.polling_started = true;
                 }
                 let approved = self.status.tick(&self.data).await;
-                if approved {
-                    // Stay on Status screen so user can see the approval message
-                    // and press Enter to proceed to provisioning.
+                if approved && self.headless {
+                    self.transfer_status_to_provisioning();
+                    self.screen = Screen::Provisioning;
+                    self.write_state_file();
                 }
             }
             Screen::Provisioning => {
@@ -218,10 +301,19 @@ impl App {
                 let done = self.provision.tick().await;
                 if done {
                     self.screen = Screen::Done;
+                    self.write_state_file();
                 }
             }
             _ => {}
         }
+    }
+
+    /// Write the current screen name to `/run/hearth/enrollment-state` for observability.
+    fn write_state_file(&self) {
+        let name = self.screen.to_string();
+        let _ = std::fs::create_dir_all(RUNTIME_DIR);
+        let _ = std::fs::write(format!("{RUNTIME_DIR}/enrollment-state"), &name);
+        info!(event = "screen_transition", to = name);
     }
 
     pub fn should_exit(&self) -> bool {

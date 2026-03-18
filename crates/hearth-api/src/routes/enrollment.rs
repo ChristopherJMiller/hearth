@@ -138,9 +138,18 @@ async fn auto_approve_enrollment(
                 .extra_config
                 .as_ref()
                 .map(|ec| {
-                    let cu = ec.get("cache_url").and_then(|v| v.as_str()).map(String::from);
-                    let ct = ec.get("cache_token").and_then(|v| v.as_str()).map(String::from);
-                    let dc = ec.get("disko_config").and_then(|v| v.as_str()).map(String::from);
+                    let cu = ec
+                        .get("cache_url")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let ct = ec
+                        .get("cache_token")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let dc = ec
+                        .get("disko_config")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
                     (cu, ct, dc)
                 })
                 .unwrap_or((None, None, None));
@@ -155,15 +164,8 @@ async fn auto_approve_enrollment(
             let flake_ref = std::env::var("HEARTH_FLAKE_REF")
                 .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
             let machine_filter = serde_json::json!({ "machine_ids": [id.to_string()] });
-            match repo::enqueue_build_job(
-                &state.pool,
-                &flake_ref,
-                Some(&machine_filter),
-                1,
-                1,
-                1.0,
-            )
-            .await
+            match repo::enqueue_build_job(&state.pool, &flake_ref, Some(&machine_filter), 1, 1, 1.0)
+                .await
             {
                 Ok(job) => {
                     info!(

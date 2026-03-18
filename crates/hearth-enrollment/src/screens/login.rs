@@ -22,6 +22,11 @@ enum LoginState {
         token_rx: Option<oneshot::Receiver<Result<AuthToken, String>>>,
         elapsed_ticks: u64,
     },
+    /// Direct credential auth pending (no browser). Transitions to
+    /// `Authenticated` or `Error` on the first tick — never persists across ticks.
+    DirectAuth { username: String, password: String },
+    /// Token was injected via env var, skip login entirely.
+    TokenInjected { token: String },
     /// Authentication succeeded, user token acquired.
     Authenticated { username: String },
     /// Something went wrong.
@@ -32,16 +37,19 @@ impl std::fmt::Debug for LoginState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ready => write!(f, "Ready"),
-            Self::WaitingForAuth { elapsed_ticks, .. } => {
-                f.debug_struct("WaitingForAuth")
-                    .field("elapsed_ticks", elapsed_ticks)
-                    .finish_non_exhaustive()
-            }
-            Self::Authenticated { username } => {
-                f.debug_struct("Authenticated")
-                    .field("username", username)
-                    .finish()
-            }
+            Self::WaitingForAuth { elapsed_ticks, .. } => f
+                .debug_struct("WaitingForAuth")
+                .field("elapsed_ticks", elapsed_ticks)
+                .finish_non_exhaustive(),
+            Self::DirectAuth { username, .. } => f
+                .debug_struct("DirectAuth")
+                .field("username", username)
+                .finish_non_exhaustive(),
+            Self::TokenInjected { .. } => write!(f, "TokenInjected"),
+            Self::Authenticated { username } => f
+                .debug_struct("Authenticated")
+                .field("username", username)
+                .finish(),
             Self::Error(e) => f.debug_tuple("Error").field(e).finish(),
         }
     }
@@ -62,12 +70,35 @@ pub struct LoginScreen {
 
 impl LoginScreen {
     pub fn new() -> Self {
-        let kanidm_url =
-            std::env::var("HEARTH_KANIDM_URL").unwrap_or_else(|_| "https://kanidm.hearth.local:8443".into());
+        let kanidm_url = std::env::var("HEARTH_KANIDM_URL")
+            .unwrap_or_else(|_| "https://kanidm.hearth.local:8443".into());
         let client_id =
             std::env::var("HEARTH_KANIDM_CLIENT_ID").unwrap_or_else(|_| "hearth-enrollment".into());
+
+        // Auth bypass: token injection takes priority, then credential auth, then browser flow.
+        let state = if let Ok(token) = std::env::var("HEARTH_AUTH_TOKEN") {
+            if !token.is_empty() {
+                info!("HEARTH_AUTH_TOKEN set, will bypass browser login");
+                LoginState::TokenInjected { token }
+            } else {
+                LoginState::Ready
+            }
+        } else if let (Ok(username), Ok(password)) = (
+            std::env::var("HEARTH_AUTH_USERNAME"),
+            std::env::var("HEARTH_AUTH_PASSWORD"),
+        ) {
+            if !username.is_empty() && !password.is_empty() {
+                info!(username = %username, "HEARTH_AUTH_USERNAME/PASSWORD set, will use direct credential auth");
+                LoginState::DirectAuth { username, password }
+            } else {
+                LoginState::Ready
+            }
+        } else {
+            LoginState::Ready
+        };
+
         Self {
-            state: LoginState::Ready,
+            state,
             kanidm_url,
             client_id,
             started: false,
@@ -89,6 +120,26 @@ impl LoginScreen {
                     Line::from(""),
                     Line::from(Span::styled(
                         "  Preparing authentication...",
+                        Style::default().fg(Color::Yellow),
+                    )),
+                ];
+                frame.render_widget(Paragraph::new(items), inner);
+            }
+            LoginState::TokenInjected { .. } => {
+                let items = vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  Using injected auth token...",
+                        Style::default().fg(Color::Yellow),
+                    )),
+                ];
+                frame.render_widget(Paragraph::new(items), inner);
+            }
+            LoginState::DirectAuth { username, .. } => {
+                let items = vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  Authenticating as {username}..."),
                         Style::default().fg(Color::Yellow),
                     )),
                 ];
@@ -177,6 +228,50 @@ impl LoginScreen {
     /// Called on each tick. Starts the auth flow or checks for completion.
     pub async fn tick(&mut self, data: &mut EnrollmentData) -> bool {
         match &self.state {
+            LoginState::TokenInjected { .. } => {
+                // Direct token injection — use token captured at construction time.
+                let token = match std::mem::replace(&mut self.state, LoginState::Ready) {
+                    LoginState::TokenInjected { token } => token,
+                    _ => unreachable!(),
+                };
+                let username =
+                    extract_username_from_jwt(&token).unwrap_or_else(|| "token-auth".into());
+                info!(username = %username, "using injected auth token");
+                data.user_token = Some(token);
+                data.kanidm_url = Some(self.kanidm_url.clone());
+                self.state = LoginState::Authenticated { username };
+                true
+            }
+            LoginState::DirectAuth { .. } => {
+                // Extract credentials by replacing state, then authenticate inline.
+                // This always transitions to Authenticated or Error before returning.
+                let (username, password) =
+                    match std::mem::replace(&mut self.state, LoginState::Ready) {
+                        LoginState::DirectAuth { username, password } => (username, password),
+                        _ => unreachable!(),
+                    };
+                let kanidm_url = self.kanidm_url.clone();
+                info!(username = %username, "starting direct credential auth against Kanidm");
+                match oauth::authenticate_with_credentials(&kanidm_url, &username, &password).await
+                {
+                    Ok(token) => {
+                        let display_name = extract_username_from_jwt(&token.access_token)
+                            .unwrap_or_else(|| username.clone());
+                        info!(username = %display_name, "direct credential auth succeeded");
+                        data.user_token = Some(token.access_token);
+                        data.kanidm_url = Some(kanidm_url);
+                        self.state = LoginState::Authenticated {
+                            username: display_name,
+                        };
+                        true
+                    }
+                    Err(e) => {
+                        error!(error = %e, "direct credential auth failed");
+                        self.state = LoginState::Error(e);
+                        false
+                    }
+                }
+            }
             LoginState::Ready => {
                 if !self.started {
                     self.started = true;
@@ -243,9 +338,8 @@ impl LoginScreen {
                     // Still waiting
                 }
                 Err(oneshot::error::TryRecvError::Closed) => {
-                    self.state = LoginState::Error(
-                        "Authentication callback failed unexpectedly.".into(),
-                    );
+                    self.state =
+                        LoginState::Error("Authentication callback failed unexpectedly.".into());
                 }
             }
         }

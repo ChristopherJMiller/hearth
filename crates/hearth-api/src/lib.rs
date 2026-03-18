@@ -165,11 +165,7 @@ pub fn reports_routes() -> Router<AppState> {
 }
 
 /// Build the complete application router.
-pub fn build_router(
-    state: AppState,
-    web_dist: &str,
-    metrics_handle: PrometheusHandle,
-) -> Router {
+pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusHandle) -> Router {
     // Serve the unified SPA as a fallback for all non-API routes.
     let spa = ServeDir::new(web_dist).not_found_service(ServeFile::new(
         std::path::Path::new(web_dist).join("index.html"),

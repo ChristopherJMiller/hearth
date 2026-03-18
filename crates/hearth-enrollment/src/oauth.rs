@@ -61,7 +61,8 @@ pub async fn start_auth_code_flow(
     // `discover_async` would reject the issuer mismatch. We rewrite the origin
     // in the discovery JSON so all endpoints point to the reachable URL.
     let base = kanidm_url.trim_end_matches('/');
-    let discovery_url = format!("{base}/oauth2/openid/{client_id}/.well-known/openid-configuration");
+    let discovery_url =
+        format!("{base}/oauth2/openid/{client_id}/.well-known/openid-configuration");
 
     debug!(%discovery_url, "fetching OIDC discovery document");
 
@@ -173,9 +174,7 @@ pub async fn start_auth_code_flow(
 /// Accept a single HTTP callback on the listener and extract the `code` and
 /// `state` query parameters. Returns an error if the IdP sent an error
 /// response or if the connection times out.
-async fn accept_callback(
-    listener: TcpListener,
-) -> Result<(String, Option<String>), String> {
+async fn accept_callback(listener: TcpListener) -> Result<(String, Option<String>), String> {
     // Accept one connection with a 5-minute timeout
     let stream = tokio::task::spawn_blocking({
         let timeout = Duration::from_secs(300);
@@ -239,7 +238,8 @@ async fn accept_callback(
     let url = url::Url::parse(&format!("http://localhost{path}"))
         .map_err(|e| format!("failed to parse callback URL: {e}"))?;
 
-    let params: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
+    let params: std::collections::HashMap<String, String> =
+        url.query_pairs().into_owned().collect();
 
     // Check for error response from Kanidm
     if let Some(err) = params.get("error") {
@@ -261,18 +261,99 @@ async fn accept_callback(
     Ok((code, state))
 }
 
+/// Authenticate directly with Kanidm using username + password (no browser).
+///
+/// Implements Kanidm's 3-step REST API auth flow:
+/// 1. `POST /v1/auth` with `{"step":{"init":"<username>"}}`  — starts session
+/// 2. `POST /v1/auth` with `{"step":{"begin":"password"}}`   — selects method
+/// 3. `POST /v1/auth` with `{"step":{"cred":{"password":"<password>"}}}` — submits cred
+///
+/// The session is tracked via cookies between requests.
+pub async fn authenticate_with_credentials(
+    kanidm_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<AuthToken, String> {
+    let base = kanidm_url.trim_end_matches('/');
+    let auth_endpoint = format!("{base}/v1/auth");
+
+    // Build a client that persists cookies across requests (session tracking).
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .cookie_store(true)
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    // Step 1: init — start the auth session for the given user.
+    let init_body = serde_json::json!({"step": {"init": username}});
+    let resp = client
+        .post(&auth_endpoint)
+        .json(&init_body)
+        .send()
+        .await
+        .map_err(|e| format!("auth init request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("auth init returned status {}", resp.status()));
+    }
+    // Consume the body so the cookie jar picks up any Set-Cookie headers.
+    let _ = resp.text().await;
+
+    // Step 2: begin — select the password authentication method.
+    let begin_body = serde_json::json!({"step": {"begin": "password"}});
+    let resp = client
+        .post(&auth_endpoint)
+        .json(&begin_body)
+        .send()
+        .await
+        .map_err(|e| format!("auth begin request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("auth begin returned status {}", resp.status()));
+    }
+    let _ = resp.text().await;
+
+    // Step 3: cred — submit the password.
+    let cred_body = serde_json::json!({"step": {"cred": {"password": password}}});
+    let resp = client
+        .post(&auth_endpoint)
+        .json(&cred_body)
+        .send()
+        .await
+        .map_err(|e| format!("auth cred request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("auth cred returned status {}", resp.status()));
+    }
+
+    let body_text = resp
+        .text()
+        .await
+        .map_err(|e| format!("failed to read auth response: {e}"))?;
+
+    let body: serde_json::Value = serde_json::from_str(&body_text)
+        .map_err(|e| format!("failed to parse auth response: {e}"))?;
+
+    // The token lives at .state.success in the Kanidm response.
+    let token = body
+        .get("state")
+        .and_then(|s: &serde_json::Value| s.get("success"))
+        .and_then(|v: &serde_json::Value| v.as_str())
+        .ok_or_else(|| {
+            format!("authentication failed: no success token in response (body: {body_text})",)
+        })?;
+
+    Ok(AuthToken {
+        access_token: token.to_string(),
+    })
+}
+
 /// Extract the origin (scheme + host + port) from the `issuer` field of a
 /// discovery JSON document. Returns e.g. `https://localhost:8443`.
 fn extract_origin(discovery_json: &str) -> Option<String> {
     let doc: serde_json::Value = serde_json::from_str(discovery_json).ok()?;
     let issuer = doc.get("issuer")?.as_str()?;
     let parsed = url::Url::parse(issuer).ok()?;
-    Some(format!(
-        "{}://{}",
-        parsed.scheme(),
-        parsed.host_str()?,
-    ) + &parsed
-        .port()
-        .map(|p| format!(":{p}"))
-        .unwrap_or_default())
+    Some(
+        format!("{}://{}", parsed.scheme(), parsed.host_str()?,)
+            + &parsed.port().map(|p| format!(":{p}")).unwrap_or_default(),
+    )
 }

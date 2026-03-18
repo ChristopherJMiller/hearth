@@ -1,180 +1,177 @@
-# tests/full-enrollment.nix — NixOS VM test stub: full enrollment flow
+# tests/full-enrollment.nix — NixOS VM test: full enrollment flow
 #
-# This test will verify the complete device enrollment lifecycle:
+# End-to-end test of the device enrollment lifecycle:
 #
-# 1. An enrollment image boots with hearth-enrollment running
-# 2. The enrollment TUI detects (mock) hardware
-# 3. The TUI contacts the control plane enrollment endpoint
-# 4. An enrollment code is displayed
-# 5. The control plane "approves" the enrollment
-# 6. The enrollment agent partitions a (virtual) disk
-# 7. A NixOS system closure is "installed" (from a mock cache)
-# 8. The system reboots into the installed configuration
-# 9. hearth-agent starts and checks in with the control plane
+# 1. A stateful mock API server starts on the control plane node
+# 2. The enrollment device boots with hearth-enrollment in headless mode
+# 3. The TUI auto-advances through Welcome → Hardware → Network → Login (token-injected)
+# 4. Enrollment is submitted to the mock API, which assigns a machine_id
+# 5. The test script simulates admin approval via the mock API's test endpoint
+# 6. The enrollment TUI detects approval and enters provisioning
+# 7. The TUI partitions, formats, and mounts a real virtual disk (/dev/vdb)
+# 8. Machine identity (machine-id + machine-token) is persisted to /mnt
+# 9. nixos-install fails (no real closure), but all prior steps are verified
 #
 # Nodes:
-#   - controlplane: runs hearth-api with enrollment endpoints
-#   - device: boots the enrollment image, then reboots into installed system
+#   - controlplane: runs the stateful mock API server
+#   - device: boots the real hearth-enrollment binary in headless mode
 #
-# NOTE: This is a structural stub. The test body will be filled in during
-# later implementation phases when the enrollment binary and API endpoints
-# are functional. The test framework and node definitions are ready to use.
+# Verifications:
+#   - State file transitions (via /run/hearth/enrollment-state)
+#   - GPT partition table with correct types (EF00 + 8300)
+#   - Filesystem types and labels (vfat/boot, ext4/nixos)
+#   - Mount points (/mnt, /mnt/boot)
+#   - Machine identity persistence (/mnt/var/lib/hearth/machine-{id,token})
+#   - Structured log events
 
-{ pkgs, lib, ... }:
+{ pkgs, lib, hearth-enrollment, ... }:
 
+let
+  mockApi = import ./lib/mock-api.nix { inherit pkgs; };
+in
 pkgs.testers.nixosTest {
   name = "hearth-full-enrollment";
 
   nodes = {
     controlplane = { config, pkgs, ... }: {
-      nixpkgs.overlays = [
-        (final: prev: {
-          hearth-api = prev.writeShellScriptBin "hearth-api" ''
-            ${prev.python3}/bin/python3 -c "
-            from http.server import HTTPServer, BaseHTTPRequestHandler
-            import json
-
-            class Handler(BaseHTTPRequestHandler):
-                def do_GET(self):
-                    if self.path == '/health' or self.path == '/api/v1/health':
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({'status': 'ok'}).encode())
-                    elif '/enroll' in self.path and '/status' in self.path:
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({
-                            'enrollment_id': 'test-enroll-001',
-                            'status': 'pending_approval'
-                        }).encode())
-                    else:
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({'status': 'ok'}).encode())
-
-                def do_POST(self):
-                    if '/enroll' in self.path:
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({
-                            'enrollment_id': 'test-enroll-001',
-                            'enrollment_code': 'ABC-123',
-                            'status': 'pending'
-                        }).encode())
-                    else:
-                        self.send_response(200)
-                        self.end_headers()
-
-            HTTPServer(('0.0.0.0', 3000), Handler).serve_forever()
-            "
-          '';
-        })
-      ];
-
-      networking.firewall.allowedTCPPorts = [ 3000 ];
-
-      systemd.services.hearth-api = {
-        description = "Hearth API Server (enrollment test)";
-        after = [ "network.target" ];
-        wantedBy = [ "multi-user.target" ];
-        serviceConfig.ExecStart = "${pkgs.hearth-api}/bin/hearth-api";
-      };
+      imports = [ (mockApi.module { port = 3000; }) ];
     };
 
     device = { config, pkgs, ... }: {
-      # TODO: In later phases, this node will boot the enrollment image
-      # and run through the full enrollment flow.
-      # For now, we verify the basic enrollment module loads.
       imports = [ ../modules/enrollment.nix ];
 
       nixpkgs.overlays = [
         (final: prev: {
-          hearth-enrollment = prev.writeShellScriptBin "hearth-enrollment" ''
-            echo "Hearth Enrollment TUI (test stub)"
-            echo "Would contact server at: $HEARTH_SERVER_URL"
-            sleep 2
-          '';
+          hearth-enrollment = hearth-enrollment;
         })
       ];
 
       services.hearth.enrollment = {
         enable = true;
         serverUrl = "http://controlplane:3000";
-        package = pkgs.hearth-enrollment;
+        # No kanidmUrl — use token injection to skip browser auth entirely
       };
+
+      # Headless mode + token injection + target disk
+      environment.variables = {
+        HEARTH_HEADLESS = "1";
+        HEARTH_AUTH_TOKEN = "test-enrollment-token";
+        HEARTH_TARGET_DISK = "vdb";
+      };
+
+      # Extra virtual disk for provisioning target
+      virtualisation = {
+        memorySize = 2048;
+        emptyDiskImages = [ 8192 ]; # 8GB disk at /dev/vdb
+      };
+
+      # Enrollment needs disk utilities available
+      environment.systemPackages = with pkgs; [
+        gptfdisk    # sgdisk
+        e2fsprogs   # mkfs.ext4
+        dosfstools  # mkfs.fat
+        util-linux  # lsblk, mount, etc.
+        curl
+      ];
     };
   };
 
   testScript = ''
-    # Start the control plane
+    import json
+
+    # ──── Phase 1: Boot infrastructure ────
     controlplane.start()
-    controlplane.wait_for_unit("hearth-api.service")
+    controlplane.wait_for_unit("hearth-mock-api.service")
     controlplane.wait_for_open_port(3000)
 
-    # Start the enrollment device
+    # Verify mock API is healthy
+    controlplane.succeed("curl -sf http://localhost:3000/health")
+
+    # ──── Phase 2: Boot enrollment device ────
     device.start()
     device.wait_for_unit("multi-user.target")
 
-    # Verify enrollment configuration was generated
+    # Verify enrollment config was generated
     device.succeed("test -f /etc/hearth/enrollment.toml")
-    device.succeed("grep 'controlplane' /etc/hearth/enrollment.toml")
 
-    # Verify enrollment package is available
+    # Verify the real enrollment binary is available
     device.succeed("which hearth-enrollment")
 
-    # Verify enrollment user exists
-    device.succeed("id enrollment")
-
-    # Verify the device can reach the control plane health endpoint
+    # Verify the device can reach the control plane
     device.succeed("curl -sf http://controlplane:3000/health")
 
-    # --- Enrollment API mock assertions ---
+    # ──── Phase 3: Wait for enrollment to auto-advance ────
+    # The enrollment TUI runs in headless mode and writes state to
+    # /run/hearth/enrollment-state as it transitions through screens.
 
-    # POST to enrollment endpoint and verify response contains enrollment_id
-    device.succeed(
-        "curl -sf http://controlplane:3000/api/v1/enroll "
-        "-X POST -H 'Content-Type: application/json' "
-        "-d '{\"hardware_id\": \"test-hw-001\"}' "
-        "| grep 'enrollment_id'"
+    # Wait for the enrollment state file to appear
+    device.wait_until_succeeds("test -f /run/hearth/enrollment-state", timeout=60)
+
+    # Wait for enrollment to reach the status screen (waiting for approval)
+    device.wait_until_succeeds(
+        "cat /run/hearth/enrollment-state | grep -q 'status'", timeout=120
+    )
+    device.screenshot("01-waiting-for-approval")
+
+    # Verify machine_id was written
+    device.wait_until_succeeds("test -f /run/hearth/enrollment-machine-id", timeout=10)
+    machine_id = device.succeed("cat /run/hearth/enrollment-machine-id").strip()
+    assert len(machine_id) > 0, "machine_id is empty"
+
+    # ──── Phase 4: Simulate admin approval ────
+    controlplane.succeed(
+        f"curl -sf -X POST http://localhost:3000/api/v1/test/approve/{machine_id}"
     )
 
-    # Verify enrollment code is returned
-    device.succeed(
-        "curl -sf http://controlplane:3000/api/v1/enroll "
-        "-X POST -H 'Content-Type: application/json' "
-        "-d '{\"hardware_id\": \"test-hw-001\"}' "
-        "| grep 'ABC-123'"
+    # ──── Phase 5: Wait for provisioning ────
+    device.wait_until_succeeds(
+        "cat /run/hearth/enrollment-state | grep -q 'provisioning'", timeout=60
+    )
+    device.screenshot("02-provisioning-started")
+
+    # ──── Phase 6: Verify disk partitioning ────
+    # The enrollment TUI runs real sgdisk + mkfs against /dev/vdb.
+    # Wait for partitions to be created.
+    device.wait_until_succeeds("lsblk /dev/vdb1 2>/dev/null", timeout=120)
+    device.wait_until_succeeds("lsblk /dev/vdb2 2>/dev/null", timeout=30)
+
+    # Verify GPT partition types
+    device.succeed("sgdisk -p /dev/vdb | grep -q 'EF00'")   # EFI System Partition
+    device.succeed("sgdisk -p /dev/vdb | grep -q '8300'")   # Linux filesystem
+
+    # Verify filesystem types and labels
+    device.succeed("blkid /dev/vdb1 | grep -q 'TYPE=\"vfat\"'")
+    device.succeed("blkid /dev/vdb1 | grep -q 'LABEL=\"boot\"'")
+    device.succeed("blkid /dev/vdb2 | grep -q 'TYPE=\"ext4\"'")
+    device.succeed("blkid /dev/vdb2 | grep -q 'LABEL=\"nixos\"'")
+
+    # Verify mount points
+    device.succeed("mountpoint -q /mnt")
+    device.succeed("mountpoint -q /mnt/boot")
+
+    device.screenshot("03-disk-partitioned-and-mounted")
+
+    # ──── Phase 7: Verify machine identity persistence ────
+    # Machine identity is written to /mnt/var/lib/hearth/ before nixos-install.
+    device.wait_until_succeeds("test -d /mnt/var/lib/hearth", timeout=60)
+    device.succeed("test -f /mnt/var/lib/hearth/machine-id")
+    device.succeed("test -f /mnt/var/lib/hearth/machine-token")
+
+    # Verify the persisted machine-id matches the one assigned by the API
+    written_id = device.succeed("cat /mnt/var/lib/hearth/machine-id").strip()
+    assert written_id == machine_id, (
+        f"Machine ID mismatch: written={written_id}, expected={machine_id}"
     )
 
-    # Poll enrollment status endpoint
-    device.succeed(
-        "curl -sf http://controlplane:3000/api/v1/enroll/test-enroll-001/status "
-        "| grep 'pending_approval'"
-    )
+    # Verify machine-token is non-empty
+    token = device.succeed("cat /mnt/var/lib/hearth/machine-token").strip()
+    assert len(token) > 0, "machine-token is empty"
 
-    # --- Hardware detection tools ---
-    device.succeed("which dmidecode")
-    device.succeed("which lshw")
-    device.succeed("which lspci")
-    device.succeed("which lsusb")
+    device.screenshot("04-identity-persisted")
 
-    # --- Disk utilities ---
-    device.succeed("which parted")
-    device.succeed("which cryptsetup")
+    # ──── Phase 8: Verify structured logs ────
+    device.succeed("grep -q 'screen_transition' /tmp/hearth-enrollment.log")
 
-    # --- Enrollment TUI binary ---
-    device.succeed("which hearth-enrollment")
-    # Run the stub and verify it exits cleanly
-    device.succeed("hearth-enrollment")
-
-    # TODO (Phase 3+): Full enrollment flow with real binaries
-    # - Verify hardware detection output
-    # - Verify disk partitioning on virtual disk
-    # - Verify NixOS installation from mock cache
-    # - Verify reboot into installed system
+    device.screenshot("05-final")
   '';
 }

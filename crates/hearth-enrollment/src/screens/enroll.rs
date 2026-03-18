@@ -29,7 +29,9 @@ pub struct EnrollScreen {
 
 impl EnrollScreen {
     pub fn new() -> Self {
-        let preconfigured = std::env::var("HEARTH_SERVER_URL").ok().filter(|s| s.len() > 7);
+        let preconfigured = std::env::var("HEARTH_SERVER_URL")
+            .ok()
+            .filter(|s| s.len() > 7);
         let (url_input, initial_state) = match preconfigured {
             Some(url) => (url, EnrollState::AutoSubmitting),
             None => ("http://".to_string(), EnrollState::Input),
@@ -181,6 +183,11 @@ impl EnrollScreen {
                 _ => None,
             },
         }
+    }
+
+    /// Whether the enrollment is in the Success state (for headless auto-advance).
+    pub fn is_success(&self) -> bool {
+        matches!(self.state, EnrollState::Success(_))
     }
 
     /// Called on each tick. Kicks off auto-submit when HEARTH_SERVER_URL was set.

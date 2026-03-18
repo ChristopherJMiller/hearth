@@ -292,16 +292,14 @@ fn validate_user_token(
         jsonwebtoken::decode_header(token).map_err(|e| format!("invalid JWT header: {e}"))?;
 
     let jwk = if let Some(kid) = &header.kid {
-        keyset
-            .find(kid)
-            .ok_or_else(|| {
-                let available: Vec<_> = keyset
-                    .keys
-                    .iter()
-                    .filter_map(|k| k.common.key_id.as_deref())
-                    .collect();
-                format!("no JWK with kid={kid} (available: {available:?})")
-            })?
+        keyset.find(kid).ok_or_else(|| {
+            let available: Vec<_> = keyset
+                .keys
+                .iter()
+                .filter_map(|k| k.common.key_id.as_deref())
+                .collect();
+            format!("no JWK with kid={kid} (available: {available:?})")
+        })?
     } else {
         keyset.keys.first().ok_or("no JWK keys available")?
     };
@@ -413,8 +411,8 @@ impl FromRequestParts<AppState> for UserIdentity {
             AuthError(StatusCode::INTERNAL_SERVER_ERROR, e)
         })?;
 
-        let claims =
-            validate_user_token(token, &keyset, &state.auth_config.oidc_audiences).map_err(|e| {
+        let claims = validate_user_token(token, &keyset, &state.auth_config.oidc_audiences)
+            .map_err(|e| {
                 warn!(error = %e, "user token validation failed");
                 AuthError(StatusCode::UNAUTHORIZED, e)
             })?;
@@ -484,13 +482,14 @@ impl FromRequestParts<AppState> for OptionalIdentity {
 
         // Try user token first, then machine token
         let user_err = match get_jwks(&state.auth_config).await {
-            Ok(keyset) => match validate_user_token(token, &keyset, &state.auth_config.oidc_audiences)
-            {
-                Ok(claims) => {
-                    return Ok(OptionalIdentity(Some(AuthIdentity::User(claims))));
+            Ok(keyset) => {
+                match validate_user_token(token, &keyset, &state.auth_config.oidc_audiences) {
+                    Ok(claims) => {
+                        return Ok(OptionalIdentity(Some(AuthIdentity::User(claims))));
+                    }
+                    Err(e) => Some(e),
                 }
-                Err(e) => Some(e),
-            },
+            }
             Err(e) => Some(e),
         };
 

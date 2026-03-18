@@ -156,6 +156,7 @@
         vmTests = lib.optionalAttrs pkgs.stdenv.isLinux {
           vm-agent-polling = import ./tests/agent-polling.nix { inherit pkgs lib; };
           vm-desktop-baseline = import ./tests/desktop-baseline.nix { inherit pkgs lib; };
+          vm-full-enrollment = import ./tests/full-enrollment.nix { inherit pkgs lib hearth-enrollment; };
         };
 
         # Enrollment ISO image (Linux only)
