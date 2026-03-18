@@ -16,7 +16,7 @@ async fn create_and_get_deployment() {
         "failure_threshold": 0.1
     });
     let (status, deployment): (_, Deployment) =
-        send_json(&app, "POST", "/api/v1/deployments", Some(body)).await;
+        send_json(&app, "POST", "/api/v1/deployments", Some(body), None).await;
     assert_eq!(status, 201);
     assert_eq!(deployment.closure, "/nix/store/abc123-nixos-system-24.05");
     assert_eq!(deployment.status, DeploymentStatus::Pending);
@@ -24,7 +24,7 @@ async fn create_and_get_deployment() {
 
     // Get by id
     let uri = format!("/api/v1/deployments/{}", deployment.id);
-    let (status, fetched): (_, Deployment) = send_json(&app, "GET", &uri, None).await;
+    let (status, fetched): (_, Deployment) = send_json(&app, "GET", &uri, None, None).await;
     assert_eq!(status, 200);
     assert_eq!(fetched.id, deployment.id);
 }
@@ -36,11 +36,11 @@ async fn list_deployments() {
 
     let body = json!({ "closure": "/nix/store/deploy1-nixos" });
     let (status, _): (_, Deployment) =
-        send_json(&app, "POST", "/api/v1/deployments", Some(body)).await;
+        send_json(&app, "POST", "/api/v1/deployments", Some(body), None).await;
     assert_eq!(status, 201);
 
     let (status, list): (_, Vec<Deployment>) =
-        send_json(&app, "GET", "/api/v1/deployments", None).await;
+        send_json(&app, "GET", "/api/v1/deployments", None, None).await;
     assert_eq!(status, 200);
     assert!(!list.is_empty());
 }
@@ -52,7 +52,7 @@ async fn deployment_status_transitions() {
 
     let body = json!({ "closure": "/nix/store/fsm-test-nixos" });
     let (_, deployment): (_, Deployment) =
-        send_json(&app, "POST", "/api/v1/deployments", Some(body)).await;
+        send_json(&app, "POST", "/api/v1/deployments", Some(body), None).await;
     assert_eq!(deployment.status, DeploymentStatus::Pending);
 
     let status_uri = format!("/api/v1/deployments/{}/status", deployment.id);
@@ -60,21 +60,21 @@ async fn deployment_status_transitions() {
     // pending → canary (valid)
     let update = json!({ "status": "canary" });
     let (status, updated): (_, Deployment) =
-        send_json(&app, "PUT", &status_uri, Some(update)).await;
+        send_json(&app, "PUT", &status_uri, Some(update), None).await;
     assert_eq!(status, 200);
     assert_eq!(updated.status, DeploymentStatus::Canary);
 
     // canary → rolling (valid)
     let update = json!({ "status": "rolling" });
     let (status, updated): (_, Deployment) =
-        send_json(&app, "PUT", &status_uri, Some(update)).await;
+        send_json(&app, "PUT", &status_uri, Some(update), None).await;
     assert_eq!(status, 200);
     assert_eq!(updated.status, DeploymentStatus::Rolling);
 
     // rolling → completed (valid)
     let update = json!({ "status": "completed" });
     let (status, updated): (_, Deployment) =
-        send_json(&app, "PUT", &status_uri, Some(update)).await;
+        send_json(&app, "PUT", &status_uri, Some(update), None).await;
     assert_eq!(status, 200);
     assert_eq!(updated.status, DeploymentStatus::Completed);
 }
@@ -86,13 +86,13 @@ async fn invalid_deployment_transition_rejected() {
 
     let body = json!({ "closure": "/nix/store/invalid-fsm" });
     let (_, deployment): (_, Deployment) =
-        send_json(&app, "POST", "/api/v1/deployments", Some(body)).await;
+        send_json(&app, "POST", "/api/v1/deployments", Some(body), None).await;
 
     let status_uri = format!("/api/v1/deployments/{}/status", deployment.id);
 
     // pending → completed (invalid — must go through canary/rolling)
     let update = json!({ "status": "completed" });
-    let status = send_status(&app, "PUT", &status_uri, Some(update)).await;
+    let status = send_status(&app, "PUT", &status_uri, Some(update), None).await;
     assert_eq!(status, 400);
 }
 
@@ -103,17 +103,17 @@ async fn rollback_deployment() {
 
     let body = json!({ "closure": "/nix/store/rollback-test" });
     let (_, deployment): (_, Deployment) =
-        send_json(&app, "POST", "/api/v1/deployments", Some(body)).await;
+        send_json(&app, "POST", "/api/v1/deployments", Some(body), None).await;
 
     // Advance to canary
     let status_uri = format!("/api/v1/deployments/{}/status", deployment.id);
     let update = json!({ "status": "canary" });
-    let (_, _): (_, Deployment) = send_json(&app, "PUT", &status_uri, Some(update)).await;
+    let (_, _): (_, Deployment) = send_json(&app, "PUT", &status_uri, Some(update), None).await;
 
     // Rollback from canary
     let rollback_uri = format!("/api/v1/deployments/{}/rollback", deployment.id);
     let (status, rolled_back): (_, Deployment) =
-        send_json(&app, "POST", &rollback_uri, None).await;
+        send_json(&app, "POST", &rollback_uri, None, None).await;
     assert_eq!(status, 200);
     assert_eq!(rolled_back.status, DeploymentStatus::RolledBack);
 }
@@ -123,6 +123,6 @@ async fn rollback_deployment() {
 async fn get_nonexistent_deployment_returns_404() {
     let (app, _db) = test_app().await;
     let uri = format!("/api/v1/deployments/{}", Uuid::new_v4());
-    let status = send_status(&app, "GET", &uri, None).await;
+    let status = send_status(&app, "GET", &uri, None, None).await;
     assert_eq!(status, 404);
 }

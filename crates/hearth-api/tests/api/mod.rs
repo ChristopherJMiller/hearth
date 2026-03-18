@@ -1,3 +1,4 @@
+mod auth;
 mod health;
 mod machines;
 mod enrollment;

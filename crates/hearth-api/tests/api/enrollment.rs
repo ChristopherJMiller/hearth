@@ -14,7 +14,7 @@ async fn enroll_creates_pending_machine() {
     });
 
     let (status, resp): (_, EnrollmentResponse) =
-        send_json(&app, "POST", "/api/v1/enroll", Some(body)).await;
+        send_json(&app, "POST", "/api/v1/enroll", Some(body), None).await;
 
     // In dev mode the user is dev-admin (hearth-admins). The first enrollment
     // by an admin is auto-approved (bootstrap), so it should still be 201
@@ -32,13 +32,13 @@ async fn second_enrollment_stays_pending() {
     // First enrollment: auto-approved (admin bootstrap)
     let body1 = json!({ "hostname": "bootstrap-device" });
     let (_, resp1): (_, EnrollmentResponse) =
-        send_json(&app, "POST", "/api/v1/enroll", Some(body1)).await;
+        send_json(&app, "POST", "/api/v1/enroll", Some(body1), None).await;
     assert_eq!(resp1.status, EnrollmentStatus::Approved);
 
     // Second enrollment: should stay pending (no longer bootstrapping)
     let body2 = json!({ "hostname": "second-device" });
     let (status, resp2): (_, EnrollmentResponse) =
-        send_json(&app, "POST", "/api/v1/enroll", Some(body2)).await;
+        send_json(&app, "POST", "/api/v1/enroll", Some(body2), None).await;
     assert_eq!(status, 201);
     assert_eq!(resp2.status, EnrollmentStatus::Pending);
     assert!(resp2.machine_token.is_none());
@@ -52,12 +52,12 @@ async fn approve_enrollment() {
     // Bootstrap first machine to exit auto-approve mode
     let body1 = json!({ "hostname": "bootstrap" });
     let (_, _): (_, EnrollmentResponse) =
-        send_json(&app, "POST", "/api/v1/enroll", Some(body1)).await;
+        send_json(&app, "POST", "/api/v1/enroll", Some(body1), None).await;
 
     // Enroll a second device (will be pending)
     let body2 = json!({ "hostname": "pending-device" });
     let (_, resp): (_, EnrollmentResponse) =
-        send_json(&app, "POST", "/api/v1/enroll", Some(body2)).await;
+        send_json(&app, "POST", "/api/v1/enroll", Some(body2), None).await;
     assert_eq!(resp.status, EnrollmentStatus::Pending);
 
     // Approve it
@@ -67,7 +67,7 @@ async fn approve_enrollment() {
         "admin": "test-admin"
     });
     let (status, approved): (_, EnrollmentResponse) =
-        send_json(&app, "POST", &approve_uri, Some(approve_body)).await;
+        send_json(&app, "POST", &approve_uri, Some(approve_body), None).await;
     assert_eq!(status, 200);
     assert_eq!(approved.status, EnrollmentStatus::Approved);
     assert!(approved.machine_token.is_some(), "approval should mint a machine token");
@@ -81,17 +81,17 @@ async fn enrollment_status_returns_pending() {
     // Bootstrap
     let body1 = json!({ "hostname": "bootstrap" });
     let (_, _): (_, EnrollmentResponse) =
-        send_json(&app, "POST", "/api/v1/enroll", Some(body1)).await;
+        send_json(&app, "POST", "/api/v1/enroll", Some(body1), None).await;
 
     // Enroll (pending)
     let body2 = json!({ "hostname": "status-check-device" });
     let (_, resp): (_, EnrollmentResponse) =
-        send_json(&app, "POST", "/api/v1/enroll", Some(body2)).await;
+        send_json(&app, "POST", "/api/v1/enroll", Some(body2), None).await;
 
     // Check status
     let status_uri = format!("/api/v1/machines/{}/enrollment-status", resp.machine_id);
     let (status, check): (_, EnrollmentResponse) =
-        send_json(&app, "GET", &status_uri, None).await;
+        send_json(&app, "GET", &status_uri, None, None).await;
     assert_eq!(status, 200);
     assert_eq!(check.status, EnrollmentStatus::Pending);
     assert!(check.machine_token.is_none());
