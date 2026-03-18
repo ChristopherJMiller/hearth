@@ -30,7 +30,8 @@
 , stateVersion ? "25.05"
 , binaryCacheUrl ? null
 , homeFlakeRef ? null
-, roleMapping ? { default = "default"; }
+, roleMapping ? [ ]
+, defaultRole ? "default"
 , hardeningLevel ? "standard"
 , enableDesktop ? true
 , enableEnrollment ? false
@@ -88,7 +89,7 @@ nixpkgs.lib.nixosSystem {
       services.hearth.agent = {
         enable = true;
         inherit serverUrl machineId;
-        inherit roleMapping;
+        inherit roleMapping defaultRole;
       } // lib.optionalAttrs (binaryCacheUrl != null) {
         inherit binaryCacheUrl;
       } // lib.optionalAttrs (homeFlakeRef != null) {

@@ -21,6 +21,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use std::os::unix::net::UnixDatagram;
+
 use hearth_common::api_client::ReqwestApiClient;
 
 #[tokio::main]
@@ -167,6 +169,9 @@ async fn main() {
         .await;
     });
 
+    // Notify systemd that we're ready (Type=notify service).
+    notify_ready();
+
     // Spawn the signal handler.
     let sig_shutdown = shutdown.clone();
     let signal_handle = tokio::spawn(async move {
@@ -196,6 +201,28 @@ async fn main() {
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     info!("hearth-agent stopped");
+}
+
+/// Notify systemd that the service is ready (sd_notify protocol).
+fn notify_ready() {
+    let socket_path = match std::env::var("NOTIFY_SOCKET") {
+        Ok(p) => p,
+        Err(_) => return, // Not running under systemd Type=notify
+    };
+
+    let sock = match UnixDatagram::unbound() {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(error = %e, "failed to create notify socket");
+            return;
+        }
+    };
+
+    if let Err(e) = sock.send_to(b"READY=1", &socket_path) {
+        warn!(error = %e, "failed to send sd_notify READY=1");
+    } else {
+        info!("notified systemd: READY=1");
+    }
 }
 
 /// Wait for SIGTERM or SIGINT (Ctrl-C).

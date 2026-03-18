@@ -1,84 +1,32 @@
-# tests/offline-fallback.nix — NixOS VM test stub: offline resilience
+# tests/offline-fallback.nix — NixOS VM test: offline resilience with real agent
 #
-# This test will verify that Hearth fleet machines degrade gracefully
-# when network connectivity is lost:
-#
-# Scenarios to test:
-#
-# 1. RETURNING USER, OFFLINE:
-#    - User has logged in before (closure cached in local Nix store)
-#    - Network is disabled
-#    - Login should succeed using cached closure
-#    - Activation should complete in <1 second (symlinking only)
-#    - SSSD credential cache should handle offline authentication
-#
-# 2. NEW USER ON THIS DEVICE, OFFLINE:
-#    - User has never logged in on this device
-#    - Network is disabled
-#    - Agent should fall back to pre-built role profile from system closure
-#    - User gets a functional environment matching their role
-#    - No per-user customizations until connectivity returns
-#
-# 3. AGENT RECONNECTION:
-#    - Agent starts with no network
-#    - Agent queues heartbeats and login events
-#    - Network is restored
-#    - Agent flushes queued events to control plane
-#    - Agent resumes normal polling
-#
-# 4. PARTIAL CONNECTIVITY:
-#    - Control plane is unreachable but binary cache is available
-#    - Agent operates in degraded mode
-#    - Pre-warmed closures can still be pulled from cache
+# Two-node test verifying that the real hearth-agent gracefully handles
+# network loss by queuing heartbeats to SQLite, and drains the queue
+# when connectivity is restored.
 #
 # Nodes:
-#   - server: runs hearth-api (can be stopped to simulate offline)
-#   - client: runs hearth-agent and hearth-greeter
+#   - controlplane: runs the stateful mock API server
+#   - client: runs the real hearth-agent binary
 #
-# NOTE: This is a structural stub. Network manipulation and credential
-# caching tests require functional agent and SSSD configuration.
-# The test framework is ready for implementation in later phases.
+# Test phases:
+#   1. Online: agent sends heartbeats normally
+#   2. Offline: iptables blocks traffic, agent queues to SQLite
+#   3. Reconnect: traffic restored, queued events drain to mock API
 
-{ pkgs, lib, ... }:
+{ pkgs, lib, hearth-agent, ... }:
 
+let
+  mockApi = import ./lib/mock-api.nix { inherit pkgs; };
+  machineUuid = "11111111-2222-3333-4444-555555555555";
+  machineToken = "test-machine-token-for-offline";
+in
 pkgs.testers.nixosTest {
   name = "hearth-offline-fallback";
 
   nodes = {
-    server = { config, pkgs, ... }: {
-      nixpkgs.overlays = [
-        (final: prev: {
-          hearth-api = prev.writeShellScriptBin "hearth-api" ''
-            ${prev.python3}/bin/python3 -c "
-            from http.server import HTTPServer, BaseHTTPRequestHandler
-            import json
-
-            class Handler(BaseHTTPRequestHandler):
-                def do_GET(self):
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'status': 'ok'}).encode())
-
-                def do_POST(self):
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'ack': True}).encode())
-
-            HTTPServer(('0.0.0.0', 3000), Handler).serve_forever()
-            "
-          '';
-        })
-      ];
-
-      networking.firewall.allowedTCPPorts = [ 3000 ];
-      systemd.services.hearth-api = {
-        description = "Hearth API Server (offline test)";
-        after = [ "network.target" ];
-        wantedBy = [ "multi-user.target" ];
-        serviceConfig.ExecStart = "${pkgs.hearth-api}/bin/hearth-api";
-      };
+    controlplane = { config, pkgs, ... }: {
+      imports = [ (mockApi.module { port = 3000; }) ];
+      environment.systemPackages = [ pkgs.python3 pkgs.curl ];
     };
 
     client = { config, pkgs, ... }: {
@@ -86,74 +34,118 @@ pkgs.testers.nixosTest {
 
       nixpkgs.overlays = [
         (final: prev: {
-          hearth-agent = prev.writeShellScriptBin "hearth-agent" ''
-            mkdir -p /run/hearth
-            if [ -n "$NOTIFY_SOCKET" ]; then
-              ${prev.systemd}/bin/systemd-notify --ready
-            fi
-            # Simple poll loop that handles connection failures
-            while true; do
-              if ${prev.curl}/bin/curl -sf --connect-timeout 3 \
-                   "http://server:3000/api/v1/agent/checkin" \
-                   -X POST -d '{}' 2>/dev/null; then
-                echo "Online: check-in successful"
-              else
-                echo "Offline: queuing check-in"
-              fi
-              sleep 5
-            done
-          '';
+          hearth-agent = hearth-agent;
         })
       ];
 
       services.hearth.agent = {
         enable = true;
-        serverUrl = "http://server:3000";
-        machineId = "test-offline-001";
+        serverUrl = "http://controlplane:3000";
+        machineId = machineUuid;
         pollInterval = 5;
-        package = pkgs.hearth-agent;
       };
+
+      # Pre-write machine identity files (simulating enrolled device)
+      system.activationScripts.hearth-identity = ''
+        mkdir -p /var/lib/hearth
+        echo -n "${machineUuid}" > /var/lib/hearth/machine-id
+        echo -n "${machineToken}" > /var/lib/hearth/machine-token
+      '';
+
+      # sqlite3 needed for queue inspection assertions
+      environment.systemPackages = [ pkgs.sqlite ];
     };
   };
 
   testScript = ''
-    # --- Phase 1: Online operation ---
-    server.start()
-    client.start()
+    import json
 
-    server.wait_for_unit("hearth-api.service")
-    server.wait_for_open_port(3000)
+    # ── Phase 1: Online operation ──────────────────────────────────────
+
+    controlplane.start()
+    controlplane.wait_for_unit("hearth-mock-api.service")
+    controlplane.wait_for_open_port(3000)
+
+    client.start()
+    client.wait_for_unit("multi-user.target")
     client.wait_for_unit("hearth-agent.service")
 
-    # Verify connectivity works
-    client.succeed("curl -sf http://server:3000/health || true")
+    # Wait for at least 2 heartbeats (proves the poll loop works)
+    controlplane.wait_until_succeeds(
+        "curl -sf http://localhost:3000/api/v1/test/heartbeats"
+        " | python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d[\"heartbeats\"]) >= 2'",
+        timeout=60,
+    )
 
-    # Let the agent perform a few successful poll cycles
-    client.sleep(15)
+    # Verify correct machine_id in heartbeats
+    heartbeats_raw = controlplane.succeed(
+        "curl -sf http://localhost:3000/api/v1/test/heartbeats"
+    )
+    heartbeats = json.loads(heartbeats_raw)["heartbeats"]
+    assert len(heartbeats) >= 2, f"Expected >=2 heartbeats, got {len(heartbeats)}"
+    assert heartbeats[0]["machine_id"] == "${machineUuid}", (
+        f"Wrong machine_id: {heartbeats[0]['machine_id']}"
+    )
 
-    # Verify agent is still running
+    # ── Phase 2: Network disruption ────────────────────────────────────
+
+    # Reset heartbeat log so we can cleanly measure reconnection
+    controlplane.succeed(
+        "curl -sf -X POST http://localhost:3000/api/v1/test/reset-heartbeats"
+    )
+
+    # Block all traffic from client to controlplane
+    client.succeed("iptables -A OUTPUT -d controlplane -j REJECT")
+
+    # Wait long enough for several failed poll cycles (5s interval × 4+)
+    client.sleep(25)
+
+    # Agent must survive the outage
     client.succeed("systemctl is-active hearth-agent.service")
 
-    # --- Phase 2: Simulate offline ---
-    # Block network traffic to the server
-    client.succeed("iptables -A OUTPUT -d server -j DROP")
+    # SQLite queue should have accumulated heartbeat events
+    queue_count = int(client.succeed(
+        "sqlite3 /var/lib/hearth/queue.db 'SELECT COUNT(*) FROM event_queue'"
+    ).strip())
+    assert queue_count > 0, f"Expected queued events, got {queue_count}"
 
-    # Agent should continue running in degraded mode
-    client.sleep(15)
+    # Mock API should have received 0 heartbeats during the outage
+    zero_raw = controlplane.succeed(
+        "curl -sf http://localhost:3000/api/v1/test/heartbeats"
+    )
+    zero_heartbeats = json.loads(zero_raw)["heartbeats"]
+    assert len(zero_heartbeats) == 0, (
+        f"Expected 0 heartbeats during outage, got {len(zero_heartbeats)}"
+    )
+
+    # ── Phase 3: Reconnection & queue drain ────────────────────────────
+
+    # Restore network
+    client.succeed("iptables -D OUTPUT -d controlplane -j REJECT")
+
+    # Wait for heartbeats to appear (queued events drain + fresh heartbeats)
+    controlplane.wait_until_succeeds(
+        "curl -sf http://localhost:3000/api/v1/test/heartbeats"
+        " | python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d[\"heartbeats\"]) >= 1'",
+        timeout=60,
+    )
+
+    # Verify heartbeats arrived after reconnection
+    reconnect_raw = controlplane.succeed(
+        "curl -sf http://localhost:3000/api/v1/test/heartbeats"
+    )
+    reconnect_heartbeats = json.loads(reconnect_raw)["heartbeats"]
+    assert len(reconnect_heartbeats) >= 1, (
+        f"Expected >=1 heartbeats after reconnection, got {len(reconnect_heartbeats)}"
+    )
+
+    # Queue should be drained now
+    client.wait_until_succeeds(
+        "test $(sqlite3 /var/lib/hearth/queue.db 'SELECT COUNT(*) FROM event_queue') -eq 0",
+        timeout=30,
+    )
+
+    # Agent must still be running
     client.succeed("systemctl is-active hearth-agent.service")
-
-    # --- Phase 3: Restore connectivity ---
-    client.succeed("iptables -D OUTPUT -d server -j DROP")
-
-    # Agent should reconnect
-    client.sleep(15)
-    client.succeed("systemctl is-active hearth-agent.service")
-
-    # TODO (Phase 2+): Detailed offline assertions
-    # - Verify queued events are flushed on reconnection
-    # - Verify cached user closure activation works offline
-    # - Verify role profile fallback for new users offline
-    # - Verify SSSD credential cache enables offline auth
-    # - Measure activation latency in cached vs. fallback scenarios
   '';
 }

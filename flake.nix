@@ -164,6 +164,7 @@
           vm-desktop-baseline = import ./tests/desktop-baseline.nix { inherit pkgs lib; };
           vm-full-enrollment = import ./tests/full-enrollment.nix { inherit pkgs lib hearth-enrollment hearth-agent; };
           vm-agent-heartbeat = import ./tests/agent-heartbeat.nix { inherit pkgs lib hearth-agent; };
+          vm-offline-fallback = import ./tests/offline-fallback.nix { inherit pkgs lib hearth-agent; };
           vm-kanidm-auth = import ./tests/kanidm-auth.nix { pkgs = kanidmPkgs; inherit lib; };
           vm-full-login-flow = import ./tests/full-login-flow.nix {
             pkgs = kanidmPkgs;

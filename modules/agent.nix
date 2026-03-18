@@ -10,7 +10,7 @@ let
   settingsFormat = pkgs.formats.toml { };
 
   # Build the agent.toml configuration from module options
-  agentConfig = settingsFormat.generate "agent.toml" {
+  agentConfig = settingsFormat.generate "agent.toml" ({
     server.url = cfg.serverUrl;
     server.machine_id = cfg.machineId;
     agent = {
@@ -24,8 +24,12 @@ let
     home = lib.optionalAttrs (cfg.homeFlakeRef != null) {
       flake_ref = cfg.homeFlakeRef;
     };
-    role_mapping = cfg.roleMapping;
-  };
+  } // lib.optionalAttrs (cfg.roleMapping != []) {
+    role_mapping = {
+      mappings = cfg.roleMapping;
+      default_role = cfg.defaultRole;
+    };
+  });
 in
 {
   options.services.hearth.agent = {
@@ -74,18 +78,34 @@ in
     };
 
     roleMapping = lib.mkOption {
-      type = lib.types.attrsOf lib.types.str;
-      default = { default = "default"; };
-      example = {
-        engineering = "developer";
-        design = "designer";
-        it-admin = "admin";
-        default = "default";
-      };
+      type = lib.types.listOf (lib.types.submodule {
+        options = {
+          group = lib.mkOption {
+            type = lib.types.str;
+            description = "Identity provider group name.";
+          };
+          role = lib.mkOption {
+            type = lib.types.str;
+            description = "Hearth role profile name.";
+          };
+        };
+      });
+      default = [ ];
+      example = [
+        { group = "engineering"; role = "developer"; }
+        { group = "design"; role = "designer"; }
+        { group = "it-admin"; role = "admin"; }
+      ];
       description = ''
-        Mapping of identity provider groups to Hearth role profile names.
-        The first matching group wins. The "default" key is used as a fallback.
+        Priority-ordered list of identity provider group to Hearth role mappings.
+        The first matching group wins. If none match, defaultRole is used.
       '';
+    };
+
+    defaultRole = lib.mkOption {
+      type = lib.types.str;
+      default = "default";
+      description = "Fallback role when no role mapping matches the user's groups.";
     };
 
     logLevel = lib.mkOption {
@@ -159,7 +179,8 @@ in
         ExecStart = "${cfg.package}/bin/hearth-agent";
         Restart = "always";
         RestartSec = 5;
-        WatchdogSec = 120;
+        # WatchdogSec requires periodic WATCHDOG=1 pings from the agent;
+        # not yet implemented, so leave it unset to avoid spurious kills.
 
         # Directories
         RuntimeDirectory = "hearth";

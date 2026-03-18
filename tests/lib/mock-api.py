@@ -217,6 +217,13 @@ class MockApiHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {"status": "ok"})
             return
 
+        # POST /api/v1/test/reset-heartbeats (test-only: clear heartbeat log)
+        if path == "/api/v1/test/reset-heartbeats":
+            cleared = len(heartbeats)
+            heartbeats.clear()
+            json_response(self, 200, {"cleared": cleared})
+            return
+
         # POST /api/v1/heartbeat
         if path == "/api/v1/heartbeat":
             body = read_body(self)
