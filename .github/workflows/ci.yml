@@ -20,8 +20,8 @@ jobs:
       - name: nix flake check
         run: nix flake check
 
-  cargo-check:
-    name: Cargo Check
+  cargo-lint:
+    name: Cargo Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +36,37 @@ jobs:
       - name: cargo clippy
         run: nix develop --command cargo clippy --workspace -- --deny warnings
 
-      - name: cargo test
+      - name: cargo test (unit)
         run: nix develop --command cargo test --workspace
+
+  cargo-integration:
+    name: Cargo Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hearth
+          POSTGRES_PASSWORD: hearth
+          POSTGRES_DB: hearth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hearth"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://hearth:hearth@localhost:5432/hearth
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: cargo test (integration)
+        run: nix develop --command cargo test --workspace -- --ignored
 
   web-check:
     name: Web Frontend Check

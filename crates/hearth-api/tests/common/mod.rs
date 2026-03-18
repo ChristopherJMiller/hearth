@@ -299,6 +299,64 @@ pub async fn send_status(
 }
 
 // ---------------------------------------------------------------------------
+// HTTP-level test fixtures
+// ---------------------------------------------------------------------------
+
+/// Create a machine via the HTTP API and return the full Machine struct.
+pub async fn create_machine_http(app: &Router, hostname: &str) -> hearth_common::api_types::Machine {
+    let body = serde_json::json!({ "hostname": hostname });
+    let (status, machine): (_, hearth_common::api_types::Machine) =
+        send_json(app, "POST", "/api/v1/machines", Some(body), None).await;
+    assert!(
+        status == StatusCode::OK || status == StatusCode::CREATED,
+        "create machine returned {status}"
+    );
+    machine
+}
+
+/// Create a machine via the HTTP API using an auth-enabled app with an admin token.
+pub async fn create_machine_http_authed(
+    ctx: &AuthTestContext,
+    hostname: &str,
+) -> hearth_common::api_types::Machine {
+    let admin_token = ctx.mint_user_jwt("admin-fixture", "admin-fixture", &["hearth-admins"]);
+    let body = serde_json::json!({ "hostname": hostname });
+    let (status, machine): (_, hearth_common::api_types::Machine) =
+        send_json(&ctx.router, "POST", "/api/v1/machines", Some(body), Some(&admin_token)).await;
+    assert!(
+        status == StatusCode::OK || status == StatusCode::CREATED,
+        "create machine returned {status}"
+    );
+    machine
+}
+
+/// Create a machine and a pending action on it via the HTTP API.
+pub async fn create_machine_with_action(
+    app: &Router,
+    hostname: &str,
+    action_type: &str,
+) -> (hearth_common::api_types::Machine, hearth_common::api_types::PendingAction) {
+    let machine = create_machine_http(app, hostname).await;
+    let uri = format!("/api/v1/machines/{}/actions", machine.id);
+    let body = serde_json::json!({ "action_type": action_type, "payload": {} });
+    let (_status, action): (_, hearth_common::api_types::PendingAction) =
+        send_json(app, "POST", &uri, Some(body), None).await;
+    (machine, action)
+}
+
+/// Assert that a set of endpoints all require a valid user identity (401 without, 200 with).
+pub async fn assert_requires_user_identity(ctx: &AuthTestContext, endpoints: &[&str]) {
+    for endpoint in endpoints {
+        let status = send_status(&ctx.router, "GET", endpoint, None, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "expected 401 for {endpoint} without token");
+
+        let token = ctx.mint_user_jwt("fixture-user", "fixture-user", &["hearth-users"]);
+        let status = send_status(&ctx.router, "GET", endpoint, None, Some(&token)).await;
+        assert_eq!(status, StatusCode::OK, "expected 200 for {endpoint} with valid token");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Repo-level test fixtures (for tests that bypass the HTTP layer)
 // ---------------------------------------------------------------------------
 
