@@ -21,8 +21,7 @@ async fn create_and_list_actions() {
 
     // List actions for the machine
     let uri = format!("/api/v1/machines/{}/actions", machine.id);
-    let (status, actions): (_, Vec<PendingAction>) =
-        send_json(&app, "GET", &uri, None, None).await;
+    let (status, actions): (_, Vec<PendingAction>) = send_json(&app, "GET", &uri, None, None).await;
     assert_eq!(status, 200);
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].id, action.id);
@@ -141,14 +140,8 @@ async fn create_action_requires_admin() {
 
     // Admin can create actions
     let admin_token = ctx.mint_user_jwt("admin-1", "admin", &["hearth-admins"]);
-    let (status, _): (_, PendingAction) = send_json(
-        &ctx.router,
-        "POST",
-        &uri,
-        Some(body),
-        Some(&admin_token),
-    )
-    .await;
+    let (status, _): (_, PendingAction) =
+        send_json(&ctx.router, "POST", &uri, Some(body), Some(&admin_token)).await;
     assert_eq!(status, 200);
 }
 
@@ -195,13 +188,6 @@ async fn report_result_requires_machine_identity() {
 
     // Machine token should be accepted (404 because action doesn't exist, not 401/403)
     let machine_token = ctx.mint_machine_jwt(Uuid::new_v4());
-    let status = send_status(
-        &ctx.router,
-        "POST",
-        &uri,
-        Some(body),
-        Some(&machine_token),
-    )
-    .await;
+    let status = send_status(&ctx.router, "POST", &uri, Some(body), Some(&machine_token)).await;
     assert_eq!(status, 404);
 }

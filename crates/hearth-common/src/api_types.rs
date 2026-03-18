@@ -551,6 +551,100 @@ pub struct ComplianceReport {
     pub no_target: i64,
 }
 
+/// Per-machine drift status detail.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriftedMachine {
+    pub id: Uuid,
+    pub hostname: String,
+    pub current_closure: Option<String>,
+    pub target_closure: Option<String>,
+    pub last_heartbeat: Option<DateTime<Utc>>,
+    pub role: Option<String>,
+    pub tags: Vec<String>,
+    pub drift_status: DriftStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DriftStatus {
+    Compliant,
+    Drifted,
+    NoTarget,
+}
+
+// --- Compliance policy types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompliancePolicy {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub nix_expression: String,
+    pub severity: String,
+    pub control_id: Option<String>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCompliancePolicyRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub nix_expression: String,
+    #[serde(default = "default_severity")]
+    pub severity: String,
+    pub control_id: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_severity() -> String {
+    "medium".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCompliancePolicyRequest {
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub nix_expression: Option<String>,
+    pub severity: Option<String>,
+    pub control_id: Option<Option<String>>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyResult {
+    pub id: Uuid,
+    pub deployment_id: Uuid,
+    pub machine_id: Uuid,
+    pub policy_id: Uuid,
+    pub passed: bool,
+    pub message: Option<String>,
+    pub evaluated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentComplianceSummary {
+    pub deployment_id: Uuid,
+    pub total_checks: i64,
+    pub passed: i64,
+    pub failed: i64,
+}
+
+// --- SBOM types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentSbom {
+    pub id: Uuid,
+    pub deployment_id: Uuid,
+    pub machine_id: Uuid,
+    pub closure: String,
+    pub sbom_path: String,
+    pub format: String,
+    pub generated_at: DateTime<Utc>,
+}
+
 // --- Build job types ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

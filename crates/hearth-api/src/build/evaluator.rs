@@ -149,7 +149,8 @@ mod tests {
 
     #[test]
     fn test_parse_valid_eval_result() {
-        let line = r#"{"attr":"desk-001","drvPath":"/nix/store/abc-system.drv","system":"x86_64-linux"}"#;
+        let line =
+            r#"{"attr":"desk-001","drvPath":"/nix/store/abc-system.drv","system":"x86_64-linux"}"#;
         let result = parse_eval_line(line).unwrap().unwrap();
         assert_eq!(result.attr, "desk-001");
         assert_eq!(result.drv_path, "/nix/store/abc-system.drv");
@@ -162,10 +163,7 @@ mod tests {
         let line = r#"{"attr":"broken","drvPath":"","error":"attribute 'broken' missing"}"#;
         let result = parse_eval_line(line).unwrap().unwrap();
         assert_eq!(result.attr, "broken");
-        assert_eq!(
-            result.error.as_deref(),
-            Some("attribute 'broken' missing")
-        );
+        assert_eq!(result.error.as_deref(), Some("attribute 'broken' missing"));
     }
 
     #[test]
@@ -203,9 +201,11 @@ mod tests {
     #[tokio::test]
     async fn test_collect_results_from_stream() {
         let ndjson = concat!(
-            r#"{"attr":"host-a","drvPath":"/nix/store/a.drv"}"#, "\n",
+            r#"{"attr":"host-a","drvPath":"/nix/store/a.drv"}"#,
             "\n",
-            r#"{"attr":"host-b","drvPath":"/nix/store/b.drv","error":"eval failed"}"#, "\n",
+            "\n",
+            r#"{"attr":"host-b","drvPath":"/nix/store/b.drv","error":"eval failed"}"#,
+            "\n",
             "bad json\n",
         );
         let cursor = std::io::Cursor::new(ndjson.as_bytes().to_vec());

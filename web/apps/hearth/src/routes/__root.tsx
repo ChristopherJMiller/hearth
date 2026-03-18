@@ -14,6 +14,7 @@ import {
   LuFlame,
   LuLogOut,
   LuSettings,
+  LuShield,
 } from 'react-icons/lu';
 import { useAuth } from '../useAuth';
 import { useRoles } from '../hooks/useRoles';
@@ -32,6 +33,7 @@ const adminItems: SidebarItem[] = [
   { id: 'catalog-manage', label: 'Manage Catalog', icon: <LuSettings size={18} /> },
   { id: 'requests', label: 'Requests', icon: <LuFilePlus2 size={18} /> },
   { id: 'audit', label: 'Audit Log', icon: <LuFileText size={18} /> },
+  { id: 'compliance', label: 'Compliance', icon: <LuShield size={18} /> },
   { id: 'reports', label: 'Reports', icon: <LuBarChart3 size={18} /> },
 ];
 
@@ -44,6 +46,7 @@ const routeMap: Record<string, string> = {
   'catalog-manage': '/catalog/manage',
   requests: '/requests',
   audit: '/audit',
+  compliance: '/compliance',
   reports: '/reports',
 };
 

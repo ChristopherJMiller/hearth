@@ -3,7 +3,7 @@
 use sqlx::PgPool;
 use tracing::{error, info};
 
-use super::{builder, cache, config_gen, evaluator};
+use super::{builder, cache, config_gen, evaluator, policy_eval, sbom};
 use crate::db::DeploymentStatusDb;
 use crate::repo;
 use hearth_common::api_types::CreateDeploymentRequest;
@@ -31,6 +31,8 @@ pub struct OrchestrateResult {
     pub total_machines: usize,
     pub closures_built: usize,
     pub closures_pushed: usize,
+    pub policy_violations: usize,
+    pub sboms_generated: usize,
 }
 
 /// Run the full build pipeline:
@@ -128,6 +130,18 @@ pub async fn run_build_pipeline(
     let pushed = cache::push_all(&cache_name, &out_paths).await;
 
     info!(pushed, total = out_paths.len(), "cache push complete");
+
+    // Step 5a: Evaluate compliance policies (non-blocking).
+    let policies = repo::list_enabled_compliance_policies(pool)
+        .await
+        .unwrap_or_default();
+    let policy_results = if !policies.is_empty() {
+        info!(count = policies.len(), "evaluating compliance policies");
+        policy_eval::evaluate_policies(&build_dir, &fleet_config, flake_ref, &policies).await
+    } else {
+        Vec::new()
+    };
+    let policy_violations = policy_results.iter().filter(|r| !r.passed).count();
 
     // Compute aggregate instance data hash for reproducibility.
     let aggregate_hash = aggregate_instance_hash(&fleet_config);
@@ -230,6 +244,70 @@ pub async fn run_build_pipeline(
     // Advance deployment to Canary state.
     let _ = repo::update_deployment_status(pool, deployment_id, DeploymentStatusDb::Canary).await;
 
+    // Step 9: Persist compliance policy results.
+    for result in &policy_results {
+        if let Err(e) = repo::create_policy_result(
+            pool,
+            deployment_id,
+            result.machine_id,
+            result.policy_id,
+            result.passed,
+            result.message.as_deref(),
+        )
+        .await
+        {
+            error!(
+                policy = %result.policy_name,
+                machine_id = %result.machine_id,
+                error = %e,
+                "failed to persist policy result"
+            );
+        }
+    }
+
+    // Step 10: Generate SBOMs and persist records (non-blocking).
+    let sbom_base = sbom::sbom_base_dir();
+    let sbom_results = sbom::generate_deployment_sboms(
+        &closure_map,
+        deployment_id,
+        std::path::Path::new(&sbom_base),
+    )
+    .await;
+    let sboms_generated = sbom_results.len();
+
+    // Build a hostname → machine_id index for O(1) lookups.
+    let hostname_to_id: std::collections::HashMap<&str, uuid::Uuid> = fleet_config
+        .machines
+        .iter()
+        .filter_map(|mc| {
+            mc.machine_id
+                .parse()
+                .ok()
+                .map(|id| (mc.hostname.as_str(), id))
+        })
+        .collect();
+
+    for (hostname, relative_path) in &sbom_results {
+        if let Some(&machine_id) = hostname_to_id.get(hostname.as_str()) {
+            let closure = closure_map
+                .get(hostname)
+                .cloned()
+                .unwrap_or_else(|| primary_closure.clone());
+            if let Err(e) = repo::create_deployment_sbom(
+                pool,
+                deployment_id,
+                machine_id,
+                &closure,
+                relative_path,
+                "cyclonedx-json",
+            )
+            .await
+            {
+                error!(hostname, error = %e, "failed to persist SBOM record");
+            }
+        }
+    }
+
     // Clean up temp build directory.
     let _ = std::fs::remove_dir_all(&build_dir);
 
@@ -239,6 +317,8 @@ pub async fn run_build_pipeline(
         total_machines,
         closures_built: successful_builds.len(),
         closures_pushed: pushed,
+        policy_violations,
+        sboms_generated,
     })
 }
 
@@ -325,6 +405,7 @@ mod tests {
             serial_number: None,
             kanidm_url: None,
             binary_cache_url: None,
+            compliance_profile: None,
         }
     }
 
@@ -348,10 +429,7 @@ mod tests {
 
     #[test]
     fn test_closure_map_skips_eval_errors() {
-        let evals = vec![
-            eval_ok("host-a", "/nix/store/a.drv"),
-            eval_err("host-b"),
-        ];
+        let evals = vec![eval_ok("host-a", "/nix/store/a.drv"), eval_err("host-b")];
         let builds = vec![build_ok("/nix/store/a.drv", "/nix/store/a-out")];
 
         let map = build_closure_map(&evals, &builds);

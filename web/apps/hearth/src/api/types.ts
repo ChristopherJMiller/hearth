@@ -175,3 +175,66 @@ export interface EnrollmentTimelineEntry {
   enrolled: number;
   pending: number;
 }
+
+// --- Phase 5B: Compliance Engine ---
+
+export type DriftStatus = 'compliant' | 'drifted' | 'no_target';
+
+export interface DriftedMachine {
+  id: string;
+  hostname: string;
+  current_closure: string | null;
+  target_closure: string | null;
+  last_heartbeat: string | null;
+  role: string | null;
+  tags: string[];
+  drift_status: DriftStatus;
+}
+
+export interface CompliancePolicy {
+  id: string;
+  name: string;
+  description: string | null;
+  nix_expression: string;
+  severity: string;
+  control_id: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCompliancePolicyRequest {
+  name: string;
+  description?: string;
+  nix_expression: string;
+  severity?: string;
+  control_id?: string;
+  enabled?: boolean;
+}
+
+export interface PolicyResult {
+  id: string;
+  deployment_id: string;
+  machine_id: string;
+  policy_id: string;
+  passed: boolean;
+  message: string | null;
+  evaluated_at: string;
+}
+
+export interface DeploymentComplianceSummary {
+  deployment_id: string;
+  total_checks: number;
+  passed: number;
+  failed: number;
+}
+
+export interface DeploymentSbom {
+  id: string;
+  deployment_id: string;
+  machine_id: string;
+  closure: string;
+  sbom_path: string;
+  format: string;
+  generated_at: string;
+}

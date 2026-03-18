@@ -33,6 +33,7 @@
 , roleMapping ? [ ]
 , defaultRole ? "default"
 , hardeningLevel ? "standard"
+, complianceProfile ? null
 , enableDesktop ? true
 , enableEnrollment ? false
 , kanidmUrl ? null
@@ -73,6 +74,7 @@ nixpkgs.lib.nixosSystem {
     ../modules/kanidm-client.nix
     ../modules/desktop.nix
     ../modules/hardening.nix
+    ../modules/compliance/default.nix
     ../modules/secure-boot.nix
     ../modules/tpm-fde.nix
     ../modules/logging.nix
@@ -128,6 +130,11 @@ nixpkgs.lib.nixosSystem {
       services.hearth.hardening = {
         enable = true;
         level = hardeningLevel;
+      };
+
+      # --- Compliance ---
+      services.hearth.compliance = lib.mkIf (complianceProfile != null) {
+        profile = complianceProfile;
       };
 
       # --- Role ---

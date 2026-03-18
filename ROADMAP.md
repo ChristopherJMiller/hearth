@@ -261,12 +261,19 @@ Optional VPN overlay for direct device access and secure fleet communication.
 - [ ] **Direct device SSH:** IT can SSH into any enrolled device via its Headscale address. The console shows Headscale addresses on the machine detail page.
 - [ ] **Agent communication over mesh (optional):** For environments where fleet devices cannot reach the control plane over the public internet, the agent can be configured to communicate over the Headscale mesh instead.
 
-### 5B: Compliance Engine
+### 5B: Compliance Engine ✓
 
-- [ ] **Config drift detection API:** Endpoint returning fleet-wide drift status (machines where `current_closure != target_closure`). Console dashboard widget showing compliance percentage and drill-down to drifted machines.
-- [ ] **Nix assertion policies:** Define compliance policies as Nix expressions evaluated at build time on the control plane. Example: "all machines must have firewall enabled" → assert `networking.firewall.enable == true` in the evaluated config. Policies stored in the DB, results recorded per-deployment.
-- [ ] **SBOM generation:** The build worker produces an SBOM (via `sbomnix`) alongside each closure. Stored with the deployment record. API endpoint to retrieve the SBOM for any machine's current closure. Enables downstream vulnerability scanning (Grype, Trivy) without Hearth owning the scanner.
-- [ ] **STIG/CIS NixOS module library:** NixOS modules implementing specific DISA STIG and CIS controls. Each module carries metadata (control ID, severity, description) that the control plane can extract at evaluation time to generate compliance reports from the Nix evaluation itself — no on-device scanner needed.
+- [x] **Config drift detection API:** Per-machine drift detail endpoint (`GET /api/v1/compliance/drift`) with status filtering (drifted/compliant/no_target). Console compliance page with summary stat cards, donut chart, filterable drift table with click-through to machine detail. Sidebar nav integration.
+- [x] **Nix assertion policies:** Policy CRUD endpoints (`GET/POST/PUT/DELETE /api/v1/compliance/policies`). Policies stored in `compliance_policies` table with name, Nix expression, severity, control ID, enabled flag. Build pipeline evaluates all enabled policies per-machine via `nix eval --json` with `builtins.tryEval` fault isolation. Results recorded in `policy_results` table per-deployment per-machine. Non-blocking — violations are recorded but don't stop deployments. Console policy management tab.
+- [x] **SBOM generation:** Build worker generates CycloneDX JSON SBOMs via `sbomnix` for each built closure. Stored on disk at `$HEARTH_SBOM_DIR/{deployment_id}/{hostname}.cdx.json` with DB references in `deployment_sboms` table. API endpoints to list, download per-deployment, and retrieve current SBOM for any machine. Non-blocking — failures logged but don't stop deployments.
+- [x] **STIG/CIS NixOS module library:** 5 starter compliance control modules following the `hardening.nix` pattern — CIS 1.1.1 (uncommon filesystem mounting), CIS 3.4.1 (firewall enabled), CIS 4.2.1 (persistent journald), STIG V-230223 (SSH hardening), STIG V-230271 (USB mass storage disabled). Each module exposes `enable` + read-only `meta` (id, title, severity, description, family, benchmark). Profile-based activation via `services.hearth.compliance.profile` (cis-level1, cis-level2, stig). Integrated into `mk-fleet-host.nix` with `complianceProfile` parameter. Build pipeline extracts `compliance_profile` from machine `extra_config`.
+
+### Stats
+- **hearth-api:** 3 new source files (routes/compliance.rs, build/policy_eval.rs, build/sbom.rs), orchestrator.rs extended with policy eval + SBOM pipeline steps, repo.rs +14 query functions, db.rs +4 row types
+- **hearth-common:** api_types.rs +9 types (DriftedMachine, DriftStatus, CompliancePolicy, PolicyResult, DeploymentSbom, etc.)
+- **Frontend:** 2 new files (api/compliance.ts with 8 hooks, routes/compliance.tsx with drift table + policy management), sidebar nav + router integration
+- **NixOS:** New `modules/compliance/` directory with default.nix + 5 control modules (CIS + STIG), mk-fleet-host.nix +complianceProfile parameter
+- **SQL:** migration 014 (compliance_policies, policy_results, deployment_sboms tables)
 
 ### 5C: User Environment Polish
 

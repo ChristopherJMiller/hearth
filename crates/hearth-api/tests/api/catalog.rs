@@ -30,7 +30,8 @@ async fn catalog_crud() {
 
     // Update
     let update = json!({ "name": "Firefox ESR", "approval_required": true });
-    let (status, updated): (_, CatalogEntry) = send_json(&app, "PUT", &uri, Some(update), None).await;
+    let (status, updated): (_, CatalogEntry) =
+        send_json(&app, "PUT", &uri, Some(update), None).await;
     assert_eq!(status, 200);
     assert_eq!(updated.name, "Firefox ESR");
     assert!(updated.approval_required);

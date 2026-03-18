@@ -44,14 +44,8 @@ async fn deployment_timeline_returns_ok() {
     let (app, _db) = test_app().await;
 
     // Default (30 days)
-    let (status, _): (_, Vec<Value>) = send_json(
-        &app,
-        "GET",
-        "/api/v1/reports/deployments",
-        None,
-        None,
-    )
-    .await;
+    let (status, _): (_, Vec<Value>) =
+        send_json(&app, "GET", "/api/v1/reports/deployments", None, None).await;
     assert_eq!(status, 200);
 
     // Custom days parameter
@@ -72,14 +66,8 @@ async fn deployment_timeline_returns_ok() {
 async fn enrollment_timeline_returns_ok() {
     let (app, _db) = test_app().await;
 
-    let (status, _): (_, Vec<Value>) = send_json(
-        &app,
-        "GET",
-        "/api/v1/reports/enrollments",
-        None,
-        None,
-    )
-    .await;
+    let (status, _): (_, Vec<Value>) =
+        send_json(&app, "GET", "/api/v1/reports/enrollments", None, None).await;
     assert_eq!(status, 200);
 }
 

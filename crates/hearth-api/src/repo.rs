@@ -11,9 +11,10 @@ use uuid::Uuid;
 
 use crate::db::{
     ActionTypeDb, ActiveDeploymentRow, AuditEventRow, BuildJobRow, BuildJobStatusDb,
-    CatalogEntryRow, DeploymentClosureRow, DeploymentMachineRow, DeploymentRow, DeploymentStatusDb,
-    HeartbeatResultRow, InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingActionRow,
-    PendingInstallRow, PendingUserEnvRow, SoftwareRequestRow, SoftwareRequestStatusDb,
+    CatalogEntryRow, CompliancePolicyRow, DeploymentClosureRow, DeploymentMachineRow,
+    DeploymentRow, DeploymentSbomRow, DeploymentStatusDb, DriftedMachineRow, HeartbeatResultRow,
+    InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingActionRow, PendingInstallRow,
+    PendingUserEnvRow, PolicyResultRow, SoftwareRequestRow, SoftwareRequestStatusDb,
     TargetStateRow, UserEnvStatusDb, UserEnvironmentRow, UserRow,
 };
 use crate::routes::reports::{ComplianceReport, DeploymentTimelineEntry, EnrollmentTimelineEntry};
@@ -1352,4 +1353,271 @@ pub async fn get_enrollment_timeline(
             pending: r.pending.unwrap_or(0),
         })
         .collect())
+}
+
+// --- Drift detail ---
+
+pub async fn list_machines_by_drift_status(
+    pool: &PgPool,
+    status: Option<&str>,
+) -> Result<Vec<DriftedMachineRow>, sqlx::Error> {
+    let condition = match status {
+        Some("drifted") => {
+            "AND target_closure IS NOT NULL AND (current_closure IS NULL OR current_closure != target_closure)"
+        }
+        Some("compliant") => "AND target_closure IS NOT NULL AND current_closure = target_closure",
+        Some("no_target") => "AND target_closure IS NULL",
+        _ => "", // all active machines
+    };
+
+    let query = format!(
+        "SELECT id, hostname, current_closure, target_closure, last_heartbeat, role, tags
+         FROM machines
+         WHERE enrollment_status = 'active' {condition}
+         ORDER BY hostname"
+    );
+
+    sqlx::query_as::<_, DriftedMachineRow>(&query)
+        .fetch_all(pool)
+        .await
+}
+
+// --- Compliance policy CRUD ---
+
+const POLICY_COLUMNS: &str =
+    "id, name, description, nix_expression, severity, control_id, enabled, created_at, updated_at";
+
+pub async fn list_compliance_policies(
+    pool: &PgPool,
+) -> Result<Vec<CompliancePolicyRow>, sqlx::Error> {
+    sqlx::query_as::<_, CompliancePolicyRow>(&format!(
+        "SELECT {POLICY_COLUMNS} FROM compliance_policies ORDER BY name"
+    ))
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn list_enabled_compliance_policies(
+    pool: &PgPool,
+) -> Result<Vec<CompliancePolicyRow>, sqlx::Error> {
+    sqlx::query_as::<_, CompliancePolicyRow>(&format!(
+        "SELECT {POLICY_COLUMNS} FROM compliance_policies WHERE enabled = true ORDER BY name"
+    ))
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn get_compliance_policy(
+    pool: &PgPool,
+    id: Uuid,
+) -> Result<Option<CompliancePolicyRow>, sqlx::Error> {
+    sqlx::query_as::<_, CompliancePolicyRow>(&format!(
+        "SELECT {POLICY_COLUMNS} FROM compliance_policies WHERE id = $1"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn create_compliance_policy(
+    pool: &PgPool,
+    req: &hearth_common::api_types::CreateCompliancePolicyRequest,
+) -> Result<CompliancePolicyRow, sqlx::Error> {
+    sqlx::query_as::<_, CompliancePolicyRow>(&format!(
+        "INSERT INTO compliance_policies (name, description, nix_expression, severity, control_id, enabled)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING {POLICY_COLUMNS}"
+    ))
+    .bind(&req.name)
+    .bind(&req.description)
+    .bind(&req.nix_expression)
+    .bind(&req.severity)
+    .bind(&req.control_id)
+    .bind(req.enabled)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn update_compliance_policy(
+    pool: &PgPool,
+    id: Uuid,
+    req: &hearth_common::api_types::UpdateCompliancePolicyRequest,
+) -> Result<Option<CompliancePolicyRow>, sqlx::Error> {
+    sqlx::query_as::<_, CompliancePolicyRow>(&format!(
+        "UPDATE compliance_policies SET
+            name = COALESCE($2, name),
+            description = CASE WHEN $3::boolean THEN $4 ELSE description END,
+            nix_expression = COALESCE($5, nix_expression),
+            severity = COALESCE($6, severity),
+            control_id = CASE WHEN $7::boolean THEN $8 ELSE control_id END,
+            enabled = COALESCE($9, enabled),
+            updated_at = now()
+         WHERE id = $1
+         RETURNING {POLICY_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(&req.name)
+    .bind(req.description.is_some())
+    .bind(req.description.as_ref().and_then(|d| d.as_deref()))
+    .bind(&req.nix_expression)
+    .bind(&req.severity)
+    .bind(req.control_id.is_some())
+    .bind(req.control_id.as_ref().and_then(|c| c.as_deref()))
+    .bind(req.enabled)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn delete_compliance_policy(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM compliance_policies WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+// --- Policy results ---
+
+pub async fn create_policy_result(
+    pool: &PgPool,
+    deployment_id: Uuid,
+    machine_id: Uuid,
+    policy_id: Uuid,
+    passed: bool,
+    message: Option<&str>,
+) -> Result<PolicyResultRow, sqlx::Error> {
+    sqlx::query_as::<_, PolicyResultRow>(
+        "INSERT INTO policy_results (deployment_id, machine_id, policy_id, passed, message)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (deployment_id, machine_id, policy_id)
+         DO UPDATE SET passed = $4, message = $5, evaluated_at = now()
+         RETURNING id, deployment_id, machine_id, policy_id, passed, message, evaluated_at",
+    )
+    .bind(deployment_id)
+    .bind(machine_id)
+    .bind(policy_id)
+    .bind(passed)
+    .bind(message)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn get_deployment_policy_results(
+    pool: &PgPool,
+    deployment_id: Uuid,
+) -> Result<Vec<PolicyResultRow>, sqlx::Error> {
+    sqlx::query_as::<_, PolicyResultRow>(
+        "SELECT id, deployment_id, machine_id, policy_id, passed, message, evaluated_at
+         FROM policy_results
+         WHERE deployment_id = $1
+         ORDER BY evaluated_at",
+    )
+    .bind(deployment_id)
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct DeploymentComplianceRow {
+    total_checks: Option<i64>,
+    passed: Option<i64>,
+    failed: Option<i64>,
+}
+
+pub async fn get_deployment_compliance_summary(
+    pool: &PgPool,
+    deployment_id: Uuid,
+) -> Result<hearth_common::api_types::DeploymentComplianceSummary, sqlx::Error> {
+    let row = sqlx::query_as::<_, DeploymentComplianceRow>(
+        "SELECT
+            COUNT(*) AS total_checks,
+            COUNT(*) FILTER (WHERE passed = true) AS passed,
+            COUNT(*) FILTER (WHERE passed = false) AS failed
+         FROM policy_results
+         WHERE deployment_id = $1",
+    )
+    .bind(deployment_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(hearth_common::api_types::DeploymentComplianceSummary {
+        deployment_id,
+        total_checks: row.total_checks.unwrap_or(0),
+        passed: row.passed.unwrap_or(0),
+        failed: row.failed.unwrap_or(0),
+    })
+}
+
+// --- Deployment SBOMs ---
+
+pub async fn create_deployment_sbom(
+    pool: &PgPool,
+    deployment_id: Uuid,
+    machine_id: Uuid,
+    closure: &str,
+    sbom_path: &str,
+    format: &str,
+) -> Result<DeploymentSbomRow, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentSbomRow>(
+        "INSERT INTO deployment_sboms (deployment_id, machine_id, closure, sbom_path, format)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (deployment_id, machine_id)
+         DO UPDATE SET closure = $3, sbom_path = $4, format = $5, generated_at = now()
+         RETURNING id, deployment_id, machine_id, closure, sbom_path, format, generated_at",
+    )
+    .bind(deployment_id)
+    .bind(machine_id)
+    .bind(closure)
+    .bind(sbom_path)
+    .bind(format)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn list_deployment_sboms(
+    pool: &PgPool,
+    deployment_id: Uuid,
+) -> Result<Vec<DeploymentSbomRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentSbomRow>(
+        "SELECT id, deployment_id, machine_id, closure, sbom_path, format, generated_at
+         FROM deployment_sboms
+         WHERE deployment_id = $1
+         ORDER BY generated_at",
+    )
+    .bind(deployment_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn get_deployment_sbom(
+    pool: &PgPool,
+    deployment_id: Uuid,
+    machine_id: Uuid,
+) -> Result<Option<DeploymentSbomRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentSbomRow>(
+        "SELECT id, deployment_id, machine_id, closure, sbom_path, format, generated_at
+         FROM deployment_sboms
+         WHERE deployment_id = $1 AND machine_id = $2",
+    )
+    .bind(deployment_id)
+    .bind(machine_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn get_machine_current_sbom(
+    pool: &PgPool,
+    machine_id: Uuid,
+) -> Result<Option<DeploymentSbomRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeploymentSbomRow>(
+        "SELECT s.id, s.deployment_id, s.machine_id, s.closure, s.sbom_path, s.format, s.generated_at
+         FROM deployment_sboms s
+         JOIN machines m ON m.id = s.machine_id AND m.current_closure = s.closure
+         WHERE s.machine_id = $1
+         ORDER BY s.generated_at DESC
+         LIMIT 1",
+    )
+    .bind(machine_id)
+    .fetch_optional(pool)
+    .await
 }

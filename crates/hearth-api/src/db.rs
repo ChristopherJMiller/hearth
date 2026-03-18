@@ -726,6 +726,104 @@ impl From<BuildJobRow> for api_types::BuildJob {
     }
 }
 
+// --- Compliance policy row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct CompliancePolicyRow {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub nix_expression: String,
+    pub severity: String,
+    pub control_id: Option<String>,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<CompliancePolicyRow> for api_types::CompliancePolicy {
+    fn from(row: CompliancePolicyRow) -> Self {
+        api_types::CompliancePolicy {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            nix_expression: row.nix_expression,
+            severity: row.severity,
+            control_id: row.control_id,
+            enabled: row.enabled,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+// --- Policy result row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct PolicyResultRow {
+    pub id: Uuid,
+    pub deployment_id: Uuid,
+    pub machine_id: Uuid,
+    pub policy_id: Uuid,
+    pub passed: bool,
+    pub message: Option<String>,
+    pub evaluated_at: DateTime<Utc>,
+}
+
+impl From<PolicyResultRow> for api_types::PolicyResult {
+    fn from(row: PolicyResultRow) -> Self {
+        api_types::PolicyResult {
+            id: row.id,
+            deployment_id: row.deployment_id,
+            machine_id: row.machine_id,
+            policy_id: row.policy_id,
+            passed: row.passed,
+            message: row.message,
+            evaluated_at: row.evaluated_at,
+        }
+    }
+}
+
+// --- Deployment SBOM row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct DeploymentSbomRow {
+    pub id: Uuid,
+    pub deployment_id: Uuid,
+    pub machine_id: Uuid,
+    pub closure: String,
+    pub sbom_path: String,
+    pub format: String,
+    pub generated_at: DateTime<Utc>,
+}
+
+impl From<DeploymentSbomRow> for api_types::DeploymentSbom {
+    fn from(row: DeploymentSbomRow) -> Self {
+        api_types::DeploymentSbom {
+            id: row.id,
+            deployment_id: row.deployment_id,
+            machine_id: row.machine_id,
+            closure: row.closure,
+            sbom_path: row.sbom_path,
+            format: row.format,
+            generated_at: row.generated_at,
+        }
+    }
+}
+
+// --- Drifted machine row ---
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct DriftedMachineRow {
+    pub id: Uuid,
+    pub hostname: String,
+    pub current_closure: Option<String>,
+    pub target_closure: Option<String>,
+    pub last_heartbeat: Option<DateTime<Utc>>,
+    pub role: Option<String>,
+    pub tags: Vec<String>,
+}
+
 // --- Pending install row (joined request + catalog) ---
 
 #[derive(Debug, sqlx::FromRow)]

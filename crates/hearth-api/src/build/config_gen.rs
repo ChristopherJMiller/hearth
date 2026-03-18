@@ -28,6 +28,8 @@ pub struct MachineConfig {
     pub kanidm_url: Option<String>,
     /// Binary cache URL for pulling closures.
     pub binary_cache_url: Option<String>,
+    /// Compliance profile to activate on this machine (cis-level1, cis-level2, stig).
+    pub compliance_profile: Option<String>,
 }
 
 /// Fleet-wide configuration for a build evaluation.
@@ -69,6 +71,14 @@ pub async fn generate_fleet_config(
             continue;
         }
 
+        // Extract compliance_profile from extra_config if present.
+        let compliance_profile = m
+            .extra_config
+            .as_ref()
+            .and_then(|c| c.get("compliance_profile"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
         configs.push(MachineConfig {
             hostname: m.hostname,
             machine_id: m.id.to_string(),
@@ -80,6 +90,7 @@ pub async fn generate_fleet_config(
             serial_number: m.serial_number,
             kanidm_url: None,       // Set by orchestrator from env/config
             binary_cache_url: None, // Set by orchestrator from env/config
+            compliance_profile,
         });
     }
 
@@ -213,6 +224,7 @@ mod tests {
             serial_number: Some("SN123".into()),
             kanidm_url: None,
             binary_cache_url: None,
+            compliance_profile: None,
         }
     }
 
@@ -374,10 +386,7 @@ mod tests {
     #[test]
     fn test_matches_filter_tags_missing() {
         let m = sample_machine(Uuid::new_v4(), "developer", vec!["gpu".into()]);
-        assert!(!matches_filter(
-            &m,
-            &json!({"tags": ["gpu", "floor-3"]})
-        ));
+        assert!(!matches_filter(&m, &json!({"tags": ["gpu", "floor-3"]})));
     }
 
     #[test]

@@ -164,6 +164,41 @@ pub fn reports_routes() -> Router<AppState> {
         .route("/enrollments", get(routes::reports::enrollment_timeline))
 }
 
+pub fn compliance_routes() -> Router<AppState> {
+    Router::new()
+        .route("/drift", get(routes::compliance::list_drift))
+        .route(
+            "/policies",
+            get(routes::compliance::list_policies).post(routes::compliance::create_policy),
+        )
+        .route(
+            "/policies/{id}",
+            get(routes::compliance::get_policy)
+                .put(routes::compliance::update_policy)
+                .delete(routes::compliance::delete_policy),
+        )
+        .route(
+            "/deployments/{id}/results",
+            get(routes::compliance::deployment_results),
+        )
+        .route(
+            "/deployments/{id}/summary",
+            get(routes::compliance::deployment_summary),
+        )
+        .route(
+            "/sboms/{deployment_id}",
+            get(routes::compliance::list_sboms),
+        )
+        .route(
+            "/sboms/{deployment_id}/{machine_id}",
+            get(routes::compliance::download_sbom),
+        )
+        .route(
+            "/machines/{machine_id}/sbom",
+            get(routes::compliance::machine_current_sbom),
+        )
+}
+
 /// Build the complete application router.
 pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusHandle) -> Router {
     // Serve the unified SPA as a fallback for all non-API routes.
@@ -192,6 +227,7 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
         .nest("/api/v1/auth", auth_me_route())
         .nest("/api/v1/actions", action_result_routes())
         .nest("/api/v1/reports", reports_routes())
+        .nest("/api/v1/compliance", compliance_routes())
         .route("/api/v1/stats", get(routes::stats::fleet_stats))
         .route("/api/v1/audit", get(routes::audit::list_audit_events))
         .nest(

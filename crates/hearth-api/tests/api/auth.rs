@@ -25,8 +25,7 @@ async fn valid_user_token_grants_access() {
     let ctx = test_app_with_auth().await;
 
     let token = ctx.mint_user_jwt("user-1", "alice", &["hearth-users"]);
-    let status =
-        send_status(&ctx.router, "GET", "/api/v1/machines", None, Some(&token)).await;
+    let status = send_status(&ctx.router, "GET", "/api/v1/machines", None, Some(&token)).await;
     assert_eq!(status, 200);
 }
 
@@ -41,8 +40,7 @@ async fn expired_token_returns_401() {
 
     // exp = 0 → long expired
     let token = ctx.mint_user_jwt_with_exp("user-1", "alice", &["hearth-users"], 0);
-    let status =
-        send_status(&ctx.router, "GET", "/api/v1/machines", None, Some(&token)).await;
+    let status = send_status(&ctx.router, "GET", "/api/v1/machines", None, Some(&token)).await;
     assert_eq!(status, 401);
 }
 
@@ -196,11 +194,7 @@ async fn valid_machine_token_hits_heartbeat() {
     )
     .await;
     assert!(status.is_success(), "failed to create machine: {status}");
-    let machine_id: Uuid = machine["id"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
+    let machine_id: Uuid = machine["id"].as_str().unwrap().parse().unwrap();
 
     let machine_token = ctx.mint_machine_jwt(machine_id);
     let heartbeat_body = serde_json::json!({
@@ -267,8 +261,7 @@ async fn invalid_machine_secret_returns_401() {
         "iat": now,
     });
     let key = jsonwebtoken::EncodingKey::from_secret(wrong_secret.as_slice());
-    let bad_token =
-        jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &key).unwrap();
+    let bad_token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &key).unwrap();
 
     let body = serde_json::json!({
         "machine_id": machine_id.to_string(),

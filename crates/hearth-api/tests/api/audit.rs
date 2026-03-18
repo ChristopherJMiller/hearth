@@ -26,8 +26,7 @@ async fn audit_events_from_actions_with_filters() {
     let (app, _db) = test_app().await;
 
     // Create a machine and an action (which records an audit event)
-    let (machine, _action) =
-        create_machine_with_action(&app, "audit-host", "lock").await;
+    let (machine, _action) = create_machine_with_action(&app, "audit-host", "lock").await;
 
     // Verify audit event was created
     let (status, events): (_, Vec<AuditEvent>) =
@@ -48,7 +47,10 @@ async fn audit_events_from_actions_with_filters() {
     )
     .await;
     assert_eq!(status, 200);
-    assert!(!filtered.is_empty(), "expected at least one remote_action event");
+    assert!(
+        !filtered.is_empty(),
+        "expected at least one remote_action event"
+    );
     assert!(filtered.iter().all(|e| e.event_type == "remote_action"));
 
     // Filter by nonexistent type → empty
@@ -68,7 +70,10 @@ async fn audit_events_from_actions_with_filters() {
     let (status, by_machine): (_, Vec<AuditEvent>) =
         send_json(&app, "GET", &filter_uri, None, None).await;
     assert_eq!(status, 200);
-    assert!(!by_machine.is_empty(), "expected audit events for this machine");
+    assert!(
+        !by_machine.is_empty(),
+        "expected audit events for this machine"
+    );
     assert!(by_machine.iter().all(|e| e.machine_id == Some(machine.id)));
 }
 
@@ -108,8 +113,7 @@ async fn audit_events_limit() {
 async fn fleet_stats_empty() {
     let (app, _db) = test_app().await;
 
-    let (status, stats): (_, Value) =
-        send_json(&app, "GET", "/api/v1/stats", None, None).await;
+    let (status, stats): (_, Value) = send_json(&app, "GET", "/api/v1/stats", None, None).await;
     assert_eq!(status, 200);
     assert_eq!(stats["total_machines"], 0);
     assert_eq!(stats["active_machines"], 0);
@@ -125,8 +129,7 @@ async fn fleet_stats_with_machines() {
         create_machine_http(&app, name).await;
     }
 
-    let (status, stats): (_, Value) =
-        send_json(&app, "GET", "/api/v1/stats", None, None).await;
+    let (status, stats): (_, Value) = send_json(&app, "GET", "/api/v1/stats", None, None).await;
     assert_eq!(status, 200);
     assert_eq!(stats["total_machines"], 2);
 }

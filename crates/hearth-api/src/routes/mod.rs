@@ -3,6 +3,7 @@ pub mod audit;
 pub mod auth_me;
 pub mod build_jobs;
 pub mod catalog;
+pub mod compliance;
 pub mod deployments;
 pub mod enrollment;
 pub mod environments;

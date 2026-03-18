@@ -21,7 +21,10 @@ async fn enroll_creates_pending_machine() {
     // but the status will be "approved" and a machine_token will be present.
     assert_eq!(status, 201);
     assert_eq!(resp.status, EnrollmentStatus::Approved);
-    assert!(resp.machine_token.is_some(), "first enrollment by admin should auto-approve and mint token");
+    assert!(
+        resp.machine_token.is_some(),
+        "first enrollment by admin should auto-approve and mint token"
+    );
 }
 
 #[tokio::test]
@@ -70,7 +73,10 @@ async fn approve_enrollment() {
         send_json(&app, "POST", &approve_uri, Some(approve_body), None).await;
     assert_eq!(status, 200);
     assert_eq!(approved.status, EnrollmentStatus::Approved);
-    assert!(approved.machine_token.is_some(), "approval should mint a machine token");
+    assert!(
+        approved.machine_token.is_some(),
+        "approval should mint a machine token"
+    );
 }
 
 #[tokio::test]

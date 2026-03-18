@@ -4,9 +4,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 /// Create a catalog entry + machine + pending software request for testing.
-async fn setup_request(
-    app: &axum::Router,
-) -> (CatalogEntry, Machine, SoftwareRequest) {
+async fn setup_request(app: &axum::Router) -> (CatalogEntry, Machine, SoftwareRequest) {
     let cat_body = json!({
         "name": "Test App",
         "install_method": "flatpak",
@@ -67,26 +65,14 @@ async fn list_requests_filter_by_status() {
     let (_entry, _machine, _request) = setup_request(&app).await;
 
     // Filter by pending
-    let (status, pending): (_, Vec<SoftwareRequest>) = send_json(
-        &app,
-        "GET",
-        "/api/v1/requests?status=pending",
-        None,
-        None,
-    )
-    .await;
+    let (status, pending): (_, Vec<SoftwareRequest>) =
+        send_json(&app, "GET", "/api/v1/requests?status=pending", None, None).await;
     assert_eq!(status, 200);
     assert_eq!(pending.len(), 1);
 
     // Filter by approved (none yet)
-    let (status, approved): (_, Vec<SoftwareRequest>) = send_json(
-        &app,
-        "GET",
-        "/api/v1/requests?status=approved",
-        None,
-        None,
-    )
-    .await;
+    let (status, approved): (_, Vec<SoftwareRequest>) =
+        send_json(&app, "GET", "/api/v1/requests?status=approved", None, None).await;
     assert_eq!(status, 200);
     assert!(approved.is_empty());
 }
@@ -190,14 +176,7 @@ async fn approve_nonexistent_request_returns_404() {
     let (app, _db) = test_app().await;
 
     let uri = format!("/api/v1/requests/{}/approve", Uuid::new_v4());
-    let status = send_status(
-        &app,
-        "POST",
-        &uri,
-        Some(json!({ "admin": "admin" })),
-        None,
-    )
-    .await;
+    let status = send_status(&app, "POST", &uri, Some(json!({ "admin": "admin" })), None).await;
     assert_eq!(status, 404);
 }
 

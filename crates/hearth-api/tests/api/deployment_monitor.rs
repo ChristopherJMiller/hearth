@@ -4,7 +4,7 @@
 //! a real PostgreSQL database with test fixtures.
 
 use crate::common::{
-    add_machines_to_deployment, create_test_deployment, create_test_machine, TestDb,
+    TestDb, add_machines_to_deployment, create_test_deployment, create_test_machine,
 };
 use hearth_api::db::{DeploymentStatusDb, MachineUpdateStatusDb};
 use hearth_api::health_check;
@@ -41,12 +41,24 @@ async fn health_check_mixed_statuses() {
     repo::upsert_deployment_machine(&db.pool, dep.id, m1, MachineUpdateStatusDb::Completed, None)
         .await
         .unwrap();
-    repo::upsert_deployment_machine(&db.pool, dep.id, m2, MachineUpdateStatusDb::Failed, Some("oops"))
-        .await
-        .unwrap();
-    repo::upsert_deployment_machine(&db.pool, dep.id, m3, MachineUpdateStatusDb::Downloading, None)
-        .await
-        .unwrap();
+    repo::upsert_deployment_machine(
+        &db.pool,
+        dep.id,
+        m2,
+        MachineUpdateStatusDb::Failed,
+        Some("oops"),
+    )
+    .await
+    .unwrap();
+    repo::upsert_deployment_machine(
+        &db.pool,
+        dep.id,
+        m3,
+        MachineUpdateStatusDb::Downloading,
+        None,
+    )
+    .await
+    .unwrap();
 
     let health = health_check::check_deployment_health(&db.pool, dep.id)
         .await
@@ -108,9 +120,15 @@ async fn validate_canary_fails_above_threshold() {
     repo::upsert_deployment_machine(&db.pool, dep.id, m1, MachineUpdateStatusDb::Completed, None)
         .await
         .unwrap();
-    repo::upsert_deployment_machine(&db.pool, dep.id, m2, MachineUpdateStatusDb::Failed, Some("error"))
-        .await
-        .unwrap();
+    repo::upsert_deployment_machine(
+        &db.pool,
+        dep.id,
+        m2,
+        MachineUpdateStatusDb::Failed,
+        Some("error"),
+    )
+    .await
+    .unwrap();
 
     let healthy = rollout::validate_canary(&db.pool, dep.id, 0.1)
         .await
@@ -138,11 +156,12 @@ async fn advance_to_rolling_on_healthy_canary() {
         .unwrap();
 
     // Should advance to Rolling
-    rollout::advance_to_rolling(&db.pool, dep.id)
-        .await
-        .unwrap();
+    rollout::advance_to_rolling(&db.pool, dep.id).await.unwrap();
 
-    let updated = repo::get_deployment(&db.pool, dep.id).await.unwrap().unwrap();
+    let updated = repo::get_deployment(&db.pool, dep.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(updated.status, DeploymentStatusDb::Rolling);
 }
 
@@ -158,9 +177,15 @@ async fn advance_to_rolling_triggers_rollback_on_failure() {
 
     // Canary machine failed
     let m1 = create_test_machine(&db.pool, "canary-1").await;
-    repo::upsert_deployment_machine(&db.pool, dep.id, m1, MachineUpdateStatusDb::Failed, Some("error"))
-        .await
-        .unwrap();
+    repo::upsert_deployment_machine(
+        &db.pool,
+        dep.id,
+        m1,
+        MachineUpdateStatusDb::Failed,
+        Some("error"),
+    )
+    .await
+    .unwrap();
 
     // Should return ThresholdExceeded error
     let result = rollout::advance_to_rolling(&db.pool, dep.id).await;

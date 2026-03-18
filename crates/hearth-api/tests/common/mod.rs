@@ -303,7 +303,10 @@ pub async fn send_status(
 // ---------------------------------------------------------------------------
 
 /// Create a machine via the HTTP API and return the full Machine struct.
-pub async fn create_machine_http(app: &Router, hostname: &str) -> hearth_common::api_types::Machine {
+pub async fn create_machine_http(
+    app: &Router,
+    hostname: &str,
+) -> hearth_common::api_types::Machine {
     let body = serde_json::json!({ "hostname": hostname });
     let (status, machine): (_, hearth_common::api_types::Machine) =
         send_json(app, "POST", "/api/v1/machines", Some(body), None).await;
@@ -321,8 +324,14 @@ pub async fn create_machine_http_authed(
 ) -> hearth_common::api_types::Machine {
     let admin_token = ctx.mint_user_jwt("admin-fixture", "admin-fixture", &["hearth-admins"]);
     let body = serde_json::json!({ "hostname": hostname });
-    let (status, machine): (_, hearth_common::api_types::Machine) =
-        send_json(&ctx.router, "POST", "/api/v1/machines", Some(body), Some(&admin_token)).await;
+    let (status, machine): (_, hearth_common::api_types::Machine) = send_json(
+        &ctx.router,
+        "POST",
+        "/api/v1/machines",
+        Some(body),
+        Some(&admin_token),
+    )
+    .await;
     assert!(
         status == StatusCode::OK || status == StatusCode::CREATED,
         "create machine returned {status}"
@@ -335,7 +344,10 @@ pub async fn create_machine_with_action(
     app: &Router,
     hostname: &str,
     action_type: &str,
-) -> (hearth_common::api_types::Machine, hearth_common::api_types::PendingAction) {
+) -> (
+    hearth_common::api_types::Machine,
+    hearth_common::api_types::PendingAction,
+) {
     let machine = create_machine_http(app, hostname).await;
     let uri = format!("/api/v1/machines/{}/actions", machine.id);
     let body = serde_json::json!({ "action_type": action_type, "payload": {} });
@@ -348,11 +360,19 @@ pub async fn create_machine_with_action(
 pub async fn assert_requires_user_identity(ctx: &AuthTestContext, endpoints: &[&str]) {
     for endpoint in endpoints {
         let status = send_status(&ctx.router, "GET", endpoint, None, None).await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "expected 401 for {endpoint} without token");
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "expected 401 for {endpoint} without token"
+        );
 
         let token = ctx.mint_user_jwt("fixture-user", "fixture-user", &["hearth-users"]);
         let status = send_status(&ctx.router, "GET", endpoint, None, Some(&token)).await;
-        assert_eq!(status, StatusCode::OK, "expected 200 for {endpoint} with valid token");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "expected 200 for {endpoint} with valid token"
+        );
     }
 }
 
@@ -390,7 +410,9 @@ pub async fn create_test_deployment(
         batch_size,
         failure_threshold,
     };
-    hearth_api::repo::create_deployment(pool, &req).await.unwrap()
+    hearth_api::repo::create_deployment(pool, &req)
+        .await
+        .unwrap()
 }
 
 /// Add machines to a deployment with Pending status.

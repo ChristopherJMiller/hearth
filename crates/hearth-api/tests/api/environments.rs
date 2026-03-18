@@ -18,16 +18,14 @@ async fn upsert_and_get_environment() {
 
     let uri = format!("/api/v1/machines/{}/environments/alice", machine.id);
     let body = json!({ "role": "developer", "status": "pending" });
-    let (status, env): (_, UserEnvironment) =
-        send_json(&app, "PUT", &uri, Some(body), None).await;
+    let (status, env): (_, UserEnvironment) = send_json(&app, "PUT", &uri, Some(body), None).await;
     assert_eq!(status, 200);
     assert_eq!(env.machine_id, machine.id);
     assert_eq!(env.username, "alice");
     assert_eq!(env.role, "developer");
 
     // Get the environment
-    let (status, fetched): (_, UserEnvironment) =
-        send_json(&app, "GET", &uri, None, None).await;
+    let (status, fetched): (_, UserEnvironment) = send_json(&app, "GET", &uri, None, None).await;
     assert_eq!(status, 200);
     assert_eq!(fetched.id, env.id);
     assert_eq!(fetched.username, "alice");
@@ -84,14 +82,8 @@ async fn upsert_updates_existing_environment() {
     assert_eq!(env1.role, "developer");
 
     // Update role
-    let (status, env2): (_, UserEnvironment) = send_json(
-        &app,
-        "PUT",
-        &uri,
-        Some(json!({ "role": "admin" })),
-        None,
-    )
-    .await;
+    let (status, env2): (_, UserEnvironment) =
+        send_json(&app, "PUT", &uri, Some(json!({ "role": "admin" })), None).await;
     assert_eq!(status, 200);
     assert_eq!(env2.role, "admin");
     assert_eq!(env2.id, env1.id); // same record
@@ -128,10 +120,7 @@ async fn record_login_nonexistent_returns_404() {
     let (app, _db) = test_app().await;
     let machine = create_machine_http(&app, "login-404-host").await;
 
-    let login_uri = format!(
-        "/api/v1/machines/{}/environments/nobody/login",
-        machine.id
-    );
+    let login_uri = format!("/api/v1/machines/{}/environments/nobody/login", machine.id);
     let status = send_status(&app, "POST", &login_uri, None, None).await;
     assert_eq!(status, 404);
 }
@@ -180,13 +169,7 @@ async fn environments_write_requires_machine_identity() {
 
     // Machine token can upsert
     let machine_token = ctx.mint_machine_jwt(machine.id);
-    let (status, _): (_, UserEnvironment) = send_json(
-        &ctx.router,
-        "PUT",
-        &uri,
-        Some(body),
-        Some(&machine_token),
-    )
-    .await;
+    let (status, _): (_, UserEnvironment) =
+        send_json(&ctx.router, "PUT", &uri, Some(body), Some(&machine_token)).await;
     assert_eq!(status, 200);
 }
