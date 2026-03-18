@@ -268,17 +268,14 @@ pub(crate) fn build_closure_map(
         .collect()
 }
 
-/// Compute an aggregate hash over all machine instance data hashes.
+/// Compute an aggregate SHA-256 hash over all machine instance data hashes.
 pub(crate) fn aggregate_instance_hash(fleet_config: &config_gen::FleetConfig) -> String {
-    use std::hash::{Hash, Hasher};
-    let instance_hashes: Vec<String> = fleet_config
-        .machines
-        .iter()
-        .map(config_gen::instance_data_hash)
-        .collect();
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    instance_hashes.hash(&mut h);
-    format!("{:x}", h.finish())
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for mc in &fleet_config.machines {
+        hasher.update(config_gen::instance_data_hash(mc).as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

@@ -88,17 +88,15 @@ pub async fn generate_fleet_config(
     Ok(FleetConfig { machines: configs })
 }
 
-/// Compute a hash of serialized instance data for reproducibility tracking.
+/// Compute a SHA-256 hash of serialized instance data for reproducibility tracking.
 ///
-/// Uses `DefaultHasher` (SipHash) for a 64-bit fingerprint. This is advisory —
-/// not cryptographic — and may change across Rust compiler versions.
+/// The hash is stable across Rust compiler versions since it uses SHA-256 over
+/// the JSON representation rather than the Rust `Hash` trait.
 pub fn instance_data_hash(config: &MachineConfig) -> String {
-    use std::hash::{Hash, Hasher};
-    // Use the JSON representation for a stable hash
+    use sha2::{Digest, Sha256};
     let json = serde_json::to_string(config).unwrap_or_default();
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    json.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    let hash = Sha256::digest(json.as_bytes());
+    format!("{hash:x}")
 }
 
 /// Write per-machine instance data JSON files and a top-level eval.nix to a build

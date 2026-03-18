@@ -257,11 +257,8 @@ pub fn mint_machine_token(
         .map_err(|e| AppError::Internal(format!("failed to mint machine token: {e}")))?;
 
     // Store a hash in the DB for revocation checks
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    token.hash(&mut hasher);
-    let hash = format!("{:016x}", hasher.finish());
+    use sha2::{Digest, Sha256};
+    let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
 
     Ok((token, hash))
 }
