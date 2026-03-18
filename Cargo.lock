@@ -1354,6 +1354,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "hearth-common",
+ "http-body-util",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
