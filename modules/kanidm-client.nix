@@ -65,17 +65,17 @@ in
   config = lib.mkIf cfg.enable {
     # --- Kanidm client + PAM/NSS daemon ---
     services.kanidm = {
-      enableClient = true;
-      enablePam = true;
+      client.enable = true;
+      unix.enable = true;
 
-      clientSettings = {
+      client.settings = {
         uri = cfg.uri;
       } // lib.optionalAttrs (cfg.caCertPath != null) {
         ca_path = cfg.caCertPath;
       };
 
-      unixSettings = {
-        pam_allowed_login_groups = cfg.allowedLoginGroups;
+      unix.settings = {
+        kanidm.pam_allowed_login_groups = cfg.allowedLoginGroups;
         default_shell = cfg.defaultShell;
         home_prefix = cfg.homePrefix;
         home_attr = "uuid";

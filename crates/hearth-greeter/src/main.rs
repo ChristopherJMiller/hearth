@@ -75,6 +75,20 @@ fn main() -> ExitCode {
         }
     };
 
+    // Headless test mode: skip GTK entirely, drive the login flow from env vars.
+    // Set HEARTH_GREETER_TEST_MODE=1, HEARTH_TEST_USER, HEARTH_TEST_PASS.
+    if std::env::var("HEARTH_GREETER_TEST_MODE").as_deref() == Ok("1") {
+        info!("running in headless test mode");
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                error!(%e, "failed to create tokio runtime for headless mode");
+                return ExitCode::FAILURE;
+            }
+        };
+        return rt.block_on(run_headless(config));
+    }
+
     // Build the GTK application.
     let app = gtk4::Application::builder()
         .application_id("com.hearth.greeter")
@@ -117,6 +131,63 @@ fn main() -> ExitCode {
         error!("GTK application exited with failure");
     }
     exit
+}
+
+// ---------------------------------------------------------------------------
+// Headless test mode
+// ---------------------------------------------------------------------------
+
+/// Run the login flow without GTK, reading credentials from environment
+/// variables. Used in NixOS VM integration tests.
+async fn run_headless(config: GreeterConfig) -> ExitCode {
+    let username = match std::env::var("HEARTH_TEST_USER") {
+        Ok(u) => u,
+        Err(_) => {
+            error!("HEARTH_TEST_USER not set in headless test mode");
+            return ExitCode::FAILURE;
+        }
+    };
+    let password = match std::env::var("HEARTH_TEST_PASS") {
+        Ok(p) => p,
+        Err(_) => {
+            error!("HEARTH_TEST_PASS not set in headless test mode");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    info!(%username, "headless login attempt");
+
+    // Create a dummy update channel (log events via tracing instead of UI).
+    let (update_tx, update_rx) = async_channel::unbounded::<UiUpdate>();
+
+    // Spawn a task to log UI updates (since there's no GTK to display them).
+    tokio::spawn(async move {
+        while let Ok(msg) = update_rx.recv().await {
+            match msg {
+                UiUpdate::AuthSuccess => info!("auth succeeded"),
+                UiUpdate::AuthFailed(ref m) => warn!(%m, "auth failed"),
+                UiUpdate::PrepProgress {
+                    percent,
+                    ref message,
+                } => {
+                    info!(percent, %message, "prep progress")
+                }
+                UiUpdate::PrepReady => info!("environment ready"),
+                UiUpdate::PrepError(ref m) => error!(%m, "prep error"),
+            }
+        }
+    });
+
+    match handle_login(&config, &update_tx, &username, &password).await {
+        Ok(()) => {
+            info!("headless login succeeded, session started");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            error!(%e, "headless login failed");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

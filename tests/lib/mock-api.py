@@ -61,6 +61,15 @@ def read_body(handler: BaseHTTPRequestHandler) -> dict:
 RE_ENROLLMENT_STATUS = re.compile(
     r"^/api/v1/machines/(?P<id>[0-9a-fA-F-]+)/enrollment-status$"
 )
+RE_TARGET_STATE = re.compile(
+    r"^/api/v1/machines/(?P<id>[0-9a-fA-F-]+)/target-state$"
+)
+RE_USER_ENV = re.compile(
+    r"^/api/v1/machines/(?P<id>[0-9a-fA-F-]+)/environments/(?P<username>[^/]+)$"
+)
+RE_USER_LOGIN = re.compile(
+    r"^/api/v1/machines/(?P<id>[0-9a-fA-F-]+)/environments/(?P<username>[^/]+)/login$"
+)
 RE_TEST_APPROVE = re.compile(
     r"^/api/v1/test/approve/(?P<id>[0-9a-fA-F-]+)$"
 )
@@ -119,6 +128,15 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 resp["enrolled_by"] = record.get("enrolled_by", None)
 
             json_response(self, 200, resp)
+            return
+
+        # GET /api/v1/machines/<id>/target-state — agent polls for target closure
+        m = RE_TARGET_STATE.match(path)
+        if m:
+            json_response(self, 200, {
+                "target_closure": None,
+                "module_library_ref": None,
+            })
             return
 
         # GET /api/v1/test/enrollments — list all enrollments (test introspection)
@@ -193,6 +211,12 @@ class MockApiHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # POST /api/v1/machines/<id>/environments/<username>/login — agent reports user login
+        m = RE_USER_LOGIN.match(path)
+        if m:
+            json_response(self, 200, {"status": "ok"})
+            return
+
         # POST /api/v1/heartbeat
         if path == "/api/v1/heartbeat":
             body = read_body(self)
@@ -209,6 +233,21 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "pending_user_envs": [],
                 "status": "ok",
             })
+            return
+
+        # Fallback
+        json_response(self, 404, {"error": "not found"})
+
+    # -- PUT ----------------------------------------------------------------
+
+    def do_PUT(self):
+        path = self.path.split("?")[0]
+
+        # PUT /api/v1/machines/<id>/environments/<username> — agent reports user env status
+        m = RE_USER_ENV.match(path)
+        if m:
+            _ = read_body(self)
+            json_response(self, 200, {"status": "ok"})
             return
 
         # Fallback

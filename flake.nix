@@ -152,11 +152,23 @@
 
         lib = pkgs.lib;
 
+        # pkgs with kanidm allowed (marked insecure in this nixpkgs)
+        kanidmPkgs = import nixpkgs {
+          inherit system;
+          config.permittedInsecurePackages = [ "kanidm-1.7.4" ];
+        };
+
         # VM integration tests (Linux only)
         vmTests = lib.optionalAttrs pkgs.stdenv.isLinux {
           vm-agent-polling = import ./tests/agent-polling.nix { inherit pkgs lib; };
           vm-desktop-baseline = import ./tests/desktop-baseline.nix { inherit pkgs lib; };
           vm-full-enrollment = import ./tests/full-enrollment.nix { inherit pkgs lib hearth-enrollment hearth-agent; };
+          vm-agent-heartbeat = import ./tests/agent-heartbeat.nix { inherit pkgs lib hearth-agent; };
+          vm-kanidm-auth = import ./tests/kanidm-auth.nix { pkgs = kanidmPkgs; inherit lib; };
+          vm-full-login-flow = import ./tests/full-login-flow.nix {
+            pkgs = kanidmPkgs;
+            inherit lib hearth-agent hearth-greeter;
+          };
         };
 
         # Enrollment ISO image (Linux only)

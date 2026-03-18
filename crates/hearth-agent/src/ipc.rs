@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -151,7 +151,9 @@ pub async fn run_ipc_server<C: HearthApiClient + 'static>(
 /// Handle a single IPC connection.
 ///
 /// Reads newline-delimited JSON requests, processes each one, and writes
-/// back newline-delimited JSON responses.
+/// back newline-delimited JSON responses. Background tasks (e.g. environment
+/// preparation) send events back through an mpsc channel that is multiplexed
+/// with the incoming request stream.
 async fn handle_connection<C: HearthApiClient + 'static>(
     stream: tokio::net::UnixStream,
     state: Arc<Mutex<IpcState<C>>>,
@@ -160,10 +162,22 @@ async fn handle_connection<C: HearthApiClient + 'static>(
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
 
+    // Channel for background tasks to send events back to this connection.
+    let (event_tx, mut event_rx) = mpsc::channel::<AgentEvent>(32);
+
     loop {
-        let line = tokio::select! {
+        tokio::select! {
+            // Forward events from background tasks to the client.
+            Some(event) = event_rx.recv() => {
+                if let Err(e) = send_event(&mut writer, &event).await {
+                    warn!(error = %e, "failed to forward background event to client");
+                    return;
+                }
+            }
+
+            // Read incoming requests from the client.
             result = lines.next_line() => {
-                match result {
+                let line = match result {
                     Ok(Some(line)) => line,
                     Ok(None) => {
                         debug!("IPC client disconnected");
@@ -173,176 +187,228 @@ async fn handle_connection<C: HearthApiClient + 'static>(
                         warn!(error = %e, "error reading from IPC client");
                         return;
                     }
+                };
+
+                let request: AgentRequest = match serde_json::from_str(&line) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        warn!(error = %e, raw = %line, "invalid IPC request");
+                        let event = AgentEvent::Error {
+                            username: String::new(),
+                            message: format!("invalid request: {e}"),
+                        };
+                        if let Err(e) = send_event(&mut writer, &event).await {
+                            warn!(error = %e, "failed to send error response");
+                        }
+                        continue;
+                    }
+                };
+
+                debug!(?request, "handling IPC request");
+
+                match request {
+                    AgentRequest::Ping => {
+                        if let Err(e) = send_event(&mut writer, &AgentEvent::Pong).await {
+                            warn!(error = %e, "failed to send Pong");
+                            return;
+                        }
+                    }
+
+                    AgentRequest::PrepareUserEnv { username, groups } => {
+                        handle_prepare_user_env(
+                            &username,
+                            groups,
+                            &state,
+                            &mut writer,
+                            &event_tx,
+                            &shutdown,
+                        )
+                        .await;
+                    }
+
+                    AgentRequest::GetPrepareStatus { username } => {
+                        let st = state.lock().await;
+                        let event = match st.prepare_status.get(&username) {
+                            Some(PrepareStatus::Preparing) => AgentEvent::Preparing {
+                                username,
+                                message: "still preparing".into(),
+                            },
+                            Some(PrepareStatus::Ready) => AgentEvent::Ready { username },
+                            Some(PrepareStatus::Error(msg)) => AgentEvent::Error {
+                                username,
+                                message: msg.clone(),
+                            },
+                            None => AgentEvent::Error {
+                                username,
+                                message: "no preparation has been requested for this user".into(),
+                            },
+                        };
+                        if let Err(e) = send_event(&mut writer, &event).await {
+                            warn!(error = %e, "failed to send prepare status");
+                            return;
+                        }
+                    }
                 }
             }
+
             () = shutdown.cancelled() => {
                 debug!("IPC connection closing due to shutdown");
                 return;
             }
-        };
-
-        let request: AgentRequest = match serde_json::from_str(&line) {
-            Ok(req) => req,
-            Err(e) => {
-                warn!(error = %e, raw = %line, "invalid IPC request");
-                let event = AgentEvent::Error {
-                    username: String::new(),
-                    message: format!("invalid request: {e}"),
-                };
-                if let Err(e) = send_event(&mut writer, &event).await {
-                    warn!(error = %e, "failed to send error response");
-                }
-                continue;
-            }
-        };
-
-        debug!(?request, "handling IPC request");
-
-        match request {
-            AgentRequest::Ping => {
-                if let Err(e) = send_event(&mut writer, &AgentEvent::Pong).await {
-                    warn!(error = %e, "failed to send Pong");
-                    return;
-                }
-            }
-
-            AgentRequest::PrepareUserEnv { username, groups } => {
-                debug!(%username, ?groups, "preparing user environment");
-
-                // Record that preparation has started.
-                {
-                    let mut st = state.lock().await;
-                    st.prepare_status
-                        .insert(username.clone(), PrepareStatus::Preparing);
-                }
-
-                // Send immediate "Preparing" acknowledgement.
-                let preparing = AgentEvent::Preparing {
-                    username: username.clone(),
-                    message: "preparing user environment".into(),
-                };
-                if let Err(e) = send_event(&mut writer, &preparing).await {
-                    warn!(error = %e, "failed to send Preparing event");
-                    return;
-                }
-
-                // Spawn a background task to build/activate the user environment.
-                let state_bg = Arc::clone(&state);
-                let writer_shutdown = shutdown.clone();
-                let user = username.clone();
-                tokio::spawn(async move {
-                    let role = {
-                        let st = state_bg.lock().await;
-                        resolve_role(&groups, &st.config)
-                    };
-                    info!(%user, %role, "resolved role for user");
-
-                    // Extract client + machine_id so we don't hold the lock across awaits.
-                    let (client, machine_id) = {
-                        let st = state_bg.lock().await;
-                        (Arc::clone(&st.client), st.machine_id)
-                    };
-
-                    // Report "building" status to control plane.
-                    if let Err(e) = client
-                        .report_user_env(machine_id, &user, &role, UserEnvStatus::Building)
-                        .await
-                    {
-                        warn!(error = %e, "failed to report building status");
-                    }
-
-                    // Run home-manager activation if configured.
-                    let flake_ref = {
-                        let st = state_bg.lock().await;
-                        st.config.home_flake_ref.clone()
-                    };
-                    let activation_result = {
-                        if let Some(flake_ref) = flake_ref {
-                            let flake_target = format!("{flake_ref}#{role}");
-                            info!(%user, %flake_target, "activating home-manager environment");
-
-                            tokio::select! {
-                                output = tokio::process::Command::new("runuser")
-                                    .args(["-u", &user, "--", "home-manager", "switch", "--flake", &flake_target])
-                                    .output() => {
-                                    match output {
-                                        Ok(out) if out.status.success() => Ok(()),
-                                        Ok(out) => {
-                                            let stderr = String::from_utf8_lossy(&out.stderr);
-                                            Err(format!("home-manager switch failed: {stderr}"))
-                                        }
-                                        Err(e) => Err(format!("failed to run home-manager: {e}")),
-                                    }
-                                }
-                                () = writer_shutdown.cancelled() => {
-                                    let mut st = state_bg.lock().await;
-                                    st.prepare_status
-                                        .insert(user.clone(), PrepareStatus::Error("shutdown during preparation".into()));
-                                    return;
-                                }
-                            }
-                        } else {
-                            info!(%user, %role, "no home_flake_ref configured, skipping activation");
-                            Ok(())
-                        }
-                    };
-
-                    match activation_result {
-                        Ok(()) => {
-                            // Report active status + record login.
-                            if let Err(e) = client
-                                .report_user_env(machine_id, &user, &role, UserEnvStatus::Active)
-                                .await
-                            {
-                                warn!(error = %e, "failed to report active status");
-                            }
-                            if let Err(e) = client.report_user_login(machine_id, &user).await {
-                                warn!(error = %e, "failed to report user login");
-                            }
-
-                            let mut st = state_bg.lock().await;
-                            st.prepare_status.insert(user, PrepareStatus::Ready);
-                        }
-                        Err(msg) => {
-                            error!(%user, error = %msg, "user environment activation failed");
-                            if let Err(e) = client
-                                .report_user_env(machine_id, &user, &role, UserEnvStatus::Failed)
-                                .await
-                            {
-                                warn!(error = %e, "failed to report failed status");
-                            }
-
-                            let mut st = state_bg.lock().await;
-                            st.prepare_status.insert(user, PrepareStatus::Error(msg));
-                        }
-                    }
-                });
-            }
-
-            AgentRequest::GetPrepareStatus { username } => {
-                let st = state.lock().await;
-                let event = match st.prepare_status.get(&username) {
-                    Some(PrepareStatus::Preparing) => AgentEvent::Preparing {
-                        username,
-                        message: "still preparing".into(),
-                    },
-                    Some(PrepareStatus::Ready) => AgentEvent::Ready { username },
-                    Some(PrepareStatus::Error(msg)) => AgentEvent::Error {
-                        username,
-                        message: msg.clone(),
-                    },
-                    None => AgentEvent::Error {
-                        username,
-                        message: "no preparation has been requested for this user".into(),
-                    },
-                };
-                if let Err(e) = send_event(&mut writer, &event).await {
-                    warn!(error = %e, "failed to send prepare status");
-                    return;
-                }
-            }
         }
     }
+}
+
+/// Handle a `PrepareUserEnv` request: send an immediate acknowledgement, then
+/// spawn a background task that performs the actual activation and streams
+/// progress events back through `event_tx`.
+async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
+    username: &str,
+    groups: Vec<String>,
+    state: &Arc<Mutex<IpcState<C>>>,
+    writer: &mut tokio::net::unix::OwnedWriteHalf,
+    event_tx: &mpsc::Sender<AgentEvent>,
+    shutdown: &CancellationToken,
+) {
+    debug!(%username, ?groups, "preparing user environment");
+
+    // Record that preparation has started.
+    {
+        let mut st = state.lock().await;
+        st.prepare_status
+            .insert(username.to_string(), PrepareStatus::Preparing);
+    }
+
+    // Send immediate "Preparing" acknowledgement.
+    let preparing = AgentEvent::Preparing {
+        username: username.to_string(),
+        message: "preparing user environment".into(),
+    };
+    if let Err(e) = send_event(writer, &preparing).await {
+        warn!(error = %e, "failed to send Preparing event");
+        return;
+    }
+
+    // Spawn a background task to build/activate the user environment.
+    let state_bg = Arc::clone(state);
+    let bg_shutdown = shutdown.clone();
+    let event_tx = event_tx.clone();
+    let user = username.to_string();
+    tokio::spawn(async move {
+        // Single lock acquisition to extract everything we need.
+        let (role, client, machine_id, flake_ref) = {
+            let st = state_bg.lock().await;
+            let role = resolve_role(&groups, &st.config);
+            let client = Arc::clone(&st.client);
+            let machine_id = st.machine_id;
+            let flake_ref = st.config.home_flake_ref.clone();
+            (role, client, machine_id, flake_ref)
+        };
+        info!(%user, %role, "resolved role for user");
+
+        // Send progress: building.
+        let _ = event_tx
+            .send(AgentEvent::Progress {
+                username: user.clone(),
+                percent: 10,
+                message: format!("building {role} environment"),
+            })
+            .await;
+
+        // Report "building" status to control plane.
+        if let Err(e) = client
+            .report_user_env(machine_id, &user, &role, UserEnvStatus::Building)
+            .await
+        {
+            warn!(error = %e, "failed to report building status");
+        }
+
+        // Run home-manager activation if configured.
+        let activation_result = {
+            if let Some(flake_ref) = flake_ref {
+                let flake_target = format!("{flake_ref}#{role}");
+                info!(%user, %flake_target, "activating home-manager environment");
+
+                let _ = event_tx
+                    .send(AgentEvent::Progress {
+                        username: user.clone(),
+                        percent: 30,
+                        message: format!("activating home-manager profile: {role}"),
+                    })
+                    .await;
+
+                tokio::select! {
+                    output = tokio::process::Command::new("runuser")
+                        .args(["-u", &user, "--", "home-manager", "switch", "--flake", &flake_target])
+                        .output() => {
+                        match output {
+                            Ok(out) if out.status.success() => Ok(()),
+                            Ok(out) => {
+                                let stderr = String::from_utf8_lossy(&out.stderr);
+                                Err(format!("home-manager switch failed: {stderr}"))
+                            }
+                            Err(e) => Err(format!("failed to run home-manager: {e}")),
+                        }
+                    }
+                    () = bg_shutdown.cancelled() => {
+                        let mut st = state_bg.lock().await;
+                        st.prepare_status
+                            .insert(user.clone(), PrepareStatus::Error("shutdown during preparation".into()));
+                        let _ = event_tx
+                            .send(AgentEvent::Error {
+                                username: user,
+                                message: "shutdown during preparation".into(),
+                            })
+                            .await;
+                        return;
+                    }
+                }
+            } else {
+                info!(%user, %role, "no home_flake_ref configured, skipping activation");
+                Ok(())
+            }
+        };
+
+        match activation_result {
+            Ok(()) => {
+                // Report active status + record login.
+                if let Err(e) = client
+                    .report_user_env(machine_id, &user, &role, UserEnvStatus::Active)
+                    .await
+                {
+                    warn!(error = %e, "failed to report active status");
+                }
+                if let Err(e) = client.report_user_login(machine_id, &user).await {
+                    warn!(error = %e, "failed to report user login");
+                }
+
+                let mut st = state_bg.lock().await;
+                st.prepare_status.insert(user.clone(), PrepareStatus::Ready);
+
+                let _ = event_tx.send(AgentEvent::Ready { username: user }).await;
+            }
+            Err(msg) => {
+                error!(%user, error = %msg, "user environment activation failed");
+                if let Err(e) = client
+                    .report_user_env(machine_id, &user, &role, UserEnvStatus::Failed)
+                    .await
+                {
+                    warn!(error = %e, "failed to report failed status");
+                }
+
+                let mut st = state_bg.lock().await;
+                st.prepare_status
+                    .insert(user.clone(), PrepareStatus::Error(msg.clone()));
+
+                let _ = event_tx
+                    .send(AgentEvent::Error {
+                        username: user,
+                        message: msg,
+                    })
+                    .await;
+            }
+        }
+    });
 }
 
 /// Serialize an [`AgentEvent`] as a single JSON line and write it to the stream.
