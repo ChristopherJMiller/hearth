@@ -174,6 +174,8 @@ in
         HEARTH_METRICS_PATH = cfg.metricsPath;
       };
 
+      path = [ pkgs.nix ];
+
       serviceConfig = {
         Type = "notify";
         ExecStart = "${cfg.package}/bin/hearth-agent";
@@ -188,21 +190,14 @@ in
         StateDirectory = "hearth";
         StateDirectoryMode = "0750";
 
-        # The agent needs root to create home directories and run activation
-        # scripts as arbitrary users, but we still apply hardening where possible
-        ProtectSystem = "strict";
-        ReadWritePaths = [
-          "/nix/var"
-          "/nix/store"
-          "/var/lib/hearth"
-          "/home"
-          "/run/hearth"
-          (builtins.dirOf cfg.metricsPath)
-        ];
+        # The agent runs switch-to-configuration which executes NixOS
+        # activation scripts. These scripts need write access to /etc,
+        # /usr/bin, /run/systemd, /proc/sys, and more — essentially full
+        # system access. We therefore cannot use ProtectSystem or
+        # ProtectKernelTunables here.
         ProtectHome = false; # needs to manage /home
         PrivateTmp = true;
         NoNewPrivileges = false; # must setuid for activation scripts
-        ProtectKernelTunables = true;
         ProtectKernelModules = true;
         ProtectControlGroups = true;
         RestrictSUIDSGID = false; # activation scripts may need this

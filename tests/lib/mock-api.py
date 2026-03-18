@@ -27,6 +27,9 @@ enrollments: dict[str, dict] = {}
 heartbeats: list[dict] = []
 """Append-only log of heartbeat payloads received."""
 
+target_closure_override: str | None = None
+"""When set, GET /api/v1/machines/<id>/target-state returns this closure."""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,7 +137,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
         m = RE_TARGET_STATE.match(path)
         if m:
             json_response(self, 200, {
-                "target_closure": None,
+                "target_closure": target_closure_override,
                 "module_library_ref": None,
             })
             return
@@ -215,6 +218,14 @@ class MockApiHandler(BaseHTTPRequestHandler):
         m = RE_USER_LOGIN.match(path)
         if m:
             json_response(self, 200, {"status": "ok"})
+            return
+
+        # POST /api/v1/test/set-target-closure (test-only: set target closure override)
+        if path == "/api/v1/test/set-target-closure":
+            global target_closure_override
+            body = read_body(self)
+            target_closure_override = body.get("target_closure")
+            json_response(self, 200, {"status": "ok", "target_closure": target_closure_override})
             return
 
         # POST /api/v1/test/reset-heartbeats (test-only: clear heartbeat log)

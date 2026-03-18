@@ -38,5 +38,8 @@ in
       };
     };
     networking.firewall.allowedTCPPorts = [ port ];
+
+    # Test scripts use `curl | python3` to introspect mock API state
+    environment.systemPackages = [ pkgs.python3 ];
   };
 }
