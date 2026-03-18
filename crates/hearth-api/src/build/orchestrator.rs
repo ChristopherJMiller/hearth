@@ -114,17 +114,7 @@ pub async fn run_build_pipeline(
     }
 
     // Build a hostname → out_path map so we can assign per-machine closures.
-    let mut closure_map: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    for eval in &successful_evals {
-        // Find the matching build result by drv_path.
-        if let Some(build) = successful_builds
-            .iter()
-            .find(|b| b.drv_path == eval.drv_path)
-        {
-            closure_map.insert(eval.attr.clone(), build.out_path.clone());
-        }
-    }
+    let closure_map = build_closure_map(&eval_results, &build_results);
 
     // The "primary" closure for the deployment record — use the first one.
     let primary_closure = successful_builds[0].out_path.clone();
@@ -140,17 +130,7 @@ pub async fn run_build_pipeline(
     info!(pushed, total = out_paths.len(), "cache push complete");
 
     // Compute aggregate instance data hash for reproducibility.
-    let instance_hashes: Vec<String> = fleet_config
-        .machines
-        .iter()
-        .map(config_gen::instance_data_hash)
-        .collect();
-    let aggregate_hash = format!("{:x}", {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        instance_hashes.hash(&mut h);
-        h.finish()
-    });
+    let aggregate_hash = aggregate_instance_hash(&fleet_config);
 
     // Step 6: Create deployment record.
     let deployment_req = CreateDeploymentRequest {
@@ -260,4 +240,184 @@ pub async fn run_build_pipeline(
         closures_built: successful_builds.len(),
         closures_pushed: pushed,
     })
+}
+
+/// Build a hostname → out_path map from eval results and build results.
+///
+/// Matches eval attrs to build derivations by drv_path, producing a mapping
+/// of hostname to output store path for per-machine closure assignment.
+pub(crate) fn build_closure_map(
+    eval_results: &[evaluator::NixEvalResult],
+    build_results: &[builder::BuildResult],
+) -> std::collections::HashMap<String, String> {
+    // Index successful builds by drv_path for O(1) lookup.
+    let build_index: std::collections::HashMap<&str, &str> = build_results
+        .iter()
+        .filter(|r| r.success)
+        .map(|r| (r.drv_path.as_str(), r.out_path.as_str()))
+        .collect();
+
+    eval_results
+        .iter()
+        .filter(|r| r.error.is_none())
+        .filter_map(|eval| {
+            build_index
+                .get(eval.drv_path.as_str())
+                .map(|out| (eval.attr.clone(), (*out).to_string()))
+        })
+        .collect()
+}
+
+/// Compute an aggregate hash over all machine instance data hashes.
+pub(crate) fn aggregate_instance_hash(fleet_config: &config_gen::FleetConfig) -> String {
+    use std::hash::{Hash, Hasher};
+    let instance_hashes: Vec<String> = fleet_config
+        .machines
+        .iter()
+        .map(config_gen::instance_data_hash)
+        .collect();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    instance_hashes.hash(&mut h);
+    format!("{:x}", h.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build::builder::BuildResult;
+    use crate::build::config_gen::{FleetConfig, MachineConfig};
+    use crate::build::evaluator::NixEvalResult;
+
+    fn eval_ok(attr: &str, drv: &str) -> NixEvalResult {
+        NixEvalResult {
+            attr: attr.into(),
+            drv_path: drv.into(),
+            outputs: Default::default(),
+            system: None,
+            error: None,
+        }
+    }
+
+    fn eval_err(attr: &str) -> NixEvalResult {
+        NixEvalResult {
+            attr: attr.into(),
+            drv_path: String::new(),
+            outputs: Default::default(),
+            system: None,
+            error: Some("eval failed".into()),
+        }
+    }
+
+    fn build_ok(drv: &str, out: &str) -> BuildResult {
+        BuildResult::fake_ok(drv, out)
+    }
+
+    fn build_fail(drv: &str) -> BuildResult {
+        BuildResult::fake_fail(drv)
+    }
+
+    fn sample_mc(hostname: &str) -> MachineConfig {
+        MachineConfig {
+            hostname: hostname.into(),
+            machine_id: uuid::Uuid::new_v4().to_string(),
+            role: "developer".into(),
+            tags: vec![],
+            extra_config: None,
+            server_url: None,
+            hardware_config: None,
+            serial_number: None,
+            kanidm_url: None,
+            binary_cache_url: None,
+        }
+    }
+
+    // ── build_closure_map ───────────────────────────────────
+
+    #[test]
+    fn test_closure_map_matches_by_drv_path() {
+        let evals = vec![
+            eval_ok("host-a", "/nix/store/a.drv"),
+            eval_ok("host-b", "/nix/store/b.drv"),
+        ];
+        let builds = vec![
+            build_ok("/nix/store/a.drv", "/nix/store/a-out"),
+            build_ok("/nix/store/b.drv", "/nix/store/b-out"),
+        ];
+
+        let map = build_closure_map(&evals, &builds);
+        assert_eq!(map.get("host-a").unwrap(), "/nix/store/a-out");
+        assert_eq!(map.get("host-b").unwrap(), "/nix/store/b-out");
+    }
+
+    #[test]
+    fn test_closure_map_skips_eval_errors() {
+        let evals = vec![
+            eval_ok("host-a", "/nix/store/a.drv"),
+            eval_err("host-b"),
+        ];
+        let builds = vec![build_ok("/nix/store/a.drv", "/nix/store/a-out")];
+
+        let map = build_closure_map(&evals, &builds);
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key("host-a"));
+        assert!(!map.contains_key("host-b"));
+    }
+
+    #[test]
+    fn test_closure_map_skips_failed_builds() {
+        let evals = vec![
+            eval_ok("host-a", "/nix/store/a.drv"),
+            eval_ok("host-b", "/nix/store/b.drv"),
+        ];
+        let builds = vec![
+            build_ok("/nix/store/a.drv", "/nix/store/a-out"),
+            build_fail("/nix/store/b.drv"),
+        ];
+
+        let map = build_closure_map(&evals, &builds);
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key("host-a"));
+    }
+
+    #[test]
+    fn test_closure_map_empty_inputs() {
+        let map = build_closure_map(&[], &[]);
+        assert!(map.is_empty());
+    }
+
+    // ── aggregate_instance_hash ─────────────────────────────
+
+    #[test]
+    fn test_aggregate_hash_deterministic() {
+        let fleet = FleetConfig {
+            machines: vec![sample_mc("host-a"), sample_mc("host-b")],
+        };
+        let h1 = aggregate_instance_hash(&fleet);
+        let h2 = aggregate_instance_hash(&fleet);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_aggregate_hash_changes_with_machines() {
+        let fleet1 = FleetConfig {
+            machines: vec![sample_mc("host-a")],
+        };
+        let mut mc_b = sample_mc("host-b");
+        mc_b.role = "designer".into();
+        let fleet2 = FleetConfig {
+            machines: vec![mc_b],
+        };
+        assert_ne!(
+            aggregate_instance_hash(&fleet1),
+            aggregate_instance_hash(&fleet2)
+        );
+    }
+
+    #[test]
+    fn test_aggregate_hash_empty_fleet() {
+        let fleet = FleetConfig { machines: vec![] };
+        // Should not panic, and should produce a valid hash
+        let hash = aggregate_instance_hash(&fleet);
+        assert!(!hash.is_empty());
+    }
 }

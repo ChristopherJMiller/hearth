@@ -104,3 +104,88 @@ pub async fn check_heartbeat_recency(
 fn is_recent(heartbeat: DateTime<Utc>, now: DateTime<Utc>, max_age: chrono::Duration) -> bool {
     now.signed_duration_since(heartbeat) < max_age
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_failure_rate_empty() {
+        let h = BatchHealth {
+            total: 0,
+            completed: 0,
+            failed: 0,
+            in_progress: 0,
+            pending: 0,
+        };
+        assert_eq!(h.failure_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_failure_rate_no_failures() {
+        let h = BatchHealth {
+            total: 5,
+            completed: 5,
+            failed: 0,
+            in_progress: 0,
+            pending: 0,
+        };
+        assert_eq!(h.failure_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_failure_rate_some_failures() {
+        let h = BatchHealth {
+            total: 10,
+            completed: 7,
+            failed: 3,
+            in_progress: 0,
+            pending: 0,
+        };
+        assert!((h.failure_rate() - 0.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_is_complete() {
+        let done = BatchHealth {
+            total: 5,
+            completed: 4,
+            failed: 1,
+            in_progress: 0,
+            pending: 0,
+        };
+        assert!(done.is_complete());
+
+        let in_progress = BatchHealth {
+            total: 5,
+            completed: 3,
+            failed: 0,
+            in_progress: 2,
+            pending: 0,
+        };
+        assert!(!in_progress.is_complete());
+
+        let has_pending = BatchHealth {
+            total: 5,
+            completed: 3,
+            failed: 0,
+            in_progress: 0,
+            pending: 2,
+        };
+        assert!(!has_pending.is_complete());
+    }
+
+    #[test]
+    fn test_is_recent_within_window() {
+        let now = Utc::now();
+        let hb = now - chrono::Duration::minutes(3);
+        assert!(is_recent(hb, now, chrono::Duration::minutes(5)));
+    }
+
+    #[test]
+    fn test_is_recent_outside_window() {
+        let now = Utc::now();
+        let hb = now - chrono::Duration::minutes(10);
+        assert!(!is_recent(hb, now, chrono::Duration::minutes(5)));
+    }
+}

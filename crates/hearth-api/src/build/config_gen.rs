@@ -88,7 +88,10 @@ pub async fn generate_fleet_config(
     Ok(FleetConfig { machines: configs })
 }
 
-/// Compute a SHA-256 hash of serialized instance data for reproducibility tracking.
+/// Compute a hash of serialized instance data for reproducibility tracking.
+///
+/// Uses `DefaultHasher` (SipHash) for a 64-bit fingerprint. This is advisory —
+/// not cryptographic — and may change across Rust compiler versions.
 pub fn instance_data_hash(config: &MachineConfig) -> String {
     use std::hash::{Hash, Hasher};
     // Use the JSON representation for a stable hash
@@ -152,7 +155,10 @@ pub fn write_build_dir(
 /// - `role`: string — machine must have this role
 /// - `tags`: array of strings — machine must have all these tags
 /// - `machine_ids`: array of UUIDs — machine must be in this list
-fn matches_filter(machine: &hearth_common::api_types::Machine, filter: &serde_json::Value) -> bool {
+pub(crate) fn matches_filter(
+    machine: &hearth_common::api_types::Machine,
+    filter: &serde_json::Value,
+) -> bool {
     let obj = match filter.as_object() {
         Some(o) => o,
         None => return true,
@@ -187,4 +193,226 @@ fn matches_filter(machine: &hearth_common::api_types::Machine, filter: &serde_js
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use hearth_common::api_types::{EnrollmentStatus, Machine};
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn sample_machine_config() -> MachineConfig {
+        MachineConfig {
+            hostname: "desk-001".into(),
+            machine_id: Uuid::nil().to_string(),
+            role: "developer".into(),
+            tags: vec!["floor-3".into(), "gpu".into()],
+            extra_config: None,
+            server_url: Some("http://localhost:3000".into()),
+            hardware_config: None,
+            serial_number: Some("SN123".into()),
+            kanidm_url: None,
+            binary_cache_url: None,
+        }
+    }
+
+    fn sample_machine(id: Uuid, role: &str, tags: Vec<String>) -> Machine {
+        Machine {
+            id,
+            hostname: "desk-001".into(),
+            hardware_fingerprint: None,
+            enrollment_status: EnrollmentStatus::Active,
+            current_closure: None,
+            target_closure: None,
+            rollback_closure: None,
+            role: Some(role.into()),
+            tags,
+            extra_config: None,
+            last_heartbeat: None,
+            enrolled_by: None,
+            machine_token_hash: None,
+            hardware_report: None,
+            serial_number: None,
+            hardware_config: None,
+            hardware_profile: None,
+            instance_data_hash: None,
+            module_library_ref: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    // ── instance_data_hash ──────────────────────────────────────
+
+    #[test]
+    fn test_instance_data_hash_deterministic() {
+        let cfg = sample_machine_config();
+        let h1 = instance_data_hash(&cfg);
+        let h2 = instance_data_hash(&cfg);
+        assert_eq!(h1, h2, "same config must produce the same hash");
+    }
+
+    #[test]
+    fn test_instance_data_hash_changes_on_different_input() {
+        let mut cfg1 = sample_machine_config();
+        cfg1.role = "developer".into();
+        let mut cfg2 = sample_machine_config();
+        cfg2.role = "designer".into();
+
+        assert_ne!(
+            instance_data_hash(&cfg1),
+            instance_data_hash(&cfg2),
+            "different role must change the hash"
+        );
+    }
+
+    #[test]
+    fn test_instance_data_hash_changes_on_tags() {
+        let mut cfg1 = sample_machine_config();
+        cfg1.tags = vec!["a".into()];
+        let mut cfg2 = sample_machine_config();
+        cfg2.tags = vec!["b".into()];
+
+        assert_ne!(instance_data_hash(&cfg1), instance_data_hash(&cfg2));
+    }
+
+    // ── write_build_dir ─────────────────────────────────────────
+
+    #[test]
+    fn test_write_build_dir_creates_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let fleet = FleetConfig {
+            machines: vec![sample_machine_config()],
+        };
+
+        let eval_path = write_build_dir(dir.path(), &fleet, "github:org/repo").unwrap();
+
+        // eval.nix exists
+        assert!(eval_path.exists());
+        let eval_content = std::fs::read_to_string(&eval_path).unwrap();
+        assert!(eval_content.contains("builtins.getFlake \"github:org/repo\""));
+        assert!(eval_content.contains("\"desk-001\""));
+
+        // Per-machine JSON exists
+        let json_path = dir.path().join("desk-001.json");
+        assert!(json_path.exists());
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
+        assert_eq!(json["hostname"], "desk-001");
+        assert_eq!(json["role"], "developer");
+    }
+
+    #[test]
+    fn test_write_build_dir_empty_fleet() {
+        let dir = tempfile::tempdir().unwrap();
+        let fleet = FleetConfig { machines: vec![] };
+
+        let eval_path = write_build_dir(dir.path(), &fleet, "github:org/repo").unwrap();
+
+        let eval_content = std::fs::read_to_string(&eval_path).unwrap();
+        assert!(eval_content.contains("builtins.getFlake"));
+        // No machine entries between { and }
+        assert!(!eval_content.contains("buildMachineConfig"));
+    }
+
+    #[test]
+    fn test_write_build_dir_multiple_machines() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut m1 = sample_machine_config();
+        m1.hostname = "desk-001".into();
+        let mut m2 = sample_machine_config();
+        m2.hostname = "desk-002".into();
+        m2.role = "designer".into();
+
+        let fleet = FleetConfig {
+            machines: vec![m1, m2],
+        };
+
+        write_build_dir(dir.path(), &fleet, "github:org/repo").unwrap();
+
+        assert!(dir.path().join("desk-001.json").exists());
+        assert!(dir.path().join("desk-002.json").exists());
+    }
+
+    // ── matches_filter ──────────────────────────────────────────
+
+    #[test]
+    fn test_matches_filter_no_filter() {
+        let m = sample_machine(Uuid::new_v4(), "developer", vec![]);
+        assert!(matches_filter(&m, &json!({})));
+    }
+
+    #[test]
+    fn test_matches_filter_non_object() {
+        let m = sample_machine(Uuid::new_v4(), "developer", vec![]);
+        assert!(matches_filter(&m, &json!("not an object")));
+    }
+
+    #[test]
+    fn test_matches_filter_role_match() {
+        let m = sample_machine(Uuid::new_v4(), "developer", vec![]);
+        assert!(matches_filter(&m, &json!({"role": "developer"})));
+    }
+
+    #[test]
+    fn test_matches_filter_role_mismatch() {
+        let m = sample_machine(Uuid::new_v4(), "developer", vec![]);
+        assert!(!matches_filter(&m, &json!({"role": "designer"})));
+    }
+
+    #[test]
+    fn test_matches_filter_tags_all_present() {
+        let m = sample_machine(
+            Uuid::new_v4(),
+            "developer",
+            vec!["gpu".into(), "floor-3".into()],
+        );
+        assert!(matches_filter(&m, &json!({"tags": ["gpu"]})));
+        assert!(matches_filter(&m, &json!({"tags": ["gpu", "floor-3"]})));
+    }
+
+    #[test]
+    fn test_matches_filter_tags_missing() {
+        let m = sample_machine(Uuid::new_v4(), "developer", vec!["gpu".into()]);
+        assert!(!matches_filter(
+            &m,
+            &json!({"tags": ["gpu", "floor-3"]})
+        ));
+    }
+
+    #[test]
+    fn test_matches_filter_machine_ids() {
+        let id = Uuid::new_v4();
+        let other_id = Uuid::new_v4();
+        let m = sample_machine(id, "developer", vec![]);
+
+        assert!(matches_filter(
+            &m,
+            &json!({"machine_ids": [id.to_string()]})
+        ));
+        assert!(!matches_filter(
+            &m,
+            &json!({"machine_ids": [other_id.to_string()]})
+        ));
+    }
+
+    #[test]
+    fn test_matches_filter_combined() {
+        let id = Uuid::new_v4();
+        let m = sample_machine(id, "developer", vec!["gpu".into()]);
+
+        // All criteria match
+        assert!(matches_filter(
+            &m,
+            &json!({"role": "developer", "tags": ["gpu"], "machine_ids": [id.to_string()]})
+        ));
+
+        // Role mismatch fails the whole filter
+        assert!(!matches_filter(
+            &m,
+            &json!({"role": "designer", "tags": ["gpu"]})
+        ));
+    }
 }

@@ -297,3 +297,59 @@ pub async fn send_status(
     let response: axum::response::Response = app.clone().oneshot(req).await.unwrap();
     response.status()
 }
+
+// ---------------------------------------------------------------------------
+// Repo-level test fixtures (for tests that bypass the HTTP layer)
+// ---------------------------------------------------------------------------
+
+/// Create a machine via the repo layer and return its UUID.
+pub async fn create_test_machine(pool: &sqlx::PgPool, hostname: &str) -> Uuid {
+    let req = hearth_common::api_types::CreateMachineRequest {
+        hostname: hostname.to_string(),
+        hardware_fingerprint: None,
+        role: Some("developer".to_string()),
+        tags: None,
+    };
+    let row = hearth_api::repo::create_machine(pool, &req).await.unwrap();
+    let machine: hearth_common::api_types::Machine = row.into();
+    machine.id
+}
+
+/// Create a deployment via the repo layer and return its row.
+pub async fn create_test_deployment(
+    pool: &sqlx::PgPool,
+    closure: &str,
+    canary_size: i32,
+    batch_size: i32,
+    failure_threshold: f64,
+) -> hearth_api::db::DeploymentRow {
+    let req = hearth_common::api_types::CreateDeploymentRequest {
+        closure: closure.to_string(),
+        module_library_ref: None,
+        instance_data_hash: None,
+        target_filter: None,
+        canary_size,
+        batch_size,
+        failure_threshold,
+    };
+    hearth_api::repo::create_deployment(pool, &req).await.unwrap()
+}
+
+/// Add machines to a deployment with Pending status.
+pub async fn add_machines_to_deployment(
+    pool: &sqlx::PgPool,
+    deployment_id: Uuid,
+    machine_ids: &[Uuid],
+) {
+    for &mid in machine_ids {
+        hearth_api::repo::upsert_deployment_machine(
+            pool,
+            deployment_id,
+            mid,
+            hearth_api::db::MachineUpdateStatusDb::Pending,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+}

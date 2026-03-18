@@ -5,7 +5,7 @@ pub mod db;
 pub mod deployment_fsm;
 mod deployment_monitor;
 pub mod error;
-mod health_check;
+pub mod health_check;
 pub mod identity_sync;
 pub mod metrics;
 pub mod repo;
