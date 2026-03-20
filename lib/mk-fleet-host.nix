@@ -49,6 +49,7 @@
 , headscaleUrl ? null
 , matrixUrl ? null
 , matrixServerName ? null
+, nextcloudUrl ? null
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -82,6 +83,7 @@ nixpkgs.lib.nixosSystem {
     ../modules/tpm-fde.nix
     ../modules/headscale-client.nix
     ../modules/chat.nix
+    ../modules/nextcloud.nix
     ../modules/logging.nix
     ../modules/metrics.nix
     ../modules/roles/default.nix
@@ -168,6 +170,12 @@ nixpkgs.lib.nixosSystem {
         enable = true;
         homeserverUrl = matrixUrl;
         serverName = matrixServerName;
+      };
+
+      # --- Cloud storage (Nextcloud) ---
+      services.hearth.nextcloud = lib.mkIf (nextcloudUrl != null) {
+        enable = true;
+        serverUrl = nextcloudUrl;
       };
 
       # --- Boot loader (reasonable defaults, hardware module can override) ---

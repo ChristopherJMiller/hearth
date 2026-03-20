@@ -16,6 +16,7 @@ capabilities:
   mesh: true            # Headscale — WireGuard mesh VPN coordinator
   builds: true          # hearth-build-worker(s)
   chat: false           # Matrix/Synapse — corporate internal chat
+  cloud: false          # Nextcloud — cloud storage & collaboration
   observability: false  # Grafana + Loki + Prometheus subcharts
 
 # ============================================================
@@ -417,6 +418,92 @@ synapse:
     annotations: {}
     hosts:
       - host: chat.hearth.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Nextcloud Cloud Storage (conditional on capabilities.cloud)
+# ============================================================
+nextcloud:
+  image:
+    repository: nextcloud
+    tag: "30-apache"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  service:
+    port: 80
+
+  config:
+    serverUrl: "https://cloud.hearth.example.com"
+    defaultPhoneRegion: "US"
+    maxUploadSize: "16G"
+
+  # OIDC via Kanidm (requires capabilities.identity=true)
+  oidc:
+    enabled: true
+    providerName: "Hearth Identity"
+    existingSecret: ""
+    existingSecretKey: "nextcloud-oidc-secret"
+
+  # Database — separate DB on the shared PostgreSQL instance
+  database:
+    name: nextcloud
+    user: nextcloud
+    existingSecret: ""
+    existingSecretPasswordKey: nextcloud-db-password
+
+  # Redis sidecar for session caching and file locking
+  redis:
+    enabled: true
+    image:
+      repository: redis
+      tag: "7-alpine"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+  admin:
+    user: admin
+    existingSecret: ""
+    existingSecretPasswordKey: nextcloud-admin-password
+
+  persistence:
+    data:
+      size: 50Gi
+
+  bootstrap:
+    enabled: true
+    defaultFolders:
+      - Documents
+      - Projects
+      - Shared
+
+  ingress:
+    enabled: true
+    className: ""
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "16G"
+    hosts:
+      - host: cloud.hearth.example.com
         paths:
           - path: /
             pathType: Prefix

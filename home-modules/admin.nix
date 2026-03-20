@@ -195,6 +195,8 @@
         "org.gnome.Nautilus.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
         "element-desktop.desktop"
+      ] ++ lib.optionals config.hearth.nextcloud.enable [
+        "com.nextcloud.desktopclient.nextcloud.desktop"
       ];
     };
 

@@ -363,16 +363,25 @@ Internal-only corporate chat with Kanidm SSO. Synapse runs as part of the contro
 - **Helm chart:** 6 new templates in `templates/synapse/` (deployment, service, configmap, pvc, ingress, secret, job-bootstrap), `values.yaml` +capabilities.chat +synapse config section, `kanidm/bootstrap-configmap.yaml` extended for hearth-matrix client
 - **Tests:** 28 new helm-unittest tests (24 synapse + 4 capabilities), 131 total passing
 
-### 6B: Nextcloud (Cloud Storage & Collaboration)
+### 6B: Nextcloud (Cloud Storage & Collaboration) ✓
 
-File sync and collaboration with Kanidm SSO and GNOME desktop integration.
+File sync and collaboration with Kanidm SSO, GNOME desktop integration, WebDAV mounts, and LibreOffice integration.
 
-- [ ] **Docker-compose:** Nextcloud + Redis containers for local dev.
-- [ ] **Kanidm OIDC integration:** `hearth-nextcloud` OAuth2 client (confidential). Nextcloud `user_oidc` app for login, Kanidm groups → Nextcloud groups.
-- [ ] **Helm capability:** `capabilities.cloud: false`. Templates: Nextcloud Deployment, ConfigMap, PVC. S3-compatible storage backend (Garage) for production.
-- [ ] **MagicDNS:** `cloud.hearth.local`.
-- [ ] **NixOS desktop integration:** Nextcloud sync client auto-configured with server URL, auto-start on login. Nautilus integration via virtual files.
-- [ ] **Helm tests:** Unit tests for cloud capability templates.
+- [x] **Docker-compose:** Nextcloud (`nextcloud:30-apache`, port 8089) + Redis (`redis:7-alpine`) containers for local dev. PostgreSQL init script creates separate `nextcloud` database. Healthcheck on `/status.php`. Depends on postgres + redis healthy.
+- [x] **Kanidm OIDC integration:** `hearth-nextcloud` confidential OAuth2 client in `dev/kanidm/bootstrap.sh` and Helm bootstrap configmap. Scopes: `openid`, `profile`, `email`. Client secret written to `.env` and injected into Nextcloud container.
+- [x] **Nextcloud bootstrap:** Idempotent `dev/nextcloud/bootstrap.sh` — installs `user_oidc` app, configures Kanidm as OIDC provider, sets up Redis caching, configures trusted domains, creates default folders (Documents, Projects, Shared). `just nextcloud-setup` recipe, integrated into `just setup`.
+- [x] **Helm capability:** `capabilities.cloud: false` (off by default). Templates: Nextcloud Deployment (Redis sidecar, wait-for-postgres initContainer, health probes on `/status.php`, Recreate strategy), ConfigMap (trusted domains, server URL), Service, PVC (50Gi data), Secret (auto-generated admin + DB passwords with upgrade-safe lookup), Ingress (proxy-body-size 16G annotation), bootstrap Job (post-install hook weight 25). Kanidm bootstrap configmap extended to create `hearth-nextcloud` confidential OAuth2 client when cloud enabled.
+- [x] **NixOS desktop integration:** `modules/nextcloud.nix` system module (GVFS + davfs2 for WebDAV mount support). `home-modules/nextcloud.nix` home-manager module — Nextcloud Desktop sync client with pre-configured server URL, XDG autostart (`nextcloud --background`), systemd user service for GVFS WebDAV mount on login (`gio mount davs://...`), per-user WebDAV bookmark in Nautilus sidebar (`davs://server/remote.php/dav/files/USERNAME/ Cloud Storage`). LibreOffice works natively with synced ~/Nextcloud folder and `davs://` URLs via GVFS. `mk-fleet-host.nix` extended with `nextcloudUrl` parameter. All 4 role profiles updated with conditional Nextcloud favorites. Default + designer profiles get WebDAV bookmarks.
+- [x] **Helm tests:** 24 new tests in `nextcloud_test.yaml` (deployment, Redis sidecar toggle, service, configmap, PVC, secret, ingress, bootstrap job). 4 new tests in `capabilities_test.yaml` for cloud toggle. All 159 tests passing.
+
+### Stats
+- **Dev infra:** 2 new files in `dev/nextcloud/` (init-db.sh, bootstrap.sh)
+- **Docker-compose:** +nextcloud service, +nextcloud-redis service, +postgres init script mount, +1 volume
+- **Kanidm bootstrap:** +hearth-nextcloud confidential OAuth2 client, +NEXTCLOUD_OIDC_CLIENT_SECRET in .env
+- **Home-manager:** New `home-modules/nextcloud.nix` (Nextcloud Desktop module with sync client, WebDAV mount service, autostart), `common.nix` imports nextcloud.nix, 4 role profiles updated with conditional Nextcloud favorites, 2 role profiles with WebDAV Nautilus bookmarks
+- **NixOS:** New `modules/nextcloud.nix` (GVFS + davfs2), `mk-fleet-host.nix` +nextcloudUrl parameter
+- **Helm chart:** 7 new templates in `templates/nextcloud/` (deployment, service, configmap, pvc, ingress, secret, job-bootstrap), `values.yaml` +capabilities.cloud +nextcloud config section, `_helpers.tpl` +nextcloudUrl, `kanidm/bootstrap-configmap.yaml` extended for hearth-nextcloud client
+- **Tests:** 28 new helm-unittest tests (24 nextcloud + 4 capabilities), 159 total passing
 
 ### 6C: Shared Service Infrastructure
 

@@ -111,6 +111,10 @@ http://{{ include "hearth-home.fullname" . }}-headscale:{{ .Values.headscale.ser
 http://{{ include "hearth-home.fullname" . }}-synapse:{{ .Values.synapse.service.port }}
 {{- end }}
 
+{{- define "hearth-home.nextcloudUrl" -}}
+http://{{ include "hearth-home.fullname" . }}-nextcloud:{{ .Values.nextcloud.service.port }}
+{{- end }}
+
 {{/*
 Secrets helpers — resolve inline vs existing secret references.
 */}}

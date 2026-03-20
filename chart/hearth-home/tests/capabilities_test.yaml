@@ -120,6 +120,36 @@ tests:
       - hasDocuments:
           count: 0
 
+  # ── Cloud (Nextcloud) ─────────────────────────────────────
+  - it: should render Nextcloud Deployment when cloud enabled
+    template: nextcloud/deployment.yaml
+    set:
+      capabilities.cloud: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-nextcloud$"
+
+  - it: should not render Nextcloud Deployment when cloud disabled (default)
+    template: nextcloud/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Nextcloud Service when cloud disabled
+    template: nextcloud/service.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Nextcloud PVC when cloud disabled
+    template: nextcloud/pvc.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
   # ── Observability ──────────────────────────────────────────
   - it: should not render ServiceMonitor when observability disabled (default)
     template: observability/servicemonitor.yaml

@@ -38,6 +38,11 @@ setup:
     echo "    Synapse ready"
     echo "==> Bootstrapping Matrix chat..."
     bash dev/synapse/bootstrap.sh
+    echo "==> Waiting for Nextcloud..."
+    until curl -sf http://localhost:8089/status.php >/dev/null 2>&1; do sleep 2; done
+    echo "    Nextcloud ready"
+    echo "==> Bootstrapping Nextcloud cloud storage..."
+    bash dev/nextcloud/bootstrap.sh
     echo "==> Running database migrations..."
     sqlx migrate run
     echo "==> Building web frontends..."
@@ -149,6 +154,10 @@ headscale-setup:
 matrix-setup:
     bash dev/synapse/bootstrap.sh
 
+# Set up Nextcloud cloud storage for development
+nextcloud-setup:
+    bash dev/nextcloud/bootstrap.sh
+
 # Push a Nix closure to the local Attic cache
 cache-push PATH:
     attic push hearth {{PATH}}
@@ -179,6 +188,7 @@ helm-validate:
         --set capabilities.mesh=true \
         --set capabilities.builds=true \
         --set capabilities.chat=true \
+        --set capabilities.cloud=true \
         | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
     echo "    All capabilities OK"
     echo "==> Validating minimal (core only)..."

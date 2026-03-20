@@ -1,0 +1,18 @@
+{{- if .Values.capabilities.cloud }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+data:
+  trusted-domains: >-
+    localhost
+    {{ include "hearth-home.fullname" . }}-nextcloud
+    {{- range .Values.nextcloud.ingress.hosts }}
+    {{ .host }}
+    {{- end }}
+  server-url: {{ .Values.nextcloud.config.serverUrl | quote }}
+  default-phone-region: {{ .Values.nextcloud.config.defaultPhoneRegion | quote }}
+  max-upload-size: {{ .Values.nextcloud.config.maxUploadSize | quote }}
+{{- end }}

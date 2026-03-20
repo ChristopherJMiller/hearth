@@ -41,6 +41,8 @@
       file://${config.home.homeDirectory}/Documents Documents
       file://${config.home.homeDirectory}/Downloads Downloads
       file://${config.home.homeDirectory}/Pictures Pictures
+    '' + lib.optionalString config.hearth.nextcloud.enable ''
+      davs://${lib.removePrefix "https://" (lib.removePrefix "http://" config.hearth.nextcloud.serverUrl)}/remote.php/dav/files/${config.home.username}/ Cloud Storage
     '';
   };
 
@@ -55,6 +57,8 @@
         "org.libreoffice.LibreOffice.writer.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
         "element-desktop.desktop"
+      ] ++ lib.optionals config.hearth.nextcloud.enable [
+        "com.nextcloud.desktopclient.nextcloud.desktop"
       ];
     };
 

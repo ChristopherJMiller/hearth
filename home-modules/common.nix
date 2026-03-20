@@ -7,7 +7,7 @@
 { config, lib, pkgs, ... }:
 
 {
-  imports = [ ./chat.nix ];
+  imports = [ ./chat.nix ./nextcloud.nix ];
   # --- Home-manager basics ---
   home.stateVersion = "25.05";
 

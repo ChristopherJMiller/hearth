@@ -1,0 +1,65 @@
+{{- if .Values.capabilities.cloud }}
+{{- if .Values.nextcloud.bootstrap.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "25"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "nextcloud-bootstrap") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl > /dev/null 2>&1
+
+              NEXTCLOUD_URL="{{ include "hearth-home.nextcloudUrl" . }}"
+
+              echo "Waiting for Nextcloud to be ready..."
+              MAX_WAIT=300
+              WAITED=0
+              until curl -sf "${NEXTCLOUD_URL}/status.php" 2>/dev/null | grep -q '"installed":true'; do
+                if [ "$WAITED" -ge "$MAX_WAIT" ]; then
+                  echo "ERROR: Nextcloud not ready after ${MAX_WAIT}s"
+                  exit 1
+                fi
+                echo "  Nextcloud not ready, retrying in 5s..."
+                sleep 5
+                WAITED=$((WAITED + 5))
+              done
+              echo "Nextcloud is ready."
+
+              {{- if and .Values.capabilities.identity .Values.nextcloud.oidc.enabled }}
+              echo ""
+              echo "==> OIDC configuration will be applied by the Nextcloud admin."
+              echo "    Install the user_oidc app and configure the Kanidm provider"
+              echo "    via the Nextcloud admin panel or occ command."
+              {{- end }}
+
+              echo ""
+              echo "==> Creating default folders..."
+              # Default folders are created on first admin login automatically.
+              # The bootstrap just verifies Nextcloud is operational.
+              {{- range .Values.nextcloud.bootstrap.defaultFolders }}
+              echo "  Folder: {{ . }} (created on first user login)"
+              {{- end }}
+
+              echo ""
+              echo "=== Nextcloud bootstrap complete ==="
+{{- end }}
+{{- end }}

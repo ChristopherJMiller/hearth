@@ -1,0 +1,35 @@
+{{- if and .Values.capabilities.cloud .Values.nextcloud.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+  {{- with .Values.nextcloud.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.nextcloud.ingress.className }}
+  ingressClassName: {{ .Values.nextcloud.ingress.className }}
+  {{- end }}
+  {{- if .Values.nextcloud.ingress.tls }}
+  tls:
+    {{- toYaml .Values.nextcloud.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.nextcloud.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "hearth-home.fullname" $ }}-nextcloud
+                port:
+                  name: http
+          {{- end }}
+    {{- end }}
+{{- end }}

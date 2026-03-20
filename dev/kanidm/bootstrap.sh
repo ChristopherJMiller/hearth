@@ -393,6 +393,26 @@ checked_patch "configure hearth-matrix" "/v1/oauth2/hearth-matrix" \
 MATRIX_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-matrix" \
     -H "Authorization: Bearer $IDM_TOKEN" | jq -r '.attrs.oauth2_rs_basic_secret[0] // empty')
 
+# hearth-nextcloud: Confidential OAuth2 client for Nextcloud cloud storage
+# Nextcloud does server-side OIDC via user_oidc app, so it needs a client secret.
+if resource_exists "/v1/oauth2/hearth-nextcloud" "$IDM_TOKEN"; then
+    echo "    OAuth2 client 'hearth-nextcloud' already exists"
+else
+    checked_post "create OAuth2 client 'hearth-nextcloud'" "/v1/oauth2/_basic" \
+        '{"attrs":{"name":["hearth-nextcloud"],"displayname":["Hearth Cloud Storage"],"oauth2_rs_origin_landing":["http://localhost:8089"]}}'
+    echo "    Created OAuth2 client 'hearth-nextcloud'"
+fi
+
+checked_post "scopemap hearth-nextcloud" "/v1/oauth2/hearth-nextcloud/_scopemap/hearth-users" \
+    '["openid","profile","email"]'
+
+checked_patch "configure hearth-nextcloud" "/v1/oauth2/hearth-nextcloud" \
+    '{"attrs":{"oauth2_prefer_short_username":["true"],"oauth2_allow_localhost_redirect":["true"]}}'
+
+# Retrieve the client secret for Nextcloud
+NEXTCLOUD_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-nextcloud" \
+    -H "Authorization: Bearer $IDM_TOKEN" | jq -r '.attrs.oauth2_rs_basic_secret[0] // empty')
+
 # ---------------------------------------------------------------------------
 # Step 6: Write .env for local dev
 # ---------------------------------------------------------------------------
@@ -421,6 +441,7 @@ KANIDM_CONSOLE_SECRET=$CONSOLE_SECRET
 HEARTH_API_SVC_TOKEN=$API_TOKEN
 HEARTH_MACHINE_TOKEN_SECRET=$MACHINE_TOKEN_SECRET
 MATRIX_OIDC_CLIENT_SECRET=$MATRIX_SECRET
+NEXTCLOUD_OIDC_CLIENT_SECRET=$NEXTCLOUD_SECRET
 TESTADMIN_PASSWORD=${USER_PASSWORDS[testadmin]:-}
 TESTDEV_PASSWORD=${USER_PASSWORDS[testdev]:-}
 TESTDESIGNER_PASSWORD=${USER_PASSWORDS[testdesigner]:-}

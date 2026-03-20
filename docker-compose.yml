@@ -9,6 +9,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./dev/synapse/init-db.sh:/docker-entrypoint-initdb.d/10-synapse.sh:ro
+      - ./dev/nextcloud/init-db.sh:/docker-entrypoint-initdb.d/20-nextcloud.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hearth"]
       interval: 5s
@@ -99,6 +100,39 @@ services:
     volumes:
       - ./dev/synapse/element-config.json:/app/config.json:ro
 
+  nextcloud:
+    image: nextcloud:30-apache
+    ports: ["127.0.0.1:8089:80"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nextcloud-redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: nextcloud
+      NEXTCLOUD_ADMIN_USER: admin
+      NEXTCLOUD_ADMIN_PASSWORD: admin
+      REDIS_HOST: nextcloud-redis
+    volumes:
+      - nextcloud-data:/var/www/html
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/status.php || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  nextcloud-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   pgdata:
   attic-data:
@@ -108,3 +142,4 @@ volumes:
   headscale-data:
   synapse-data:
   synapse-signing:
+  nextcloud-data:

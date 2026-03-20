@@ -19,6 +19,8 @@
         "org.gnome.TextEditor.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
         "element-desktop.desktop"
+      ] ++ lib.optionals config.hearth.nextcloud.enable [
+        "com.nextcloud.desktopclient.nextcloud.desktop"
       ];
     };
 
@@ -61,6 +63,8 @@
       file://${config.home.homeDirectory}/Pictures Pictures
       file://${config.home.homeDirectory}/Projects Projects
       file://${config.home.homeDirectory}/Assets Assets
+    '' + lib.optionalString config.hearth.nextcloud.enable ''
+      davs://${lib.removePrefix "https://" (lib.removePrefix "http://" config.hearth.nextcloud.serverUrl)}/remote.php/dav/files/${config.home.username}/ Cloud Storage
     '';
   };
 

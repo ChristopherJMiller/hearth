@@ -1,0 +1,17 @@
+{{- if .Values.capabilities.cloud }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud-data
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.nextcloud.persistence.data.size }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+{{- end }}
