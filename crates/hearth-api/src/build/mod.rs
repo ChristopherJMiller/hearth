@@ -5,3 +5,4 @@ pub mod evaluator;
 pub mod orchestrator;
 pub mod policy_eval;
 pub mod sbom;
+pub mod user_env;

@@ -79,6 +79,13 @@ async fn main() {
         cancel.clone(),
     ));
 
+    // User env build sweep (enqueues builds for pending user configs)
+    let sweep_pool = state.pool.clone();
+    tokio::spawn(hearth_api::user_env_build_sweep_run(
+        sweep_pool,
+        cancel.clone(),
+    ));
+
     // Fleet gauge refresher (updates Prometheus gauges every 30s)
     let gauge_pool = state.pool.clone();
     tokio::spawn(hearth_api::metrics::refresh_fleet_gauges(

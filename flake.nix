@@ -391,6 +391,54 @@
           # Tags could drive extra modules in the future
         });
 
+      # --- Build-pipeline entry point: build a per-user home-manager closure ---
+      #
+      # The build worker writes a per-user config JSON to disk, then generates
+      # a user-eval.nix that calls this function. The JSON has the user's
+      # username, base_role, and overrides (extra packages, git config, etc.).
+      #
+      #   buildUserEnv { userConfigPath = "/tmp/user-build-xxx/user-config.json"; }
+      #
+      lib.buildUserEnv = { userConfigPath }:
+        let
+          cfg = builtins.fromJSON (builtins.readFile userConfigPath);
+          lib = nixpkgs.lib;
+          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+          roleModule = self.homeModules.${cfg.base_role} or self.homeModules.default;
+
+          # Build an override module from structured JSON fields.
+          overrideModule = { config, lib, pkgs, ... }: {
+            programs.git = lib.mkIf (cfg.overrides ? git) (
+              lib.optionalAttrs (cfg.overrides.git ? user_name) {
+                userName = cfg.overrides.git.user_name;
+              } // lib.optionalAttrs (cfg.overrides.git ? user_email) {
+                userEmail = cfg.overrides.git.user_email;
+              }
+            );
+
+            home.packages = lib.optionals (cfg.overrides ? extra_packages)
+              (map (name: pkgs.${name}) cfg.overrides.extra_packages);
+
+            home.sessionVariables =
+              (lib.optionalAttrs (cfg.overrides ? editor) {
+                EDITOR = cfg.overrides.editor;
+                VISUAL = cfg.overrides.editor;
+              }) // (cfg.overrides.session_variables or {});
+
+            programs.bash.shellAliases = cfg.overrides.shell_aliases or {};
+          };
+        in home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+          modules = [
+            roleModule
+            overrideModule
+            {
+              home.username = cfg.username;
+              home.homeDirectory = "/home/${cfg.username}";
+            }
+          ];
+        };
+
       # --- Example fleet host (uncomment to test) ---
       # nixosConfigurations.example-workstation = self.lib.mkFleetHost {
       #   hostname = "ws-example";

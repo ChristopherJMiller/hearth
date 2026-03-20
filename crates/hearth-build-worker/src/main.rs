@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use hearth_api::build::orchestrator;
+use hearth_api::build::{orchestrator, user_env};
 use hearth_api::db::BuildJobStatusDb;
 use hearth_api::repo;
 
@@ -92,6 +92,7 @@ async fn run_worker_loop(
                 break;
             }
             _ = tokio::time::sleep(poll_interval) => {
+                // Poll for machine-level build jobs.
                 match repo::claim_build_job(pool, worker_id).await {
                     Ok(Some(job)) => {
                         info!(
@@ -102,10 +103,26 @@ async fn run_worker_loop(
                         execute_job(pool, job.id, &job.flake_ref, job.target_filter.as_ref(), job.canary_size, job.batch_size, job.failure_threshold).await;
                     }
                     Ok(None) => {
-                        // No jobs available — sleep and retry.
+                        // No machine jobs — try user env builds.
                     }
                     Err(e) => {
                         error!(error = %e, "failed to claim build job");
+                    }
+                }
+
+                // Poll for per-user environment build jobs.
+                match repo::claim_user_env_build(pool, worker_id).await {
+                    Ok(Some(job)) => {
+                        info!(
+                            job_id = %job.id,
+                            username = %job.username,
+                            "claimed user env build job"
+                        );
+                        execute_user_env_job(pool, &job).await;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        error!(error = %e, "failed to claim user env build job");
                     }
                 }
             }
@@ -178,6 +195,64 @@ async fn execute_job(
 
             if let Err(db_err) = repo::fail_build_job(pool, job_id, &error_msg).await {
                 error!(job_id = %job_id, error = %db_err, "failed to mark job as failed");
+            }
+        }
+    }
+}
+
+async fn execute_user_env_job(
+    pool: &sqlx::PgPool,
+    job: &hearth_api::db::UserEnvBuildJobRow,
+) {
+    // Look up the user's full config.
+    let config = match repo::get_user_config(pool, &job.username).await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            error!(username = %job.username, "user config not found for build job");
+            let _ = repo::fail_user_env_build(pool, job.id, "user config not found").await;
+            return;
+        }
+        Err(e) => {
+            error!(username = %job.username, error = %e, "failed to fetch user config");
+            let _ = repo::fail_user_env_build(pool, job.id, &format!("db error: {e}")).await;
+            return;
+        }
+    };
+
+    let flake_ref = std::env::var("HEARTH_FLAKE_REF")
+        .unwrap_or_else(|_| "github:hearth-os/hearth".into());
+    let cache_url = std::env::var("ATTIC_CACHE_URL").ok();
+    let attic_token = std::env::var("ATTIC_TOKEN").ok();
+
+    match user_env::build_user_env(
+        &config,
+        &flake_ref,
+        cache_url.as_deref(),
+        attic_token.as_deref(),
+    )
+    .await
+    {
+        Ok(closure) => {
+            info!(
+                job_id = %job.id,
+                username = %job.username,
+                %closure,
+                "per-user build completed"
+            );
+            if let Err(e) = repo::complete_user_env_build(pool, job.id, &closure).await {
+                error!(job_id = %job.id, error = %e, "failed to complete user env build");
+            }
+        }
+        Err(e) => {
+            let error_msg = format!("{e}");
+            warn!(
+                job_id = %job.id,
+                username = %job.username,
+                error = %error_msg,
+                "per-user build failed"
+            );
+            if let Err(db_err) = repo::fail_user_env_build(pool, job.id, &error_msg).await {
+                error!(job_id = %job.id, error = %db_err, "failed to mark user env build as failed");
             }
         }
     }

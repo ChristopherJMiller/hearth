@@ -35,6 +35,48 @@ pub async fn identity_sync_run(pool: PgPool, auth_config: AuthConfig, cancel: Ca
     identity_sync::run(pool, auth_config, cancel).await;
 }
 
+/// Sweep pending user env configs and enqueue build jobs.
+pub async fn user_env_build_sweep_run(pool: PgPool, cancel: CancellationToken) {
+    let interval = std::time::Duration::from_secs(60);
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => {
+                tracing::info!("user env build sweep shutting down");
+                break;
+            }
+            () = tokio::time::sleep(interval) => {
+                match repo::get_pending_user_config_builds(&pool, 20).await {
+                    Ok(configs) => {
+                        for config in configs {
+                            let hash = config.config_hash.unwrap_or_default();
+                            if hash.is_empty() { continue; }
+                            match repo::enqueue_user_env_build(&pool, &config.username, &hash).await {
+                                Ok(job) => {
+                                    tracing::info!(
+                                        username = %config.username,
+                                        job_id = %job.id,
+                                        "enqueued user env build"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        username = %config.username,
+                                        error = %e,
+                                        "failed to enqueue user env build"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to query pending user config builds");
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
