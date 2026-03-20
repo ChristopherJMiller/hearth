@@ -66,7 +66,25 @@ pkgs.testers.nixosTest {
 
       # Mock home-manager: logs invocation and creates marker files to prove
       # the agent correctly invokes it with the right role and user.
-      environment.systemPackages = [
+      # Added to both system packages and the agent service path so
+      # runuser can find it.
+      environment.systemPackages = let
+        mockHomeManager = pkgs.writeShellScriptBin "home-manager" ''
+          echo "home-manager called with args: $@" > /tmp/home-manager-invocation
+          for arg in "$@"; do
+            case "$arg" in
+              *#*)
+                role="''${arg##*#}"
+                mkdir -p "$HOME/.config"
+                echo "$role" > "$HOME/.hearth-role"
+                echo "activated" > "$HOME/.config/hearth-activated"
+                ;;
+            esac
+          done
+          exit 0
+        '';
+      in [ mockHomeManager ];
+      systemd.services.hearth-agent.path = lib.mkAfter [
         (pkgs.writeShellScriptBin "home-manager" ''
           echo "home-manager called with args: $@" > /tmp/home-manager-invocation
           for arg in "$@"; do
