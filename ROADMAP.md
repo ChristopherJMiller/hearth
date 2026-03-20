@@ -310,12 +310,27 @@ Production-ready Kubernetes deployment for the Hearth control plane and all supp
 - [x] **CI workflow:** `.github/workflows/helm.yml` — lint + unittest, kubeconform (3 value combos), ct install on Kind. Triggers on `chart/` changes.
 - [x] **Local cluster bootstrap:** `just helm-up` / `just helm-down` recipes for Kind cluster lifecycle. `just helm-check` runs lint + unittest + kubeconform.
 
-### 5D: User Environment Polish
+### 5D: Per-User Environment System (In Progress)
+
+Role templates are initial seeds; each user gets a managed per-user closure that follows them across machines (Azure AD-style roaming profiles).
+
+- [x] **Per-user config schema:** `user_configs` table (base_role, JSONB overrides, config_hash, latest_closure, build_status), `user_env_build_jobs` queue. Migration 016.
+- [x] **User config API:** CRUD at `/api/v1/users/{username}/config`, env-closure lookup at `/api/v1/users/{username}/env-closure`, force-build trigger.
+- [x] **Per-user build pipeline:** `lib.buildUserEnv` Nix expression composes role template + override module (git config, extra packages, editor, shell aliases, session variables). Build worker polls user_env_build_jobs. Background sweep enqueues pending builds.
+- [x] **Agent per-user closure activation:** Agent queries control plane for pre-built closure at login, falls back to role template via home-manager. Heartbeat pre-stages closures from cache.
+- [x] **Systemd socket activation:** Agent IPC socket managed by systemd with correct greeter permissions.
+- [x] **Greeter fixes:** File-based password delivery for headless tests, HEARTH_GREETER_LOG_FILE support, proper Kanidm TLS cert chain.
+- [ ] **Package allowlist/denylist:** `extra_packages` currently allows any nixpkgs attribute. Add configurable allowlist for enterprise policy enforcement.
+- [ ] **Self-service config UI:** `/api/v1/me/config` endpoint + web UI for users to customize their own environment (restricted fields: git config, editor, shell aliases). Admin-only fields: extra_packages, base_role.
+- [ ] **Full login flow VM test:** Mock home-manager activation marker file verification (greeter auth + agent IPC work end-to-end, mock home-manager invocation needs debugging).
+- [ ] **Refactor duplicated activation paths:** Extract shared `run_as_user` helper in agent ipc.rs to DRY the pre-built closure and role template fallback branches.
+
+### 5E: User Environment Polish
 
 - [ ] **Closure pre-warming:** When a machine enrolls or changes role, the control plane enumerates likely users (from Kanidm group membership for the assigned role) and queues pre-builds of their per-user closures. Reduces first-login latency from "1–3 minute build" to "15–60 second cache pull."
 - [ ] **WiFi/802.1X certificate distribution:** The control plane provisions 802.1X machine certificates as part of enrollment secrets. The NixOS module configures `wpa_supplicant` or `iwd` with the certificate and network profile. Certificates rotate via the control plane's secret management.
 
-### 5E: Scale
+### 5F: Scale
 
 - [ ] **PXE/iPXE boot service:** Control plane serves boot images based on device identity — unknown devices get the enrollment image, known devices boot from local disk, reprovisioning devices get a fresh installer. Uses iPXE chain-loading from an HTTP endpoint. Enables zero-touch provisioning of 50+ machines simultaneously.
 - [ ] **gRPC/SSE push notifications:** Optional push channel from control plane to agent for latency-sensitive deployments. Agent maintains a long-lived connection over the Headscale mesh (or direct HTTPS). Control plane wakes the agent immediately when a new target closure is set, rather than waiting for the next 60-second poll cycle.
@@ -333,7 +348,7 @@ Integrate compliance state with Kanidm's OAuth2 claims pipeline. Non-compliant d
 Multiple organizations sharing a single control plane deployment with isolated fleet views, RBAC boundaries, and separate Attic cache tenants. Relevant for SaaS deployment or MSP use cases. Not needed for self-hosted single-org deployments.
 
 ### Per-User Environment Customizations
-A framework for individual users to express preferences (editor, shell, extra packages) via the console or a self-service portal. Preferences are merged with role profiles during per-user closure generation. Requires the Configuration Generator (Phase 4B) and a UI for preference management.
+Promoted to Phase 5D. Core infrastructure (DB schema, API, build pipeline, agent activation) is implemented. Remaining work: self-service UI, package allowlists, closure pre-warming.
 
 ### Fleet/osquery Integration
 Deploy Fleet + osquery alongside the control plane for SQL-queryable endpoint telemetry. Custom osquery extension for Nix store package inventory. Integration layer syncing device state between Fleet and Hearth. Large integration surface — most of the value is already covered by heartbeat data and the Prometheus metrics pipeline.
