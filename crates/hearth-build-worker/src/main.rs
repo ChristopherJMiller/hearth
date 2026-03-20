@@ -200,10 +200,7 @@ async fn execute_job(
     }
 }
 
-async fn execute_user_env_job(
-    pool: &sqlx::PgPool,
-    job: &hearth_api::db::UserEnvBuildJobRow,
-) {
+async fn execute_user_env_job(pool: &sqlx::PgPool, job: &hearth_api::db::UserEnvBuildJobRow) {
     // Look up the user's full config.
     let config = match repo::get_user_config(pool, &job.username).await {
         Ok(Some(c)) => c,
@@ -219,17 +216,11 @@ async fn execute_user_env_job(
         }
     };
 
-    let flake_ref = std::env::var("HEARTH_FLAKE_REF")
-        .unwrap_or_else(|_| "github:hearth-os/hearth".into());
+    let flake_ref =
+        std::env::var("HEARTH_FLAKE_REF").unwrap_or_else(|_| "github:hearth-os/hearth".into());
     let cache_name = std::env::var("ATTIC_CACHE_NAME").ok();
 
-    match user_env::build_user_env(
-        &config,
-        &flake_ref,
-        cache_name.as_deref(),
-    )
-    .await
-    {
+    match user_env::build_user_env(&config, &flake_ref, cache_name.as_deref()).await {
         Ok(closure) => {
             info!(
                 job_id = %job.id,

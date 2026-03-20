@@ -87,7 +87,6 @@ pub async fn update_my_config(
         obj.insert("session_variables".into(), json!(vars));
     }
 
-    let row =
-        repo::upsert_user_config(&state.pool, username, &base_role, &overrides).await?;
+    let row = repo::upsert_user_config(&state.pool, username, &base_role, &overrides).await?;
     Ok((StatusCode::OK, Json(row.into())))
 }

@@ -15,8 +15,8 @@ use crate::db::{
     DeploymentRow, DeploymentSbomRow, DeploymentStatusDb, DriftedMachineRow, HeartbeatResultRow,
     InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingActionRow, PendingInstallRow,
     PendingUserEnvRow, PolicyResultRow, SoftwareRequestRow, SoftwareRequestStatusDb,
-    TargetStateRow, UserConfigRow, UserEnvBuildJobRow, UserEnvStatusDb,
-    UserEnvironmentRow, UserRow,
+    TargetStateRow, UserConfigRow, UserEnvBuildJobRow, UserEnvStatusDb, UserEnvironmentRow,
+    UserRow,
 };
 use crate::routes::reports::{ComplianceReport, DeploymentTimelineEntry, EnrollmentTimelineEntry};
 

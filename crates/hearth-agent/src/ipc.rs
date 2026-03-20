@@ -481,7 +481,13 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                     })
                     .await;
 
-                run_as_user(&user, hm_str, &["switch", "--flake", &flake_target], &bg_shutdown).await
+                run_as_user(
+                    &user,
+                    hm_str,
+                    &["switch", "--flake", &flake_target],
+                    &bg_shutdown,
+                )
+                .await
             } else {
                 info!(%user, %role, "no pre-built closure and no home_flake_ref configured, skipping activation");
                 Ok(())

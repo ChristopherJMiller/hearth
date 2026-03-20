@@ -157,10 +157,7 @@ mesh_server_url = "http://100.64.0.1:3000"
 "#;
         let config: AgentConfig = toml::from_str(toml).unwrap();
         assert_eq!(config.server.url, "https://hearth.example.com");
-        assert_eq!(
-            config.home.unwrap().flake_ref,
-            "github:myorg/fleet-config"
-        );
+        assert_eq!(config.home.unwrap().flake_ref, "github:myorg/fleet-config");
         assert_eq!(
             config.cache.unwrap().url.unwrap(),
             "https://cache.hearth.example.com/fleet-prod"

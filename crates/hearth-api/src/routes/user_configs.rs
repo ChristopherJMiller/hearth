@@ -86,9 +86,8 @@ pub async fn trigger_build(
     Path(username): Path<String>,
 ) -> Result<(StatusCode, Json<UserEnvBuildJob>), AppError> {
     let config = repo::get_user_config(&state.pool, &username).await?;
-    let config = config.ok_or_else(|| {
-        AppError::NotFound(format!("user config for {username} not found"))
-    })?;
+    let config = config
+        .ok_or_else(|| AppError::NotFound(format!("user config for {username} not found")))?;
     let config_hash = config.config_hash.unwrap_or_default();
     let job = repo::enqueue_user_env_build(&state.pool, &username, &config_hash).await?;
     Ok((StatusCode::CREATED, Json(job.into())))

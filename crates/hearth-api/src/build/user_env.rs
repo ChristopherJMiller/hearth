@@ -37,7 +37,9 @@ pub async fn build_user_env(
         .chars()
         .all(|c| c.is_alphanumeric() || ":/.@_-+#".contains(c))
     {
-        return Err(format!("invalid flake_ref: contains disallowed characters: {flake_ref}").into());
+        return Err(
+            format!("invalid flake_ref: contains disallowed characters: {flake_ref}").into(),
+        );
     }
 
     let build_dir = tempfile::tempdir()?;

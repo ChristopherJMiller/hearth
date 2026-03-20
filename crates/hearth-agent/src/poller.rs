@@ -418,8 +418,7 @@ fn write_service_bookmarks(services: &[hearth_common::api_types::ServiceInfo]) {
         let desktop_entry = format!(
             "[Desktop Entry]\nType=Link\nName={name}\nComment={comment}\nURL={url}\nIcon=web-browser\n",
         );
-        if let Err(e) =
-            std::fs::write(dir.join(format!("hearth-{safe_id}.desktop")), desktop_entry)
+        if let Err(e) = std::fs::write(dir.join(format!("hearth-{safe_id}.desktop")), desktop_entry)
         {
             warn!(service_id = %service.id, error = %e, "failed to write .desktop file");
         }

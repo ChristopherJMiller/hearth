@@ -74,9 +74,7 @@ fn main() -> ExitCode {
             Err(e) => {
                 eprintln!("hearth-greeter: failed to open log file {log_path}: {e}");
                 // Fall back to stderr-only logging.
-                tracing_subscriber::fmt()
-                    .with_env_filter(env_filter)
-                    .init();
+                tracing_subscriber::fmt().with_env_filter(env_filter).init();
                 return ExitCode::FAILURE;
             }
         };
@@ -93,9 +91,7 @@ fn main() -> ExitCode {
             .with(file_layer)
             .init();
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .init();
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
     };
 
     info!("hearth-greeter starting");
