@@ -89,6 +89,7 @@ pkgs.testers.nixosTest {
       # home-manager overlay applied to nixpkgs).
       systemd.services.hearth-agent.path = lib.mkForce [
         pkgs.nix
+        pkgs.util-linux
         (pkgs.writeShellScriptBin "home-manager" ''
           echo "home-manager called with args: $@" > /tmp/home-manager-invocation
           for arg in "$@"; do
