@@ -171,16 +171,17 @@ let
       # Set primary password via credential update intent token
       $C -X PUT "$KANIDM_URL/v1/credential/_update/$CU_TOKEN/primarypassword" \
         -H "Content-Type: application/json" \
-        -d "\"$POSIX_PASS\"" 2>/dev/null || true
+        -d "{\"value\":\"$POSIX_PASS\"}" 2>/dev/null || true
       $C -X GET "$KANIDM_URL/v1/credential/_update/$CU_TOKEN/commit" 2>/dev/null || true
       echo "[bootstrap] Set primary password via credential update"
     fi
 
     # Set the POSIX/unix password (used by kanidm-unixd for PAM auth)
+    # Kanidm expects SingleStringRequest: {"value": "..."}
     $C -X PUT "$KANIDM_URL/v1/person/testuser/_unix/_credential" \
       -H "Authorization: Bearer $IDM_TOKEN" \
       -H "Content-Type: application/json" \
-      -d "\"$POSIX_PASS\"" 2>/dev/null
+      -d "{\"value\":\"$POSIX_PASS\"}"
     echo "[bootstrap] Set POSIX password for testuser"
     echo "$POSIX_PASS" > /tmp/testuser-password
 
