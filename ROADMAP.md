@@ -440,8 +440,8 @@ Real-time co-editing of documents, spreadsheets, and slides inside Nextcloud —
 Self-hosted video meetings integrated with chat, calendar, and Thunderbird.
 
 - [ ] **Jitsi Meet deployment:** Jitsi Meet deployed as a Helm capability (`capabilities.meet`). Kanidm SSO via oauth2-proxy forward-auth. Prosody XMPP backend, JVB media routing.
-- [ ] **Matrix integration:** Element Desktop configured with Jitsi widget for in-chat video calls. Click-to-call from any Matrix room.
-- [ ] **Thunderbird calendar integration:** Deploy Jitsi Meet event generator extension via Thunderbird `ExtensionSettings` policy, pre-configured with the org's Jitsi server URL. One-click "Add video call" when creating calendar events. Meeting links visible in both Thunderbird and GNOME shell calendar.
+- [ ] **Matrix integration:** Set `jitsi.preferred_domain` in Element Desktop's `config.json` (already managed in `home-modules/chat.nix`). Element has built-in first-party Jitsi widget support — video calls embed as iframes in any room. No custom extension needed.
+- [ ] **Thunderbird calendar integration:** Install the existing Jitsi Meet event generator add-on (`addons.thunderbird.net`) via Thunderbird `ExtensionSettings` policy, pre-configured with the org's Jitsi server URL. One-click "Add video call" when creating calendar events. Meeting links visible in both Thunderbird and GNOME shell calendar. No custom extension needed.
 - [ ] **Desktop integration:** `.desktop` launcher for Jitsi via service discovery. Service directory entry.
 
 #### 6D-5: Document Classification & Labeling (Future)
