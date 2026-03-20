@@ -132,7 +132,7 @@ pub struct HomeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
     /// Attic binary cache URL for closure pulls.
-    pub url: String,
+    pub url: Option<String>,
 }
 
 // --- Role mapping ---

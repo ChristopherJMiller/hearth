@@ -96,6 +96,21 @@ flake_ref = "github:myorg/fleet-config"
     }
 
     #[test]
+    fn parse_config_with_empty_cache_section() {
+        // agent.nix generates an empty [cache] section when binaryCacheUrl is null.
+        // This must not crash the parser.
+        let toml = r#"
+[server]
+url = "https://hearth.example.com"
+
+[cache]
+"#;
+        let config: AgentConfig = toml::from_str(toml).unwrap();
+        let cache = config.cache.expect("cache section should be present");
+        assert!(cache.url.is_none());
+    }
+
+    #[test]
     fn parse_config_without_home_is_none() {
         let toml = r#"
 [server]
@@ -147,7 +162,7 @@ mesh_server_url = "http://100.64.0.1:3000"
             "github:myorg/fleet-config"
         );
         assert_eq!(
-            config.cache.unwrap().url,
+            config.cache.unwrap().url.unwrap(),
             "https://cache.hearth.example.com/fleet-prod"
         );
         let rm = config.role_mapping.unwrap();
