@@ -59,14 +59,15 @@ fn resolve_role(groups: &[String], config: &AgentConfig) -> String {
 /// shuts down cleanly when the cancellation token fires.
 /// Try to receive a socket-activated listener from systemd (LISTEN_FDS protocol).
 ///
+/// The caller must have already called `consume_listen_fds()` before starting
+/// the async runtime to safely unset the environment variables.
+///
 /// Returns `Some(UnixListener)` if fd 3 is available and LISTEN_FDS=1.
 fn try_socket_activation() -> Option<UnixListener> {
     use std::os::unix::io::FromRawFd;
 
-    let listen_fds: u32 = std::env::var("LISTEN_FDS")
-        .ok()?
-        .parse()
-        .ok()?;
+    // Check the cached value from consume_listen_fds().
+    let listen_fds = LISTEN_FDS_COUNT.load(std::sync::atomic::Ordering::Relaxed);
     if listen_fds < 1 {
         return None;
     }
@@ -80,16 +81,37 @@ fn try_socket_activation() -> Option<UnixListener> {
     std_listener.set_nonblocking(true).ok()?;
     let listener = UnixListener::from_std(std_listener).ok()?;
 
-    // Unset LISTEN_FDS so child processes (e.g. home-manager) don't inherit it.
-    // SAFETY: This runs early in startup, before any threads are spawned that
-    // might read these env vars concurrently.
-    unsafe {
-        std::env::remove_var("LISTEN_FDS");
-        std::env::remove_var("LISTEN_PID");
-    }
-
     info!("using socket-activated listener from systemd (fd 3)");
     Some(listener)
+}
+
+/// Cached LISTEN_FDS count, consumed from env before tokio starts.
+static LISTEN_FDS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Consume LISTEN_FDS/LISTEN_PID from the environment. Must be called from
+/// main() before spawning any threads, as `env::remove_var` is unsafe in
+/// multi-threaded contexts.
+pub fn consume_listen_fds() {
+    let pid_matches = std::env::var("LISTEN_PID")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .is_some_and(|pid| pid == std::process::id());
+
+    let fds = std::env::var("LISTEN_FDS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+
+    if pid_matches && fds > 0 {
+        LISTEN_FDS_COUNT.store(fds, std::sync::atomic::Ordering::Relaxed);
+
+        // SAFETY: Called from main() before the tokio runtime starts, so no
+        // other threads are reading these env vars concurrently.
+        unsafe {
+            std::env::remove_var("LISTEN_FDS");
+            std::env::remove_var("LISTEN_PID");
+        }
+    }
 }
 
 pub async fn run_ipc_server<C: HearthApiClient + 'static>(
@@ -389,6 +411,12 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             };
 
             if let Some(closure) = &prebuilt.closure {
+                // Validate the closure path before using it.
+                if !closure.starts_with("/nix/store/") || closure.len() < 44 {
+                    error!(%user, %closure, "invalid closure path from control plane");
+                    return;
+                }
+
                 // Pre-built per-user closure available — pull and activate.
                 info!(%user, %closure, "activating pre-built per-user closure");
 

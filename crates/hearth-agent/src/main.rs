@@ -26,8 +26,19 @@ use std::os::unix::net::UnixDatagram;
 
 use hearth_common::api_client::ReqwestApiClient;
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // Consume systemd socket activation env vars before starting the async
+    // runtime, since env::remove_var is unsafe in multi-threaded contexts.
+    ipc::consume_listen_fds();
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime")
+        .block_on(async_main());
+}
+
+async fn async_main() {
     // Initialise structured logging (JSON when LOG_FORMAT=json).
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "hearth_agent=info".into());

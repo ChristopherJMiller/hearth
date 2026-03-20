@@ -416,6 +416,9 @@
               }
             );
 
+            # TODO: Add a configurable package allowlist/denylist. Currently any
+            # nixpkgs attribute can be requested via extra_packages, which may
+            # include security-sensitive tools on an enterprise fleet.
             home.packages = lib.optionals (cfg.overrides ? extra_packages)
               (map (name: pkgs.${name}) cfg.overrides.extra_packages);
 

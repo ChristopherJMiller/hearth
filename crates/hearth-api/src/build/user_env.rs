@@ -32,6 +32,16 @@ pub async fn build_user_env(
     cache_url: Option<&str>,
     attic_token: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Validate flake_ref to prevent Nix expression injection. Only allow
+    // characters valid in flake references (alphanumeric, colons, slashes,
+    // dots, hyphens, underscores, plus signs).
+    if !flake_ref
+        .chars()
+        .all(|c| c.is_alphanumeric() || ":/.@_-+#".contains(c))
+    {
+        return Err(format!("invalid flake_ref: contains disallowed characters: {flake_ref}").into());
+    }
+
     let build_dir = tempfile::tempdir()?;
     let build_path = build_dir.path();
 

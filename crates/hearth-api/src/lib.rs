@@ -50,6 +50,12 @@ pub async fn user_env_build_sweep_run(pool: PgPool, cancel: CancellationToken) {
                         for config in configs {
                             let hash = config.config_hash.unwrap_or_default();
                             if hash.is_empty() { continue; }
+                            // Transition to 'building' to prevent re-enqueueing
+                            // on the next sweep cycle.
+                            if let Err(e) = repo::set_user_config_building(&pool, &config.username, &hash).await {
+                                tracing::warn!(username = %config.username, error = %e, "failed to mark config as building");
+                                continue;
+                            }
                             match repo::enqueue_user_env_build(&pool, &config.username, &hash).await {
                                 Ok(job) => {
                                     tracing::info!(

@@ -1698,6 +1698,24 @@ pub async fn get_pending_user_config_builds(
     .await
 }
 
+/// Mark a user config as 'building' to prevent the sweep from re-enqueueing it.
+pub async fn set_user_config_building(
+    pool: &PgPool,
+    username: &str,
+    config_hash: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE user_configs
+         SET build_status = 'building', updated_at = now()
+         WHERE username = $1 AND config_hash = $2 AND build_status = 'pending'",
+    )
+    .bind(username)
+    .bind(config_hash)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Claim the next pending user env build job (using SKIP LOCKED for concurrency).
 pub async fn claim_user_env_build(
     pool: &PgPool,
