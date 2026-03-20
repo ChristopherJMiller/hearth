@@ -105,15 +105,16 @@ pkgs.testers.nixosTest {
         echo -n "${machineToken}" > /var/lib/hearth/machine-token
       '';
 
-      # Run greeter in headless test mode. The password is written to a file
-      # at runtime after Kanidm bootstrap completes. The greeter polls for
-      # this file (greetd does not pass parent env vars to child processes).
-      systemd.services.greetd.environment = {
-        HEARTH_GREETER_TEST_MODE = "1";
-        HEARTH_TEST_USER = "testuser@kanidm";
-        HEARTH_TEST_PASS_FILE = "/tmp/hearth-test-pass";
-        HEARTH_GREETER_LOG_FILE = "/tmp/hearth-greeter.log";
-      };
+      # Run greeter in headless test mode. greetd creates a clean environment
+      # for the greeter (only GREETD_SOCK + basics), so we must wrap the
+      # command to inject our test env vars explicitly.
+      services.greetd.settings.default_session.command = lib.mkForce (toString (pkgs.writeShellScript "hearth-greeter-test-wrapper" ''
+        export HEARTH_GREETER_TEST_MODE=1
+        export HEARTH_TEST_USER="testuser@kanidm"
+        export HEARTH_TEST_PASS_FILE="/tmp/hearth-test-pass"
+        export HEARTH_GREETER_LOG_FILE="/tmp/hearth-greeter.log"
+        exec ${pkgs.hearth-greeter}/bin/hearth-greeter
+      ''));
 
       virtualisation.memorySize = 2048;
     };

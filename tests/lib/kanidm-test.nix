@@ -160,23 +160,15 @@ let
       -d '["testuser"]' > /dev/null 2>&1 || true
 
     # --- Set testuser password ---
+    # Use recover-account to get a known password. The recovered password is
+    # directly usable for PAM authentication via kanidm-unixd.
     RECOVER_OUTPUT=$($KANIDMD recover-account -c /etc/kanidm/server.toml testuser 2>&1 || true)
     TESTUSER_PASS=$(echo "$RECOVER_OUTPUT" | grep -oP 'new_password:\s*"\K[^"]+' || true)
     if [ -n "$TESTUSER_PASS" ]; then
-      CU_RESP=$($C -X GET "$KANIDM_URL/v1/person/testuser/_credential/_update" \
-        -H "Authorization: Bearer $IDM_TOKEN")
-      CU_TOKEN=$(echo "$CU_RESP" | ${pkgs.jq}/bin/jq -r '.[0].token // empty' 2>/dev/null || true)
-      if [ -n "$CU_TOKEN" ]; then
-        $C -X POST "$KANIDM_URL/v1/credential/_update" \
-          -H "Content-Type: application/json" \
-          -d "[{\"password\":\"test-demo-enrollment\"},{\"token\":\"$CU_TOKEN\"}]" > /dev/null 2>&1
-        $C -X POST "$KANIDM_URL/v1/credential/_commit" \
-          -H "Content-Type: application/json" \
-          -d "{\"token\":\"$CU_TOKEN\"}" > /dev/null 2>&1
-        echo "test-demo-enrollment" > /tmp/testuser-password
-      else
-        echo "$TESTUSER_PASS" > /tmp/testuser-password
-      fi
+      echo "$TESTUSER_PASS" > /tmp/testuser-password
+      echo "[bootstrap] testuser password recovered and written"
+    else
+      echo "[bootstrap] WARNING: failed to recover testuser password"
     fi
 
     touch /tmp/bootstrap-done
