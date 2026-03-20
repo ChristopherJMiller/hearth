@@ -40,6 +40,8 @@ pub struct AppState {
     pub pool: PgPool,
     pub auth_config: AuthConfig,
     pub headscale: Option<headscale::HeadscaleClient>,
+    /// Attic binary cache URL for user environment closures.
+    pub cache_url: Option<String>,
 }
 
 pub fn machines_routes() -> Router<AppState> {
@@ -151,6 +153,22 @@ pub fn environments_routes() -> Router<AppState> {
         )
 }
 
+pub fn user_config_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/{username}/config",
+            get(routes::user_configs::get_config).put(routes::user_configs::upsert_config),
+        )
+        .route(
+            "/{username}/config/build",
+            post(routes::user_configs::trigger_build),
+        )
+        .route(
+            "/{username}/env-closure",
+            get(routes::user_configs::get_env_closure),
+        )
+}
+
 pub fn auth_me_route() -> Router<AppState> {
     Router::new().route("/me", get(routes::auth_me::me))
 }
@@ -236,6 +254,7 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
             "/api/v1/machines/{machine_id}/environments",
             environments_routes(),
         )
+        .nest("/api/v1/users", user_config_routes())
         .fallback_service(spa)
         .layer(middleware::from_fn(metrics::track_request))
         .layer(cors)

@@ -13,3 +13,4 @@ pub mod machines;
 pub mod reports;
 pub mod requests;
 pub mod stats;
+pub mod user_configs;

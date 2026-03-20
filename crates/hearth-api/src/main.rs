@@ -52,10 +52,13 @@ async fn main() {
         info!(url = hs.url(), "headscale integration enabled");
     }
 
+    let cache_url = std::env::var("ATTIC_CACHE_URL").ok();
+
     let state = AppState {
         pool,
         auth_config: auth_config.clone(),
         headscale,
+        cache_url,
     };
 
     // Spawn background tasks

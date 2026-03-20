@@ -78,6 +78,12 @@ pub trait HearthApiClient: Send + Sync {
         report: &ActionResultReport,
     ) -> impl Future<Output = Result<(), ApiError>> + Send;
 
+    /// Look up a user's pre-built environment closure from the control plane.
+    fn get_user_env_closure(
+        &self,
+        username: &str,
+    ) -> impl Future<Output = Result<UserEnvClosureResponse, ApiError>> + Send;
+
     /// Update the bearer token at runtime (e.g. after a refresh from heartbeat).
     /// Default implementation is a no-op for test mocks.
     fn update_token(&self, _token: &str) {}
@@ -328,6 +334,19 @@ impl HearthApiClient for ReqwestApiClient {
             .await?;
         self.check_response(resp).await?;
         Ok(())
+    }
+
+    async fn get_user_env_closure(
+        &self,
+        username: &str,
+    ) -> Result<UserEnvClosureResponse, ApiError> {
+        let resp = self
+            .authed_get(self.url(&format!("/api/v1/users/{username}/env-closure")))
+            .send()
+            .await?;
+        let resp = self.check_response(resp).await?;
+        let body = resp.json::<UserEnvClosureResponse>().await?;
+        Ok(body)
     }
 
     fn update_token(&self, token: &str) {

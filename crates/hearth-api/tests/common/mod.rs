@@ -100,6 +100,7 @@ pub async fn test_app() -> (Router, TestDb) {
             jwks_cache: Default::default(),
         },
         headscale: None,
+        cache_url: None,
     };
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
     (router, db)
@@ -222,6 +223,7 @@ pub async fn test_app_with_auth() -> AuthTestContext {
             jwks_cache,
         },
         headscale: None,
+        cache_url: None,
     };
 
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());

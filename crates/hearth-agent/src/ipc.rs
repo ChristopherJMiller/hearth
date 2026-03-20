@@ -306,12 +306,12 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
         };
         info!(%user, %role, "resolved role for user");
 
-        // Send progress: building.
+        // Send progress: preparing.
         let _ = event_tx
             .send(AgentEvent::Progress {
                 username: user.clone(),
                 percent: 10,
-                message: format!("building {role} environment"),
+                message: format!("preparing {role} environment"),
             })
             .await;
 
@@ -323,17 +323,97 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             warn!(error = %e, "failed to report building status");
         }
 
-        // Run home-manager activation if configured.
+        // Try to use a pre-built per-user closure from the control plane.
+        // If available, pull it from the cache and activate it.
+        // If not, fall back to role template activation via home-manager switch.
         let activation_result = {
-            if let Some(flake_ref) = flake_ref {
-                let flake_target = format!("{flake_ref}#{role}");
-                info!(%user, %flake_target, "activating home-manager environment");
+            // Step 1: Check for pre-built closure.
+            let prebuilt = match client.get_user_env_closure(&user).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    debug!(error = %e, "failed to query per-user closure, falling back to role template");
+                    hearth_common::api_types::UserEnvClosureResponse {
+                        closure: None,
+                        cache_url: None,
+                        fallback_role: role.clone(),
+                    }
+                }
+            };
+
+            if let Some(closure) = &prebuilt.closure {
+                // Pre-built per-user closure available — pull and activate.
+                info!(%user, %closure, "activating pre-built per-user closure");
 
                 let _ = event_tx
                     .send(AgentEvent::Progress {
                         username: user.clone(),
                         percent: 30,
-                        message: format!("activating home-manager profile: {role}"),
+                        message: "pulling pre-built environment from cache".into(),
+                    })
+                    .await;
+
+                // Pull closure from binary cache if a cache URL is provided.
+                if let Some(cache_url) = &prebuilt.cache_url {
+                    let copy_result = tokio::process::Command::new("nix")
+                        .args(["copy", "--from", cache_url, closure])
+                        .output()
+                        .await;
+                    if let Err(e) = &copy_result {
+                        warn!(error = %e, "nix copy from cache failed, closure may already be local");
+                    } else if let Ok(out) = &copy_result
+                        && !out.status.success()
+                    {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        warn!(%stderr, "nix copy returned non-zero, continuing anyway");
+                    }
+                }
+
+                let _ = event_tx
+                    .send(AgentEvent::Progress {
+                        username: user.clone(),
+                        percent: 60,
+                        message: "activating per-user environment".into(),
+                    })
+                    .await;
+
+                // Activate the home-manager generation.
+                let activate_path = format!("{closure}/activate");
+                tokio::select! {
+                    output = tokio::process::Command::new("runuser")
+                        .args(["-u", &user, "--", &activate_path])
+                        .output() => {
+                        match output {
+                            Ok(out) if out.status.success() => Ok(()),
+                            Ok(out) => {
+                                let stderr = String::from_utf8_lossy(&out.stderr);
+                                Err(format!("per-user closure activation failed: {stderr}"))
+                            }
+                            Err(e) => Err(format!("failed to activate per-user closure: {e}")),
+                        }
+                    }
+                    () = bg_shutdown.cancelled() => {
+                        let mut st = state_bg.lock().await;
+                        st.prepare_status
+                            .insert(user.clone(), PrepareStatus::Error("shutdown during preparation".into()));
+                        let _ = event_tx
+                            .send(AgentEvent::Error {
+                                username: user,
+                                message: "shutdown during preparation".into(),
+                            })
+                            .await;
+                        return;
+                    }
+                }
+            } else if let Some(flake_ref) = flake_ref {
+                // No pre-built closure — fall back to role template via home-manager switch.
+                let flake_target = format!("{flake_ref}#{role}");
+                info!(%user, %flake_target, "no pre-built closure, falling back to role template");
+
+                let _ = event_tx
+                    .send(AgentEvent::Progress {
+                        username: user.clone(),
+                        percent: 30,
+                        message: format!("activating role template: {role}"),
                     })
                     .await;
 
@@ -364,7 +444,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                     }
                 }
             } else {
-                info!(%user, %role, "no home_flake_ref configured, skipping activation");
+                info!(%user, %role, "no pre-built closure and no home_flake_ref configured, skipping activation");
                 Ok(())
             }
         };
