@@ -310,7 +310,7 @@ Production-ready Kubernetes deployment for the Hearth control plane and all supp
 - [x] **CI workflow:** `.github/workflows/helm.yml` — lint + unittest, kubeconform (3 value combos), ct install on Kind. Triggers on `chart/` changes.
 - [x] **Local cluster bootstrap:** `just helm-up` / `just helm-down` recipes for Kind cluster lifecycle. `just helm-check` runs lint + unittest + kubeconform.
 
-### 5D: Per-User Environment System (In Progress)
+### 5D: Per-User Environment System ✓
 
 Role templates are initial seeds; each user gets a managed per-user closure that follows them across machines (Azure AD-style roaming profiles).
 
@@ -324,8 +324,8 @@ Role templates are initial seeds; each user gets a managed per-user closure that
 - [x] **Refactored activation paths:** Extracted shared `run_as_user()` and `ensure_home_dir()` helpers in agent ipc.rs, eliminating duplicated runuser/shutdown logic across pre-built closure and role template branches.
 - [x] **Full login flow VM test:** Fixed dynamic home directory resolution from getent passwd (handles kanidm-unixd UUID-based home_attr), mock home-manager activation marker verification works end-to-end.
 - [x] **homeConfigurations flake output:** CI-verifiable home-manager configurations for all four roles (default, developer, designer, admin). Fixed home-manager deprecation warnings (git.extraConfig → git.settings, git.delta → programs.delta, ssh.extraConfig → ssh.matchBlocks).
-- [ ] **Package allowlist/denylist:** `extra_packages` currently allows any nixpkgs attribute. Add configurable allowlist for enterprise policy enforcement.
-- [ ] **Self-service config UI:** `/api/v1/me/config` endpoint + web UI for users to customize their own environment (restricted fields: git config, editor, shell aliases). Admin-only fields: extra_packages, base_role.
+- [x] **Package allowlist/denylist:** `HEARTH_PACKAGE_ALLOWLIST` env var restricts `extra_packages` in user overrides (API returns 400 listing disallowed packages). Nix-side defense-in-depth: `buildUserEnv` filters `package_denylist` field.
+- [x] **Self-service config UI:** `/api/v1/me/config` GET/PUT endpoints with `UserIdentity` auth (restricted fields: git config, editor, shell aliases, session variables). Admin-only fields preserved on merge. Settings page at `/settings` with key-value editors, visible to all users. `AuthClaims::username()` method consolidates duplicated username extraction.
 
 ### 5E: User Environment Polish (Future)
 
