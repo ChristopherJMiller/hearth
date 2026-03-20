@@ -418,13 +418,15 @@ Company-wide people directory sourced from Kanidm identity data, enriched with d
 - **hearth-api:** New `routes/directory.rs` (handler + 6 unit tests), `matrix_server_name` field on `AppState`, Nextcloud URL derived from `state.services` at request time
 - **Frontend:** New `api/directory.ts` (useDirectory hook), new `routes/directory.tsx` (DirectoryPage with search + card grid), router + sidebar wiring
 
-#### 6D-2: Calendar & Contacts (Future)
+#### 6D-2: Email, Calendar & Contacts (Future)
 
-Desktop integration for Nextcloud's built-in CalDAV/CardDAV services. GNOME's native apps (Calendar, Contacts) become the interface — no extra web UIs needed.
+Thunderbird as the unified PIM client (mail + calendar + contacts), connected to Nextcloud CalDAV/CardDAV and the org's mail server. GNOME Online Accounts also connected for shell panel calendar integration.
 
-- [ ] **GNOME Online Accounts:** Home-manager module configuring a Nextcloud GNOME Online Account entry. Single sign-on populates Calendar, Contacts, and Files automatically. Requires `gnome-online-accounts` with Nextcloud provider.
-- [ ] **GNOME Calendar + Contacts:** Add `gnome-calendar` and `gnome-contacts` to role profiles. Pre-configured via GNOME Online Accounts — no manual CalDAV/CardDAV URL entry needed.
-- [ ] **Shared organizational calendar:** Nextcloud bootstrap creates default shared calendars (company holidays, all-hands). Auto-subscribed for all users via Nextcloud group calendar sharing.
+- [ ] **Thunderbird home-manager module:** `home-modules/thunderbird.nix` deploying Thunderbird with `programs.thunderbird.policies` — pre-configured Nextcloud CalDAV/CardDAV server, disabled telemetry, managed extensions. Autostart option. Added to GNOME favorites across role profiles.
+- [ ] **Kanidm OIDC for mail:** Deploy `thunderbird-custom-idp` extension via `ExtensionSettings` policy — enables OAuth2/OIDC auth for IMAP/SMTP via Kanidm. Eliminates stored passwords for mail accounts.
+- [ ] **Mail autoconfig:** Thunderbird autoconfig XML served from the control plane (`autoconfig.<domain>/mail/config-v1.1.xml`) or placed locally via NixOS, pre-configuring IMAP/SMTP server settings. Supports both self-hosted mail (Stalwart, Dovecot) and external providers (Gmail, Exchange).
+- [ ] **GNOME Online Accounts:** Home-manager module configuring a Nextcloud GNOME Online Account entry. Feeds `evolution-data-server` so GNOME Shell panel clock shows upcoming events and GNOME Contacts works alongside Thunderbird.
+- [ ] **Shared organizational calendar:** Nextcloud bootstrap creates default shared calendars (company holidays, all-hands). Auto-subscribed for all users via Nextcloud group calendar sharing. Visible in both Thunderbird and GNOME shell.
 
 #### 6D-3: Collaborative Document Editing (Future)
 
@@ -435,12 +437,12 @@ Real-time co-editing of documents, spreadsheets, and slides inside Nextcloud —
 
 #### 6D-4: Video Conferencing (Future)
 
-Self-hosted video meetings integrated with chat and calendar.
+Self-hosted video meetings integrated with chat, calendar, and Thunderbird.
 
 - [ ] **Jitsi Meet deployment:** Jitsi Meet deployed as a Helm capability (`capabilities.meet`). Kanidm SSO via oauth2-proxy forward-auth. Prosody XMPP backend, JVB media routing.
 - [ ] **Matrix integration:** Element Desktop configured with Jitsi widget for in-chat video calls. Click-to-call from any Matrix room.
-- [ ] **Calendar integration:** Nextcloud calendar events can embed Jitsi Meet links. Meeting URLs auto-generated on event creation.
-- [ ] **Desktop integration:** `.desktop` launcher for Jitsi via service discovery. GNOME Calendar shows meeting links inline.
+- [ ] **Thunderbird calendar integration:** Deploy Jitsi Meet event generator extension via Thunderbird `ExtensionSettings` policy, pre-configured with the org's Jitsi server URL. One-click "Add video call" when creating calendar events. Meeting links visible in both Thunderbird and GNOME shell calendar.
+- [ ] **Desktop integration:** `.desktop` launcher for Jitsi via service discovery. Service directory entry.
 
 #### 6D-5: Document Classification & Labeling (Future)
 
