@@ -28,3 +28,24 @@ data:
   {{- if .Values.capabilities.builds }}
   HEARTH_BINARY_CACHE_URL: {{ include "hearth-home.atticUrl" . | quote }}
   {{- end }}
+  {{- if .Values.capabilities.chat }}
+  {{- if and .Values.synapse.ingress.enabled .Values.synapse.ingress.hosts }}
+  HEARTH_CHAT_URL: "https://{{ (index .Values.synapse.ingress.hosts 0).host }}"
+  {{- else }}
+  HEARTH_CHAT_URL: {{ include "hearth-home.synapseUrl" . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.capabilities.cloud }}
+  {{- if and .Values.nextcloud.ingress.enabled .Values.nextcloud.ingress.hosts }}
+  HEARTH_CLOUD_URL: "https://{{ (index .Values.nextcloud.ingress.hosts 0).host }}"
+  {{- else }}
+  HEARTH_CLOUD_URL: {{ include "hearth-home.nextcloudUrl" . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.capabilities.identity }}
+  {{- if and .Values.kanidm.ingress.enabled .Values.kanidm.ingress.hosts }}
+  HEARTH_IDENTITY_URL: "https://{{ (index .Values.kanidm.ingress.hosts 0).host }}"
+  {{- else }}
+  HEARTH_IDENTITY_URL: {{ include "hearth-home.kanidmUrl" . | quote }}
+  {{- end }}
+  {{- end }}

@@ -1,0 +1,17 @@
+{{- if and .Values.capabilities.identity .Values.oauth2Proxy.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-oauth2-proxy
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "oauth2-proxy") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.oauth2Proxy.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "hearth-home.selectorLabels" (dict "context" . "component" "oauth2-proxy") | nindent 4 }}
+{{- end }}

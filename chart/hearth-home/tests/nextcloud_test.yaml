@@ -207,20 +207,34 @@ tests:
           value: "16G"
 
   # ── Bootstrap Job ────────────────────────────────────────
-  - it: should render bootstrap Job when cloud and bootstrap enabled
+  - it: should render bootstrap RBAC and Job when cloud and bootstrap enabled
     template: nextcloud/job-bootstrap.yaml
     set:
       capabilities.cloud: true
       nextcloud.bootstrap.enabled: true
     asserts:
+      - hasDocuments:
+          count: 4
+      - isKind:
+          of: ServiceAccount
+        documentIndex: 0
+      - isKind:
+          of: Role
+        documentIndex: 1
+      - isKind:
+          of: RoleBinding
+        documentIndex: 2
       - isKind:
           of: Job
+        documentIndex: 3
       - equal:
           path: metadata.annotations["helm.sh/hook"]
           value: post-install
+        documentIndex: 3
       - equal:
           path: metadata.annotations["helm.sh/hook-weight"]
-          value: "25"
+          value: "30"
+        documentIndex: 3
 
   - it: should not render bootstrap Job when cloud disabled
     template: nextcloud/job-bootstrap.yaml
@@ -236,3 +250,41 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: bootstrap Role should include pods/exec for occ commands
+    template: nextcloud/job-bootstrap.yaml
+    set:
+      capabilities.cloud: true
+      nextcloud.bootstrap.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods/exec"]
+            verbs: ["create"]
+        documentIndex: 1
+
+  - it: bootstrap Job should use kubectl image for occ exec
+    template: nextcloud/job-bootstrap.yaml
+    set:
+      capabilities.cloud: true
+      nextcloud.bootstrap.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "bitnami/kubectl"
+        documentIndex: 3
+
+  - it: bootstrap Job should have OIDC secret env when identity and oidc enabled
+    template: nextcloud/job-bootstrap.yaml
+    set:
+      capabilities.cloud: true
+      capabilities.identity: true
+      nextcloud.bootstrap.enabled: true
+      nextcloud.oidc.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: NEXTCLOUD_OIDC_SECRET
+        documentIndex: 3

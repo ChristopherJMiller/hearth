@@ -61,12 +61,15 @@ async fn main() {
         info!(count = al.len(), "package allowlist loaded");
     }
 
+    let services = hearth_api::build_services_from_env();
+
     let state = AppState {
         pool,
         auth_config: auth_config.clone(),
         headscale,
         cache_url,
         package_allowlist,
+        services,
     };
 
     // Spawn background tasks

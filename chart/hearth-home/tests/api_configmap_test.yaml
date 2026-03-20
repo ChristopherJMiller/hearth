@@ -87,3 +87,67 @@ tests:
       - matchRegex:
           path: data.HEARTH_SERVER_URL
           pattern: "-api:"
+
+  # ── Service discovery env vars ─────────────────────────────
+  - it: should include HEARTH_CHAT_URL when chat enabled with ingress
+    set:
+      capabilities.chat: true
+      synapse.ingress.enabled: true
+      synapse.ingress.hosts:
+        - host: chat.hearth.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: data.HEARTH_CHAT_URL
+          value: "https://chat.hearth.example.com"
+
+  - it: should not include HEARTH_CHAT_URL when chat disabled
+    set:
+      capabilities.chat: false
+    asserts:
+      - notExists:
+          path: data.HEARTH_CHAT_URL
+
+  - it: should include HEARTH_CLOUD_URL when cloud enabled with ingress
+    set:
+      capabilities.cloud: true
+      nextcloud.ingress.enabled: true
+      nextcloud.ingress.hosts:
+        - host: cloud.hearth.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: data.HEARTH_CLOUD_URL
+          value: "https://cloud.hearth.example.com"
+
+  - it: should not include HEARTH_CLOUD_URL when cloud disabled
+    set:
+      capabilities.cloud: false
+    asserts:
+      - notExists:
+          path: data.HEARTH_CLOUD_URL
+
+  - it: should include HEARTH_IDENTITY_URL when identity enabled with ingress
+    set:
+      capabilities.identity: true
+      kanidm.ingress.enabled: true
+      kanidm.ingress.hosts:
+        - host: id.hearth.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: data.HEARTH_IDENTITY_URL
+          value: "https://id.hearth.example.com"
+
+  - it: should not include HEARTH_IDENTITY_URL when identity disabled
+    set:
+      capabilities.identity: false
+    asserts:
+      - notExists:
+          path: data.HEARTH_IDENTITY_URL

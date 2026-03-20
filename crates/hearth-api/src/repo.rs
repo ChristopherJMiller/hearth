@@ -190,6 +190,7 @@ pub async fn record_heartbeat(
                 machine_token: None,
                 pending_actions,
                 pending_user_envs,
+                services: Vec::new(),
             }))
         }
         None => Ok(None),

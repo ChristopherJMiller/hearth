@@ -492,6 +492,10 @@ nextcloud:
 
   bootstrap:
     enabled: true
+    image:
+      repository: bitnami/kubectl
+      tag: "1.31"
+      pullPolicy: IfNotPresent
     defaultFolders:
       - Documents
       - Projects
@@ -509,6 +513,41 @@ nextcloud:
             pathType: Prefix
     tls: []
 
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# oauth2-proxy (forward-auth for services without native OIDC)
+# Only deployed when capabilities.identity=true
+# ============================================================
+oauth2Proxy:
+  enabled: true
+  image:
+    repository: quay.io/oauth2-proxy/oauth2-proxy
+    tag: "v7.7.1"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  service:
+    port: 4180
+  # Cookie settings
+  cookie:
+    name: "_hearth_oauth2"
+    secure: true
+    # Set to your base domain for cross-subdomain SSO (e.g., ".hearth.example.com")
+    domain: ""
+    expire: "168h"
+  # Custom OIDC client — auto-created by Kanidm bootstrap
+  oidc:
+    existingSecret: ""
+    existingSecretKey: "proxy-oidc-secret"
   podAnnotations: {}
   nodeSelector: {}
   tolerations: []

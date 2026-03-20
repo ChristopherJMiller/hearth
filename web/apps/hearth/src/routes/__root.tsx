@@ -15,6 +15,7 @@ import {
   LuLogOut,
   LuSettings,
   LuShield,
+  LuGlobe,
 } from 'react-icons/lu';
 import { useAuth } from '../useAuth';
 import { useRoles } from '../hooks/useRoles';
@@ -22,6 +23,7 @@ import { useRoles } from '../hooks/useRoles';
 // All users see the catalog + settings
 const userItems: SidebarItem[] = [
   { id: 'catalog', label: 'Software Catalog', icon: <LuBookOpen size={18} /> },
+  { id: 'services', label: 'Services', icon: <LuGlobe size={18} /> },
   { id: 'settings', label: 'Settings', icon: <LuSettings size={18} /> },
 ];
 
@@ -40,6 +42,7 @@ const adminItems: SidebarItem[] = [
 
 const routeMap: Record<string, string> = {
   catalog: '/catalog',
+  services: '/services',
   settings: '/settings',
   dashboard: '/dashboard',
   machines: '/machines',

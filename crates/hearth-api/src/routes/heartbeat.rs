@@ -35,6 +35,10 @@ pub async fn record_heartbeat(
                     warn!(error = %e, "failed to mint cache token for {subject}");
                 }
             }
+
+            // Include the service directory so the agent can populate desktop bookmarks.
+            resp.services = state.services.clone();
+
             Ok(Json(resp))
         }
         None => Err(AppError::NotFound(format!(

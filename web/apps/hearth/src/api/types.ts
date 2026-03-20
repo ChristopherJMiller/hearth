@@ -256,6 +256,19 @@ export interface DeploymentComplianceSummary {
   failed: number;
 }
 
+// --- Phase 6C: Service Discovery ---
+
+export type ServiceCategory = 'communication' | 'storage' | 'identity' | 'infrastructure';
+
+export interface ServiceInfo {
+  id: string;
+  name: string;
+  category: ServiceCategory;
+  url: string;
+  description: string | null;
+  icon: string | null;
+}
+
 export interface DeploymentSbom {
   id: string;
   deployment_id: string;

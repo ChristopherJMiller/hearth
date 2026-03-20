@@ -58,6 +58,8 @@ pub async fn run_poll_loop<C: HearthApiClient>(
     let mut last_heartbeat_time: Option<std::time::Instant> = None;
     // Track user environment count from heartbeat response.
     let mut user_env_count: u64 = 0;
+    // Cache last-known services to avoid redundant disk writes.
+    let mut last_services: Vec<hearth_common::api_types::ServiceInfo> = Vec::new();
 
     loop {
         // --- Drain offline queue ---
@@ -302,6 +304,12 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                     }
                 }
 
+                // Write service bookmarks for desktop integration (only when changed)
+                if !resp.services.is_empty() && resp.services != last_services {
+                    write_service_bookmarks(&resp.services);
+                    last_services = resp.services.clone();
+                }
+
                 // Track user env count from response for metrics
                 user_env_count = resp.pending_user_envs.len() as u64;
             }
@@ -360,6 +368,64 @@ fn write_netrc(cache_url: &str, token: &str) -> Result<(), Box<dyn std::error::E
     let path = std::path::Path::new("/run/hearth/netrc");
     std::fs::write(path, content)?;
     Ok(())
+}
+
+/// Write service bookmarks and .desktop files so the desktop session can discover
+/// enabled platform services (chat, cloud, identity, etc.).
+fn write_service_bookmarks(services: &[hearth_common::api_types::ServiceInfo]) {
+    use std::path::Path;
+
+    let dir = Path::new("/var/lib/hearth/services");
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        warn!(error = %e, "failed to create services directory");
+        return;
+    }
+
+    // Write JSON manifest for programmatic consumption
+    match serde_json::to_string_pretty(services) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(dir.join("services.json"), &json) {
+                warn!(error = %e, "failed to write services.json");
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to serialize services");
+        }
+    }
+
+    // Write .desktop link files for GNOME application menu
+    for service in services {
+        // Sanitize id to prevent path traversal — only allow [a-zA-Z0-9_-]
+        let safe_id: String = service
+            .id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        if safe_id.is_empty() {
+            warn!(service_id = %service.id, "skipping service with invalid id");
+            continue;
+        }
+
+        // Strip newlines from fields to prevent .desktop entry injection
+        let name = service.name.replace('\n', " ");
+        let comment = service
+            .description
+            .as_deref()
+            .unwrap_or("")
+            .replace('\n', " ");
+        let url = service.url.replace('\n', "");
+
+        let desktop_entry = format!(
+            "[Desktop Entry]\nType=Link\nName={name}\nComment={comment}\nURL={url}\nIcon=web-browser\n",
+        );
+        if let Err(e) =
+            std::fs::write(dir.join(format!("hearth-{safe_id}.desktop")), desktop_entry)
+        {
+            warn!(service_id = %service.id, error = %e, "failed to write .desktop file");
+        }
+    }
+
+    debug!(count = services.len(), "wrote service bookmarks");
 }
 
 async fn replay_event<C: HearthApiClient>(

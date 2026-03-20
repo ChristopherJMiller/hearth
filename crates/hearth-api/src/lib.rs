@@ -93,6 +93,8 @@ pub struct AppState {
     /// When set, only these nixpkgs attributes are allowed in user
     /// `extra_packages` overrides. `None` means all packages are allowed.
     pub package_allowlist: Option<std::collections::HashSet<String>>,
+    /// Available platform services (built from env vars at startup).
+    pub services: Vec<hearth_common::api_types::ServiceInfo>,
 }
 
 pub fn machines_routes() -> Router<AppState> {
@@ -242,6 +244,10 @@ pub fn reports_routes() -> Router<AppState> {
         .route("/enrollments", get(routes::reports::enrollment_timeline))
 }
 
+pub fn services_routes() -> Router<AppState> {
+    Router::new().route("/", get(routes::services::list_services))
+}
+
 pub fn compliance_routes() -> Router<AppState> {
     Router::new()
         .route("/drift", get(routes::compliance::list_drift))
@@ -275,6 +281,38 @@ pub fn compliance_routes() -> Router<AppState> {
             "/machines/{machine_id}/sbom",
             get(routes::compliance::machine_current_sbom),
         )
+}
+
+/// Build the service directory from environment variables.
+pub fn build_services_from_env() -> Vec<hearth_common::api_types::ServiceInfo> {
+    use hearth_common::api_types::{ServiceCategory, ServiceInfo};
+
+    let definitions: &[(&str, &str, &str, ServiceCategory, &str, &str)] = &[
+        ("HEARTH_SERVER_URL", "hearth", "Hearth Console", ServiceCategory::Infrastructure, "Fleet management console", "flame"),
+        ("HEARTH_CHAT_URL", "chat", "Hearth Chat", ServiceCategory::Communication, "Corporate chat powered by Matrix", "message-square"),
+        ("HEARTH_CLOUD_URL", "cloud", "Cloud Storage", ServiceCategory::Storage, "File storage and collaboration powered by Nextcloud", "cloud"),
+        ("HEARTH_IDENTITY_URL", "identity", "Identity Management", ServiceCategory::Identity, "Account management and single sign-on", "shield"),
+    ];
+
+    let services: Vec<ServiceInfo> = definitions
+        .iter()
+        .filter_map(|(env_var, id, name, category, description, icon)| {
+            std::env::var(env_var).ok().map(|url| ServiceInfo {
+                id: (*id).into(),
+                name: (*name).into(),
+                category: *category,
+                url,
+                description: Some((*description).into()),
+                icon: Some((*icon).into()),
+            })
+        })
+        .collect();
+
+    if !services.is_empty() {
+        tracing::info!(count = services.len(), "service directory loaded");
+    }
+
+    services
 }
 
 /// Build the complete application router.
@@ -313,6 +351,7 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
             environments_routes(),
         )
         .nest("/api/v1/users", user_config_routes())
+        .nest("/api/v1/services", services_routes())
         .nest("/api/v1/me", me_config_routes())
         .fallback_service(spa)
         .layer(middleware::from_fn(metrics::track_request))

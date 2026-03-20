@@ -117,6 +117,9 @@ pub struct HeartbeatResponse {
     /// Per-user environment closures ready for activation.
     #[serde(default)]
     pub pending_user_envs: Vec<PendingUserEnv>,
+    /// Available platform services (populated from server config).
+    #[serde(default)]
+    pub services: Vec<ServiceInfo>,
 }
 
 // --- Target state ---
@@ -737,6 +740,34 @@ pub struct DeploymentSbom {
     pub sbom_path: String,
     pub format: String,
     pub generated_at: DateTime<Utc>,
+}
+
+// --- Service discovery types ---
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServiceInfo {
+    /// Machine-readable identifier (e.g., "chat", "cloud", "identity").
+    pub id: String,
+    /// Human-readable display name.
+    pub name: String,
+    /// Category for grouping in the UI.
+    pub category: ServiceCategory,
+    /// URL users should visit to access the service.
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Icon identifier (maps to a known icon set in the frontend).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceCategory {
+    Communication,
+    Storage,
+    Identity,
+    Infrastructure,
 }
 
 // --- Build job types ---

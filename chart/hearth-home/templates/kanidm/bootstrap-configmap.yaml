@@ -241,6 +241,39 @@ data:
       -H "Authorization: Bearer ${IDM_TOKEN}" | sed -n 's/.*"oauth2_rs_basic_secret":\["\([^"]*\)".*/\1/p' || echo "")
     {{- end }}
 
+    {{- if $.Values.oauth2Proxy.enabled }}
+    # -----------------------------------------------------------------------
+    # Create oauth2-proxy OAuth2 client (confidential, for forward-auth proxy)
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "==> Creating oauth2-proxy OAuth2 client..."
+    if resource_exists "/v1/oauth2/hearth-proxy" "$IDM_TOKEN"; then
+      echo "  OAuth2 client 'hearth-proxy' already exists"
+    else
+      $C -X POST "${KANIDM_URL}/v1/oauth2/_basic" \
+        -H "Authorization: Bearer ${IDM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d '{"attrs":{"name":["hearth-proxy"],"displayname":["Hearth Auth Proxy"],"oauth2_rs_origin_landing":["{{ include "hearth-home.apiUrl" . }}"]}}' > /dev/null
+      echo "  Created OAuth2 client 'hearth-proxy' (confidential)"
+    fi
+
+    # Set scope map
+    $C -X POST "${KANIDM_URL}/v1/oauth2/hearth-proxy/_scopemap/hearth-users" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '["openid","profile","email","groups"]' > /dev/null 2>&1 || true
+
+    # Configure short usernames
+    $C -X PATCH "${KANIDM_URL}/v1/oauth2/hearth-proxy" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"attrs":{"oauth2_prefer_short_username":["true"]}}' > /dev/null 2>&1 || true
+
+    # Retrieve client secret
+    PROXY_SECRET=$($C "${KANIDM_URL}/v1/oauth2/hearth-proxy" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" | sed -n 's/.*"oauth2_rs_basic_secret":\["\([^"]*\)".*/\1/p' || echo "")
+    {{- end }}
+
     # -----------------------------------------------------------------------
     # Create service account (idempotent)
     # -----------------------------------------------------------------------
@@ -276,6 +309,9 @@ data:
       {{- end }}
       {{- if $.Values.capabilities.cloud }}
       --from-literal=nextcloud-oidc-secret="${NEXTCLOUD_SECRET:-}" \
+      {{- end }}
+      {{- if $.Values.oauth2Proxy.enabled }}
+      --from-literal=proxy-oidc-secret="${PROXY_SECRET:-}" \
       {{- end }}
       --dry-run=client -o yaml | kubectl apply -f -
 

@@ -102,6 +102,7 @@ pub async fn test_app() -> (Router, TestDb) {
         headscale: None,
         cache_url: None,
         package_allowlist: None,
+        services: Vec::new(),
     };
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
     (router, db)
@@ -226,6 +227,7 @@ pub async fn test_app_with_auth() -> AuthTestContext {
         headscale: None,
         cache_url: None,
         package_allowlist: None,
+        services: Vec::new(),
     };
 
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());

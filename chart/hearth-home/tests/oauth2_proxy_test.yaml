@@ -1,0 +1,136 @@
+suite: oauth2-proxy
+release:
+  name: hearth
+  namespace: default
+tests:
+  # ── Deployment ─────────────────────────────────────────────
+  - it: should render Deployment when identity enabled and oauth2Proxy enabled
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-oauth2-proxy$"
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: should not render when identity disabled
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: false
+      oauth2Proxy.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when oauth2Proxy disabled
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use correct image
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: true
+      oauth2Proxy.image.repository: quay.io/oauth2-proxy/oauth2-proxy
+      oauth2Proxy.image.tag: "v7.7.1"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "quay.io/oauth2-proxy/oauth2-proxy:v7.7.1"
+
+  - it: should set resource limits
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 50m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 64Mi
+
+  - it: should configure OIDC args pointing to Kanidm
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--provider=oidc"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--client-id=hearth-proxy"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--upstream=static://202"
+
+  - it: should have health probes on /ping
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /ping
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /ping
+
+  # ── Service ────────────────────────────────────────────────
+  - it: should render Service when enabled
+    template: oauth2-proxy/service.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 4180
+
+  - it: should not render Service when disabled
+    template: oauth2-proxy/service.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Secret ─────────────────────────────────────────────────
+  - it: should render Secret with cookie-secret when enabled
+    template: oauth2-proxy/secret.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: true
+    asserts:
+      - isKind:
+          of: Secret
+      - exists:
+          path: data.cookie-secret
+
+  - it: should not render Secret when disabled
+    template: oauth2-proxy/secret.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0

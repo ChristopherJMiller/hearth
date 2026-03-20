@@ -1,5 +1,54 @@
 {{- if .Values.capabilities.cloud }}
 {{- if .Values.nextcloud.bootstrap.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "25"
+    helm.sh/hook-delete-policy: before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "25"
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "25"
+    helm.sh/hook-delete-policy: before-hook-creation
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "hearth-home.fullname" . }}-nextcloud-bootstrap
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "hearth-home.fullname" . }}-nextcloud-bootstrap
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -8,7 +57,7 @@ metadata:
     {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
   annotations:
     helm.sh/hook: post-install
-    helm.sh/hook-weight: "25"
+    helm.sh/hook-weight: "30"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 3
@@ -18,22 +67,61 @@ spec:
         {{- include "hearth-home.selectorLabels" (dict "context" . "component" "nextcloud-bootstrap") | nindent 8 }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "hearth-home.fullname" . }}-nextcloud-bootstrap
       restartPolicy: OnFailure
       containers:
         - name: bootstrap
-          image: alpine:3.20
-          command: ["/bin/sh", "-c"]
+          image: "{{ .Values.nextcloud.bootstrap.image.repository }}:{{ .Values.nextcloud.bootstrap.image.tag }}"
+          imagePullPolicy: {{ .Values.nextcloud.bootstrap.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          {{- if and .Values.capabilities.identity .Values.nextcloud.oidc.enabled }}
+          env:
+            - name: NEXTCLOUD_OIDC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.nextcloud.oidc.existingSecret }}{{ .Values.nextcloud.oidc.existingSecret }}{{ else }}{{ include "hearth-home.fullname" . }}-kanidm-credentials{{ end }}
+                  key: {{ .Values.nextcloud.oidc.existingSecretKey | default "nextcloud-oidc-secret" }}
+          {{- end }}
           args:
             - |
               set -eu
-              apk add --no-cache curl > /dev/null 2>&1
 
+              NAMESPACE="{{ .Release.Namespace }}"
+              NC_LABEL="app.kubernetes.io/component=nextcloud"
               NEXTCLOUD_URL="{{ include "hearth-home.nextcloudUrl" . }}"
 
-              echo "Waiting for Nextcloud to be ready..."
+              echo "==> Nextcloud bootstrap"
+              echo "    URL: ${NEXTCLOUD_URL}"
+              echo ""
+
+              # ---------------------------------------------------------------
+              # Wait for Nextcloud pod to be ready
+              # ---------------------------------------------------------------
+              echo "==> Waiting for Nextcloud pod..."
               MAX_WAIT=300
               WAITED=0
-              until curl -sf "${NEXTCLOUD_URL}/status.php" 2>/dev/null | grep -q '"installed":true'; do
+              NC_POD=""
+              while [ -z "$NC_POD" ]; do
+                NC_POD=$(kubectl get pod -n "$NAMESPACE" -l "$NC_LABEL" \
+                  --field-selector=status.phase=Running \
+                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+                if [ -z "$NC_POD" ]; then
+                  if [ "$WAITED" -ge "$MAX_WAIT" ]; then
+                    echo "ERROR: Nextcloud pod not found after ${MAX_WAIT}s"
+                    exit 1
+                  fi
+                  echo "  Waiting for Nextcloud pod... (${WAITED}s)"
+                  sleep 5
+                  WAITED=$((WAITED + 5))
+                fi
+              done
+              echo "    Found pod: ${NC_POD}"
+
+              # Wait for Nextcloud to be installed and ready
+              echo "==> Waiting for Nextcloud to be ready..."
+              WAITED=0
+              until kubectl exec -n "$NAMESPACE" "$NC_POD" -c nextcloud -- \
+                php occ status --output=json 2>/dev/null | grep -q '"installed":true'; do
                 if [ "$WAITED" -ge "$MAX_WAIT" ]; then
                   echo "ERROR: Nextcloud not ready after ${MAX_WAIT}s"
                   exit 1
@@ -42,21 +130,62 @@ spec:
                 sleep 5
                 WAITED=$((WAITED + 5))
               done
-              echo "Nextcloud is ready."
+              echo "    Nextcloud is ready"
+
+              # Helper: run occ inside the Nextcloud pod
+              occ() {
+                kubectl exec -n "$NAMESPACE" "$NC_POD" -c nextcloud -- \
+                  php occ "$@"
+              }
 
               {{- if and .Values.capabilities.identity .Values.nextcloud.oidc.enabled }}
+              # ---------------------------------------------------------------
+              # Configure OIDC authentication via Kanidm
+              # ---------------------------------------------------------------
               echo ""
-              echo "==> OIDC configuration will be applied by the Nextcloud admin."
-              echo "    Install the user_oidc app and configure the Kanidm provider"
-              echo "    via the Nextcloud admin panel or occ command."
+              echo "==> Configuring OIDC authentication..."
+
+              KANIDM_URL="{{ include "hearth-home.kanidmUrl" . }}"
+
+              # Install and enable user_oidc app
+              occ app:install user_oidc 2>/dev/null || echo "    user_oidc already installed"
+              occ app:enable user_oidc 2>/dev/null || true
+
+              # Configure Kanidm as the OIDC provider
+              occ user_oidc:provider "{{ .Values.nextcloud.oidc.providerName | default "Hearth Identity" }}" \
+                  --clientid="hearth-nextcloud" \
+                  --clientsecret="${NEXTCLOUD_OIDC_SECRET}" \
+                  --discoveryuri="${KANIDM_URL}/oauth2/openid/hearth-nextcloud/.well-known/openid-configuration" \
+                  --unique-uid=0 \
+                  --mapping-uid="preferred_username" \
+                  --mapping-display-name="name" \
+                  --mapping-email="email" \
+                  --check-bearer="0" 2>/dev/null || true
+
+              occ config:app:set user_oidc allow_multiple_user_backends --value="1" 2>/dev/null || true
+
+              echo "    OIDC provider configured (Kanidm)"
               {{- end }}
 
+              # ---------------------------------------------------------------
+              # Configure Redis caching (sidecar)
+              # ---------------------------------------------------------------
               echo ""
-              echo "==> Creating default folders..."
-              # Default folders are created on first admin login automatically.
-              # The bootstrap just verifies Nextcloud is operational.
+              echo "==> Configuring Redis caching..."
+              occ config:system:set redis host --value="localhost" 2>/dev/null || true
+              occ config:system:set redis port --value="6379" --type=integer 2>/dev/null || true
+              occ config:system:set memcache.local --value='\OC\Memcache\APCu' 2>/dev/null || true
+              occ config:system:set memcache.locking --value='\OC\Memcache\Redis' 2>/dev/null || true
+              occ config:system:set memcache.distributed --value='\OC\Memcache\Redis' 2>/dev/null || true
+              echo "    Redis caching configured"
+
+              # ---------------------------------------------------------------
+              # Default folders
+              # ---------------------------------------------------------------
+              echo ""
+              echo "==> Default folders (created on first user login):"
               {{- range .Values.nextcloud.bootstrap.defaultFolders }}
-              echo "  Folder: {{ . }} (created on first user login)"
+              echo "    - {{ . }}"
               {{- end }}
 
               echo ""

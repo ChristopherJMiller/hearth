@@ -150,6 +150,41 @@ tests:
       - hasDocuments:
           count: 0
 
+  # ── oauth2-proxy ──────────────────────────────────────────
+  - it: should render oauth2-proxy Deployment when identity enabled (default)
+    template: oauth2-proxy/deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-oauth2-proxy$"
+
+  - it: should not render oauth2-proxy when identity disabled
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render oauth2-proxy Service when identity disabled
+    template: oauth2-proxy/service.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render oauth2-proxy when explicitly disabled
+    template: oauth2-proxy/deployment.yaml
+    set:
+      capabilities.identity: true
+      oauth2Proxy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
   # ── Observability ──────────────────────────────────────────
   - it: should not render ServiceMonitor when observability disabled (default)
     template: observability/servicemonitor.yaml

@@ -383,13 +383,23 @@ File sync and collaboration with Kanidm SSO, GNOME desktop integration, WebDAV m
 - **Helm chart:** 7 new templates in `templates/nextcloud/` (deployment, service, configmap, pvc, ingress, secret, job-bootstrap), `values.yaml` +capabilities.cloud +nextcloud config section, `_helpers.tpl` +nextcloudUrl, `kanidm/bootstrap-configmap.yaml` extended for hearth-nextcloud client
 - **Tests:** 28 new helm-unittest tests (24 nextcloud + 4 capabilities), 159 total passing
 
-### 6C: Shared Service Infrastructure
+### 6C: Shared Service Infrastructure ✓
 
-Common patterns extracted as services multiply.
+Common patterns extracted as services multiply. Includes Nextcloud OIDC bootstrap automation fix.
 
-- [ ] **Service OIDC proxy:** Forward-auth middleware (Traefik/Caddy) for services without native OIDC support.
-- [ ] **Service discovery API:** `GET /api/v1/services` endpoint returning available service URLs. Agent queries at heartbeat, populates desktop bookmarks/shortcuts.
-- [ ] **Service directory page:** `/services` page in the web app listing all enabled collaboration services with links.
+- [x] **Service OIDC proxy:** oauth2-proxy forward-auth middleware deployed as Helm capability (`oauth2Proxy.enabled`, auto-enabled with `capabilities.identity`). Kanidm bootstrap creates `hearth-proxy` confidential OAuth2 client. Deployment, Service, Secret templates with health probes. Future services can add nginx ingress auth annotations to use the proxy.
+- [x] **Service discovery API:** `GET /api/v1/services` endpoint returning enabled service URLs, descriptions, icons, and categories. Config-driven from environment variables (`HEARTH_CHAT_URL`, `HEARTH_CLOUD_URL`, `HEARTH_IDENTITY_URL`). Services also delivered in heartbeat response for agent consumption. API ConfigMap extended with conditional service URL env vars.
+- [x] **Service directory page:** `/services` page in the web app listing all enabled collaboration services as cards grouped by category (Infrastructure, Communication, Storage, Identity). Available to all authenticated users. Added to sidebar navigation.
+- [x] **Agent desktop integration:** Agent writes `/var/lib/hearth/services/services.json` manifest and `.desktop` link files from heartbeat response. New `home-modules/services.nix` home-manager module syncs desktop files via systemd user service/timer. `mk-fleet-host.nix` auto-enables when chat or cloud is configured.
+- [x] **Nextcloud OIDC bootstrap fix:** Nextcloud Helm bootstrap job upgraded from manual OIDC instructions to automated `occ` commands via `kubectl exec`. Installs `user_oidc` app, configures Kanidm provider, sets up Redis caching. Added RBAC (ServiceAccount, Role, RoleBinding) for pod exec access. Matches dev bootstrap automation.
+- [x] **Helm tests:** 24 new tests (14 oauth2-proxy, 4 capabilities, 6 API configmap service URLs). All 183 tests passing.
+
+### Stats
+- **Rust:** New `ServiceInfo`/`ServiceCategory` types in hearth-common, new `services` field on `HeartbeatResponse` and `AppState`, new `/api/v1/services` route, env var parsing in main.rs, agent writes service bookmarks from heartbeat
+- **Frontend:** New `api/services.ts` hook, `ServiceInfo` type, `/services` page with categorized service cards, sidebar nav item
+- **Helm chart:** 3 new templates in `templates/oauth2-proxy/` (deployment, service, secret), `values.yaml` +oauth2Proxy config section, API ConfigMap +service URL env vars, Nextcloud bootstrap rewritten with RBAC + kubectl exec OIDC automation, Kanidm bootstrap +hearth-proxy client + proxy-oidc-secret
+- **NixOS:** New `home-modules/services.nix` (systemd user service/timer for .desktop sync), `common.nix` imports services.nix, `mk-fleet-host.nix` auto-enables services module
+- **Tests:** 24 new helm-unittest tests, 183 total passing
 
 ---
 

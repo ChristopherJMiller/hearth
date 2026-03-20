@@ -178,6 +178,11 @@ nixpkgs.lib.nixosSystem {
         serverUrl = nextcloudUrl;
       };
 
+      # --- Service directory desktop integration ---
+      services.hearth.services = lib.mkIf (matrixUrl != null || nextcloudUrl != null) {
+        enable = true;
+      };
+
       # --- Boot loader (reasonable defaults, hardware module can override) ---
       boot.loader.systemd-boot.enable = lib.mkDefault true;
       boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
