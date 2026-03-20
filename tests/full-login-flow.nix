@@ -84,7 +84,11 @@ pkgs.testers.nixosTest {
           exit 0
         '';
       in [ mockHomeManager ];
-      systemd.services.hearth-agent.path = lib.mkAfter [
+      # Override the agent service path to use our mock home-manager
+      # instead of pkgs.home-manager (which may not exist without the
+      # home-manager overlay applied to nixpkgs).
+      systemd.services.hearth-agent.path = lib.mkForce [
+        pkgs.nix
         (pkgs.writeShellScriptBin "home-manager" ''
           echo "home-manager called with args: $@" > /tmp/home-manager-invocation
           for arg in "$@"; do
