@@ -200,9 +200,12 @@ in
         # greetd doesn't call initgroups() for the greeter user, so
         # supplementary groups aren't available. Using the greeter's
         # primary group ensures access without workarounds.
+        SocketUser = "root";
         SocketGroup = "greeter";
         SocketMode = "0660";
-        DirectoryMode = "0755";
+        # The socket directory must be traversable by the greeter.
+        RuntimeDirectory = "hearth";
+        RuntimeDirectoryMode = "0755";
 
         # Remove stale socket on restart
         RemoveOnStop = true;
@@ -237,9 +240,7 @@ in
         # WatchdogSec requires periodic WATCHDOG=1 pings from the agent;
         # not yet implemented, so leave it unset to avoid spurious kills.
 
-        # Directories
-        RuntimeDirectory = "hearth";
-        RuntimeDirectoryMode = "0750";
+        # Directories (RuntimeDirectory managed by hearth-agent.socket unit)
         StateDirectory = "hearth";
         StateDirectoryMode = "0750";
 
@@ -270,14 +271,6 @@ in
 
     # The agent only makes outbound connections — no firewall ports to open
     # But ensure the socket directory has correct permissions for greeter access
-    systemd.tmpfiles.settings."10-hearth" = {
-      "/run/hearth" = {
-        d = {
-          user = "root";
-          group = "hearth";
-          mode = "0750";
-        };
-      };
-    };
+    # /run/hearth is managed by hearth-agent.socket (RuntimeDirectory).
   };
 }

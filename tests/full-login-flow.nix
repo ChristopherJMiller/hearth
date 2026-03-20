@@ -105,19 +105,22 @@ pkgs.testers.nixosTest {
         echo -n "${machineToken}" > /var/lib/hearth/machine-token
       '';
 
-      # Run greeter in headless test mode. greetd creates a clean environment
-      # for the greeter (only GREETD_SOCK + basics), so we must wrap the
-      # command to inject our test env vars explicitly.
       # Override greetd session command with a wrapper that sets test env vars.
       # greetd creates a clean env for the greeter, so we must inject them.
-      services.greetd.settings.default_session.command = lib.mkForce (toString (pkgs.writeShellScript "hearth-greeter-test-wrapper" ''
-        export HEARTH_GREETER_TEST_MODE=1
-        export HEARTH_TEST_USER="testuser@kanidm"
-        export HEARTH_TEST_PASS_FILE="/tmp/hearth-test-pass"
-        export HEARTH_GREETER_LOG_FILE="/tmp/hearth-greeter.log"
-        export RUST_LOG="hearth_greeter=debug"
-        exec ${pkgs.hearth-greeter}/bin/hearth-greeter
-      ''));
+      services.greetd.settings = lib.mkForce {
+        default_session = {
+          command = toString (pkgs.writeShellScript "hearth-greeter-test-wrapper" ''
+            export HEARTH_GREETER_TEST_MODE=1
+            export HEARTH_TEST_USER="testuser@kanidm"
+            export HEARTH_TEST_PASS_FILE="/tmp/hearth-test-pass"
+            export HEARTH_GREETER_LOG_FILE="/tmp/hearth-greeter.log"
+            export RUST_LOG="hearth_greeter=debug"
+            exec ${pkgs.hearth-greeter}/bin/hearth-greeter
+          '');
+          user = "greeter";
+        };
+        terminal.vt = 1;
+      };
 
       virtualisation.memorySize = 2048;
     };
