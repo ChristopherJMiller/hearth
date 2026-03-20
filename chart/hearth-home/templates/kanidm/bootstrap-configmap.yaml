@@ -173,6 +173,40 @@ data:
       -d '{"attrs":{"oauth2_prefer_short_username":["true"]}}' > /dev/null 2>&1 || true
     {{- end }}
 
+    {{- if $.Values.capabilities.chat }}
+    # -----------------------------------------------------------------------
+    # Create Matrix/Synapse OAuth2 client (confidential, for chat capability)
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "==> Creating Matrix chat OAuth2 client..."
+    if resource_exists "/v1/oauth2/hearth-matrix" "$IDM_TOKEN"; then
+      echo "  OAuth2 client 'hearth-matrix' already exists"
+    else
+      SYNAPSE_URL="{{ $.Values.synapse.config.publicBaseUrl }}"
+      $C -X POST "${KANIDM_URL}/v1/oauth2/_basic" \
+        -H "Authorization: Bearer ${IDM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"attrs\":{\"name\":[\"hearth-matrix\"],\"displayname\":[\"Hearth Matrix Chat\"],\"oauth2_rs_origin_landing\":[\"${SYNAPSE_URL}\"]}}" > /dev/null
+      echo "  Created OAuth2 client 'hearth-matrix' (confidential)"
+    fi
+
+    # Set scope map
+    $C -X POST "${KANIDM_URL}/v1/oauth2/hearth-matrix/_scopemap/hearth-users" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '["openid","profile","email"]' > /dev/null 2>&1 || true
+
+    # Configure short usernames
+    $C -X PATCH "${KANIDM_URL}/v1/oauth2/hearth-matrix" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"attrs":{"oauth2_prefer_short_username":["true"]}}' > /dev/null 2>&1 || true
+
+    # Retrieve client secret and store it
+    MATRIX_SECRET=$($C "${KANIDM_URL}/v1/oauth2/hearth-matrix" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" | sed -n 's/.*"oauth2_rs_basic_secret":\["\([^"]*\)".*/\1/p' || echo "")
+    {{- end }}
+
     # -----------------------------------------------------------------------
     # Create service account (idempotent)
     # -----------------------------------------------------------------------
@@ -203,6 +237,9 @@ data:
       --from-literal=admin-password="${ADMIN_PW}" \
       --from-literal=idm-admin-password="${IDM_ADMIN_PW}" \
       --from-literal=api-service-token="${API_TOKEN}" \
+      {{- if $.Values.capabilities.chat }}
+      --from-literal=matrix-oidc-secret="${MATRIX_SECRET:-}" \
+      {{- end }}
       --dry-run=client -o yaml | kubectl apply -f -
 
     echo ""

@@ -53,6 +53,8 @@
         "org.gnome.Terminal.desktop"
         "org.gnome.TextEditor.desktop"
         "org.libreoffice.LibreOffice.writer.desktop"
+      ] ++ lib.optionals config.hearth.chat.enable [
+        "element-desktop.desktop"
       ];
     };
 

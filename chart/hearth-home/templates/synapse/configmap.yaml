@@ -1,0 +1,90 @@
+{{- if .Values.capabilities.chat }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-synapse
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "synapse") | nindent 4 }}
+data:
+  homeserver.yaml: |
+    server_name: {{ .Values.synapse.config.serverName | quote }}
+    public_baseurl: {{ .Values.synapse.config.publicBaseUrl | quote }}
+    pid_file: /data/homeserver.pid
+
+    listeners:
+      - port: 8008
+        type: http
+        tls: false
+        x_forwarded: true
+        resources:
+          - names: [client]
+            compress: false
+
+    database:
+      name: psycopg2
+      args:
+        user: {{ .Values.synapse.database.user }}
+        password: "%(SYNAPSE_DB_PASSWORD)s"
+        database: {{ .Values.synapse.database.name }}
+        host: {{ if .Values.postgresql.enabled }}{{ .Release.Name }}-postgresql{{ else }}{{ .Values.externalDatabase.host }}{{ end }}
+        port: 5432
+        cp_min: 5
+        cp_max: 10
+
+    # Federation completely disabled — internal corporate chat only
+    federation_domain_whitelist: []
+
+    enable_registration: {{ .Values.synapse.config.enableRegistration }}
+    enable_registration_without_verification: false
+    registration_shared_secret: "%(SYNAPSE_REGISTRATION_SHARED_SECRET)s"
+
+    {{- if and .Values.capabilities.identity .Values.synapse.oidc.enabled }}
+    oidc_providers:
+      - idp_id: kanidm
+        idp_name: {{ .Values.synapse.oidc.idpName | quote }}
+        issuer: "https://{{ include "hearth-home.fullname" . }}-kanidm:{{ .Values.kanidm.service.port }}/oauth2/openid/hearth-matrix"
+        client_id: "hearth-matrix"
+        client_secret_path: /data/oidc_client_secret
+        scopes: ["openid", "profile", "email"]
+        skip_verification: {{ .Values.synapse.oidc.skipVerification | default false }}
+        allow_existing_users: true
+        user_mapping_provider:
+          config:
+            localpart_template: "{{`{{ user.preferred_username }}`}}"
+            display_name_template: "{{`{{ user.name }}`}}"
+    {{- end }}
+
+    auto_join_rooms:
+    {{- range .Values.synapse.config.autoJoinRooms }}
+      - "{{ . }}:{{ $.Values.synapse.config.serverName }}"
+    {{- end }}
+    autocreate_auto_join_rooms: true
+    auto_join_rooms_for_guests: false
+    auto_join_mxid_localpart: "hearth-bot"
+
+    media_store_path: /data/media_store
+    max_upload_size: 50M
+    signing_key_path: "/data/keys/signing.key"
+    suppress_key_server_warning: true
+    report_stats: {{ .Values.synapse.config.reportStats }}
+    trusted_key_servers: []
+    retention:
+      enabled: false
+
+  log.config: |
+    version: 1
+    formatters:
+      precise:
+        format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s - %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: precise
+    loggers:
+      synapse.storage.SQL:
+        level: WARNING
+    root:
+      level: {{ .Values.synapse.config.logLevel }}
+      handlers: [console]
+    disable_existing_loggers: false
+{{- end }}

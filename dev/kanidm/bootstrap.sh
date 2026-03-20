@@ -373,6 +373,26 @@ checked_post "scopemap hearth-enrollment" "/v1/oauth2/hearth-enrollment/_scopema
 checked_patch "configure hearth-enrollment" "/v1/oauth2/hearth-enrollment" \
     '{"attrs":{"oauth2_allow_localhost_redirect":["true"],"oauth2_prefer_short_username":["true"]}}'
 
+# hearth-matrix: Confidential OAuth2 client for Matrix/Synapse homeserver
+# Synapse does server-side OIDC, so it needs a client secret (not public/PKCE).
+if resource_exists "/v1/oauth2/hearth-matrix" "$IDM_TOKEN"; then
+    echo "    OAuth2 client 'hearth-matrix' already exists"
+else
+    checked_post "create OAuth2 client 'hearth-matrix'" "/v1/oauth2/_basic" \
+        '{"attrs":{"name":["hearth-matrix"],"displayname":["Hearth Matrix Chat"],"oauth2_rs_origin_landing":["http://localhost:8008"]}}'
+    echo "    Created OAuth2 client 'hearth-matrix'"
+fi
+
+checked_post "scopemap hearth-matrix" "/v1/oauth2/hearth-matrix/_scopemap/hearth-users" \
+    '["openid","profile","email"]'
+
+checked_patch "configure hearth-matrix" "/v1/oauth2/hearth-matrix" \
+    '{"attrs":{"oauth2_prefer_short_username":["true"],"oauth2_allow_localhost_redirect":["true"]}}'
+
+# Retrieve the client secret for Synapse
+MATRIX_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-matrix" \
+    -H "Authorization: Bearer $IDM_TOKEN" | jq -r '.attrs.oauth2_rs_basic_secret[0] // empty')
+
 # ---------------------------------------------------------------------------
 # Step 6: Write .env for local dev
 # ---------------------------------------------------------------------------
@@ -400,6 +420,7 @@ KANIDM_CONSOLE_CLIENT_ID=hearth-console
 KANIDM_CONSOLE_SECRET=$CONSOLE_SECRET
 HEARTH_API_SVC_TOKEN=$API_TOKEN
 HEARTH_MACHINE_TOKEN_SECRET=$MACHINE_TOKEN_SECRET
+MATRIX_OIDC_CLIENT_SECRET=$MATRIX_SECRET
 TESTADMIN_PASSWORD=${USER_PASSWORDS[testadmin]:-}
 TESTDEV_PASSWORD=${USER_PASSWORDS[testdev]:-}
 TESTDESIGNER_PASSWORD=${USER_PASSWORDS[testdesigner]:-}
@@ -427,6 +448,7 @@ echo ""
 echo "  OAuth2 clients:"
 echo "    hearth-console     (public + PKCE, web SPA)"
 echo "    hearth-enrollment  (public + PKCE, enrollment kiosk)"
+echo "    hearth-matrix      (confidential, Synapse OIDC)"
 echo ""
 echo "  Load env vars: source dev/kanidm/.env"
 echo ""

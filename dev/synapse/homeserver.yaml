@@ -1,0 +1,94 @@
+# dev/synapse/homeserver.yaml — Synapse homeserver config for local development
+#
+# Internal-only corporate chat: no federation, Kanidm SSO, auto-join rooms.
+
+server_name: "hearth.local"
+public_baseurl: "http://localhost:8008"
+pid_file: /data/homeserver.pid
+
+# --- Listeners ---
+# Client API only — no federation listener means this server is fully isolated.
+listeners:
+  - port: 8008
+    type: http
+    tls: false
+    x_forwarded: true
+    resources:
+      - names: [client]
+        compress: false
+
+# --- Database ---
+database:
+  name: psycopg2
+  args:
+    user: synapse
+    password: synapse
+    database: synapse
+    host: postgres
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+# --- Federation: completely disabled ---
+# Empty whitelist blocks all federation traffic.
+federation_domain_whitelist: []
+
+# --- Registration ---
+# Users log in via Kanidm SSO — no self-registration.
+enable_registration: false
+enable_registration_without_verification: false
+
+# Shared secret for bootstrap script to create admin bot programmatically.
+registration_shared_secret: "hearth-dev-synapse-secret-change-in-prod"
+
+# --- OIDC (Kanidm SSO) ---
+oidc_providers:
+  - idp_id: kanidm
+    idp_name: "Hearth Identity"
+    issuer: "https://kanidm:8443/oauth2/openid/hearth-matrix"
+    client_id: "hearth-matrix"
+    client_secret_path: /data/oidc_client_secret
+    scopes: ["openid", "profile", "email"]
+    # Dev only: skip TLS verification for self-signed Kanidm cert
+    skip_verification: true
+    allow_existing_users: true
+    user_mapping_provider:
+      config:
+        localpart_template: "{{ user.preferred_username }}"
+        display_name_template: "{{ user.name }}"
+    # Attribute mapping
+    attribute_requirements: []
+
+# --- Auto-join rooms ---
+# New users automatically join these rooms on first SSO login.
+auto_join_rooms:
+  - "#general:hearth.local"
+  - "#random:hearth.local"
+
+autocreate_auto_join_rooms: true
+auto_join_rooms_for_guests: false
+auto_join_mxid_localpart: "hearth-bot"
+
+# --- Media ---
+media_store_path: /data/media_store
+max_upload_size: 50M
+
+# --- Logging ---
+log_config: "/data/log.config"
+
+# --- Misc ---
+# Suppress warning about public key server (not needed without federation)
+suppress_key_server_warning: true
+
+# Report anonymous usage statistics
+report_stats: false
+
+# Signing key (auto-generated on first start)
+signing_key_path: "/data/keys/signing.key"
+
+# Trusted key servers — none needed without federation
+trusted_key_servers: []
+
+# Retention policy
+retention:
+  enabled: false

@@ -193,6 +193,8 @@
         "kitty.desktop"
         "org.gnome.SystemMonitor.desktop"
         "org.gnome.Nautilus.desktop"
+      ] ++ lib.optionals config.hearth.chat.enable [
+        "element-desktop.desktop"
       ];
     };
 

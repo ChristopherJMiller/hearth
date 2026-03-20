@@ -90,6 +90,36 @@ tests:
           path: spec.replicas
           value: 3
 
+  # ── Chat (Synapse) ────────────────────────────────────────
+  - it: should render Synapse Deployment when chat enabled
+    template: synapse/deployment.yaml
+    set:
+      capabilities.chat: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-synapse$"
+
+  - it: should not render Synapse Deployment when chat disabled (default)
+    template: synapse/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Synapse Service when chat disabled
+    template: synapse/service.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Synapse PVC when chat disabled
+    template: synapse/pvc.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
   # ── Observability ──────────────────────────────────────────
   - it: should not render ServiceMonitor when observability disabled (default)
     template: observability/servicemonitor.yaml

@@ -1,0 +1,35 @@
+{{- if and .Values.capabilities.chat .Values.synapse.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-synapse
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "synapse") | nindent 4 }}
+  {{- with .Values.synapse.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.synapse.ingress.className }}
+  ingressClassName: {{ .Values.synapse.ingress.className }}
+  {{- end }}
+  {{- if .Values.synapse.ingress.tls }}
+  tls:
+    {{- toYaml .Values.synapse.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.synapse.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "hearth-home.fullname" $ }}-synapse
+                port:
+                  name: http
+          {{- end }}
+    {{- end }}
+{{- end }}

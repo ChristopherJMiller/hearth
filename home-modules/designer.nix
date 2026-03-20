@@ -17,6 +17,8 @@
         "org.inkscape.Inkscape.desktop"
         "org.gnome.Nautilus.desktop"
         "org.gnome.TextEditor.desktop"
+      ] ++ lib.optionals config.hearth.chat.enable [
+        "element-desktop.desktop"
       ];
     };
 

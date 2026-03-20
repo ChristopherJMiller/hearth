@@ -8,6 +8,7 @@ services:
       POSTGRES_DB: hearth
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./dev/synapse/init-db.sh:/docker-entrypoint-initdb.d/10-synapse.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hearth"]
       interval: 5s
@@ -75,6 +76,29 @@ services:
       timeout: 5s
       retries: 5
 
+  synapse:
+    image: matrixdotorg/synapse:v1.122.0
+    ports: ["127.0.0.1:8008:8008"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./dev/synapse/homeserver.yaml:/data/homeserver.yaml:ro
+      - ./dev/synapse/log.config:/data/log.config:ro
+      - synapse-data:/data/media_store
+      - synapse-signing:/data/keys
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8008/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  element-web:
+    image: vectorim/element-web:v1.11.96
+    ports: ["127.0.0.1:8088:80"]
+    volumes:
+      - ./dev/synapse/element-config.json:/app/config.json:ro
+
 volumes:
   pgdata:
   attic-data:
@@ -82,3 +106,5 @@ volumes:
   loki-data:
   grafana-data:
   headscale-data:
+  synapse-data:
+  synapse-signing:

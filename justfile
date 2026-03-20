@@ -33,6 +33,11 @@ setup:
     fi
     echo "==> Bootstrapping Kanidm identity provider..."
     bash dev/kanidm/bootstrap.sh
+    echo "==> Waiting for Synapse..."
+    until curl -sf http://localhost:8008/health >/dev/null 2>&1; do sleep 2; done
+    echo "    Synapse ready"
+    echo "==> Bootstrapping Matrix chat..."
+    bash dev/synapse/bootstrap.sh
     echo "==> Running database migrations..."
     sqlx migrate run
     echo "==> Building web frontends..."
@@ -140,6 +145,10 @@ headscale-setup:
     echo "  export HEADSCALE_URL=http://localhost:8085"
     echo "  export HEADSCALE_API_KEY=$API_KEY"
 
+# Set up Matrix/Synapse chat for development
+matrix-setup:
+    bash dev/synapse/bootstrap.sh
+
 # Push a Nix closure to the local Attic cache
 cache-push PATH:
     attic push hearth {{PATH}}
@@ -169,6 +178,7 @@ helm-validate:
         --set capabilities.identity=true \
         --set capabilities.mesh=true \
         --set capabilities.builds=true \
+        --set capabilities.chat=true \
         | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
     echo "    All capabilities OK"
     echo "==> Validating minimal (core only)..."

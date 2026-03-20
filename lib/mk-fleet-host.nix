@@ -47,6 +47,8 @@
 , metricsRemoteWriteUrl ? null
 , lokiUrl ? null
 , headscaleUrl ? null
+, matrixUrl ? null
+, matrixServerName ? null
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -79,6 +81,7 @@ nixpkgs.lib.nixosSystem {
     ../modules/secure-boot.nix
     ../modules/tpm-fde.nix
     ../modules/headscale-client.nix
+    ../modules/chat.nix
     ../modules/logging.nix
     ../modules/metrics.nix
     ../modules/roles/default.nix
@@ -158,6 +161,13 @@ nixpkgs.lib.nixosSystem {
       services.hearth.headscaleClient = lib.mkIf (headscaleUrl != null) {
         enable = true;
         serverUrl = headscaleUrl;
+      };
+
+      # --- Corporate chat (Element Desktop) ---
+      services.hearth.chat = lib.mkIf (matrixUrl != null) {
+        enable = true;
+        homeserverUrl = matrixUrl;
+        serverName = matrixServerName;
       };
 
       # --- Boot loader (reasonable defaults, hardware module can override) ---

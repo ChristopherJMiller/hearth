@@ -1,0 +1,33 @@
+{{- if .Values.capabilities.chat }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-synapse-media
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "synapse") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.synapse.persistence.mediaStore.size }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-synapse-signing
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "synapse") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+{{- end }}

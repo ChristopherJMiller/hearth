@@ -1,0 +1,225 @@
+suite: Synapse
+release:
+  name: hearth
+  namespace: default
+tests:
+  # ── Deployment ────────────────────────────────────────────
+  - it: should render Synapse Deployment when chat enabled
+    template: synapse/deployment.yaml
+    set:
+      capabilities.chat: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-synapse$"
+
+  - it: should not render Synapse Deployment when chat disabled (default)
+    template: synapse/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set correct image
+    template: synapse/deployment.yaml
+    set:
+      capabilities.chat: true
+      synapse.image.tag: "v1.100.0"
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "matrixdotorg/synapse:v1\\.100\\.0"
+
+  - it: should include health probes
+    template: synapse/deployment.yaml
+    set:
+      capabilities.chat: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+
+  # ── Service ───────────────────────────────────────────────
+  - it: should render Synapse Service when chat enabled
+    template: synapse/service.yaml
+    set:
+      capabilities.chat: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].port
+          value: 8008
+
+  - it: should not render Synapse Service when chat disabled
+    template: synapse/service.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── ConfigMap ─────────────────────────────────────────────
+  - it: should render ConfigMap with correct server name
+    template: synapse/configmap.yaml
+    set:
+      capabilities.chat: true
+      synapse.config.serverName: "chat.mycompany.com"
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["homeserver.yaml"]
+          pattern: "server_name: \"chat\\.mycompany\\.com\""
+
+  - it: should include OIDC config when identity and chat both enabled
+    template: synapse/configmap.yaml
+    set:
+      capabilities.chat: true
+      capabilities.identity: true
+      synapse.oidc.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["homeserver.yaml"]
+          pattern: "oidc_providers:"
+
+  - it: should not include OIDC config when identity disabled
+    template: synapse/configmap.yaml
+    set:
+      capabilities.chat: true
+      capabilities.identity: false
+    asserts:
+      - notMatchRegex:
+          path: data["homeserver.yaml"]
+          pattern: "oidc_providers:"
+
+  - it: should always disable federation
+    template: synapse/configmap.yaml
+    set:
+      capabilities.chat: true
+    asserts:
+      - matchRegex:
+          path: data["homeserver.yaml"]
+          pattern: "federation_domain_whitelist: \\[\\]"
+
+  - it: should include auto-join rooms
+    template: synapse/configmap.yaml
+    set:
+      capabilities.chat: true
+      synapse.config.serverName: "test.local"
+      synapse.config.autoJoinRooms:
+        - "#general"
+        - "#random"
+    asserts:
+      - matchRegex:
+          path: data["homeserver.yaml"]
+          pattern: "#general:test\\.local"
+
+  - it: should not render ConfigMap when chat disabled
+    template: synapse/configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── PVC ───────────────────────────────────────────────────
+  - it: should render media and signing PVCs when chat enabled
+    template: synapse/pvc.yaml
+    set:
+      capabilities.chat: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: PersistentVolumeClaim
+        documentIndex: 0
+      - equal:
+          path: spec.resources.requests.storage
+          value: 20Gi
+        documentIndex: 0
+      - isKind:
+          of: PersistentVolumeClaim
+        documentIndex: 1
+
+  - it: should not render PVC when chat disabled
+    template: synapse/pvc.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Secret ────────────────────────────────────────────────
+  - it: should render Secret with registration shared secret and bot password when chat enabled
+    template: synapse/secret.yaml
+    set:
+      capabilities.chat: true
+    asserts:
+      - isKind:
+          of: Secret
+      - exists:
+          path: data["registration-shared-secret"]
+      - exists:
+          path: data["bot-password"]
+
+  - it: should not render Secret when chat disabled
+    template: synapse/secret.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Ingress ───────────────────────────────────────────────
+  - it: should render Ingress when chat enabled and ingress enabled
+    template: synapse/ingress.yaml
+    set:
+      capabilities.chat: true
+      synapse.ingress.enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+
+  - it: should not render Ingress when chat disabled
+    template: synapse/ingress.yaml
+    set:
+      synapse.ingress.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Ingress when ingress disabled
+    template: synapse/ingress.yaml
+    set:
+      capabilities.chat: true
+      synapse.ingress.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Bootstrap Job ─────────────────────────────────────────
+  - it: should render bootstrap Job when chat and bootstrap enabled
+    template: synapse/job-bootstrap.yaml
+    set:
+      capabilities.chat: true
+      synapse.bootstrap.enabled: true
+    asserts:
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install
+
+  - it: should not render bootstrap Job when chat disabled
+    template: synapse/job-bootstrap.yaml
+    set:
+      synapse.bootstrap.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render bootstrap Job when bootstrap disabled
+    template: synapse/job-bootstrap.yaml
+    set:
+      capabilities.chat: true
+      synapse.bootstrap.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

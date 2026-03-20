@@ -341,18 +341,27 @@ Role templates are initial seeds; each user gets a managed per-user closure that
 
 ## Phase 6: Collaboration Services {#phase-6}
 
-Extend the Hearth platform with collaboration services deployed as Helm capabilities, integrated with Kanidm SSO and accessible over the Headscale mesh via MagicDNS.
+Extend the Hearth platform with collaboration services deployed as Helm capabilities on the control plane, integrated with Kanidm SSO. Services are accessible over the regular network (no VPN required) and optionally via MagicDNS for mesh-connected devices.
 
-### 6A: Matrix/Synapse + Element (Chat)
+### 6A: Matrix/Synapse + Element (Chat) ✓
 
-Office chat with Kanidm SSO. Deployed as a Helm capability (`capabilities.chat`).
+Internal-only corporate chat with Kanidm SSO. Synapse runs as part of the control plane (no VPN required). Element Desktop pre-configured with SSO immediate redirect and GNOME Keyring session persistence.
 
-- [ ] **Docker-compose:** Synapse container + Element Web container for local dev. Synapse OIDC config points to Kanidm.
-- [ ] **Kanidm OIDC integration:** `hearth-matrix` OAuth2 client (confidential) in `dev/kanidm/bootstrap.sh` and Helm bootstrap configmap. Scopes: `openid`, `profile`, `email`, `groups`.
-- [ ] **Helm capability:** `capabilities.chat: false` (off by default). Templates: Synapse Deployment, ConfigMap (homeserver.yaml with OIDC), PVC, Service. Element Web Deployment with pre-configured `config.json`.
-- [ ] **MagicDNS:** `matrix.hearth.local` (Synapse), `chat.hearth.local` (Element Web).
-- [ ] **NixOS desktop integration:** Element Desktop in home-manager profiles, pre-configured homeserver URL.
-- [ ] **Helm tests:** Unit tests for chat capability templates.
+- [x] **Docker-compose:** Synapse container (`matrixdotorg/synapse:v1.122.0`, port 8008) + Element Web container (`vectorim/element-web:v1.11.96`, port 8088) for local dev. PostgreSQL init script creates separate `synapse` database. Synapse config: client-only listener (no federation), `federation_domain_whitelist: []`, OIDC provider pointing to Kanidm, auto-join `#general` and `#random` rooms.
+- [x] **Kanidm OIDC integration:** `hearth-matrix` OAuth2 client (confidential) in `dev/kanidm/bootstrap.sh` and Helm bootstrap configmap. Scopes: `openid`, `profile`, `email`. Client secret written to `.env` and injected into Synapse container.
+- [x] **Synapse bootstrap:** Idempotent `dev/synapse/bootstrap.sh` — registers `hearth-bot` admin user via `registration_shared_secret`, creates default rooms (`#general`, `#random`, `#it-support`) with federation disabled per-room, posts welcome messages. `just matrix-setup` recipe, integrated into `just setup`.
+- [x] **Helm capability:** `capabilities.chat: false` (off by default). Templates: Synapse Deployment (wait-for-postgres initContainer, health probes, configmap checksum), ConfigMap (homeserver.yaml with conditional OIDC when `capabilities.identity` enabled), Service, PVC (media store), Ingress, Secret (auto-generated registration shared secret with upgrade-safe lookup), bootstrap Job (post-install hook, creates admin bot + default rooms). Kanidm bootstrap configmap extended to create `hearth-matrix` confidential OAuth2 client when chat enabled.
+- [x] **NixOS desktop integration:** `home-modules/chat.nix` — Element Desktop with pre-configured homeserver URL, `sso_redirect_options.immediate: true` (skips login form), `disable_custom_urls: true` (corporate lockdown), XDG autostart (`element-desktop --use-keychain --hidden` — GNOME Keyring session persistence, minimized to tray). `modules/chat.nix` NixOS module, `mk-fleet-host.nix` extended with `matrixUrl`/`matrixServerName` parameters. Element Desktop added to GNOME favorites conditionally across all role profiles.
+- [x] **Helm tests:** 24 new tests in `synapse_test.yaml` (deployment, service, configmap, PVC, secret, ingress, bootstrap job). 4 new tests in `capabilities_test.yaml` for chat toggle. All 131 tests passing.
+
+### Stats
+- **Dev infra:** 5 new files in `dev/synapse/` (homeserver.yaml, element-config.json, log.config, init-db.sh, bootstrap.sh)
+- **Docker-compose:** +synapse service, +element-web service, +postgres init script mount, +2 volumes
+- **Kanidm bootstrap:** +hearth-matrix confidential OAuth2 client, +MATRIX_OIDC_CLIENT_SECRET in .env
+- **Home-manager:** New `home-modules/chat.nix` (Element Desktop module with SSO, autostart, keychain), `common.nix` imports chat.nix, 4 role profiles updated with conditional Element favorites
+- **NixOS:** New `modules/chat.nix`, `mk-fleet-host.nix` +matrixUrl/matrixServerName parameters
+- **Helm chart:** 6 new templates in `templates/synapse/` (deployment, service, configmap, pvc, ingress, secret, job-bootstrap), `values.yaml` +capabilities.chat +synapse config section, `kanidm/bootstrap-configmap.yaml` extended for hearth-matrix client
+- **Tests:** 28 new helm-unittest tests (24 synapse + 4 capabilities), 131 total passing
 
 ### 6B: Nextcloud (Cloud Storage & Collaboration)
 

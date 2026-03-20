@@ -7,6 +7,7 @@
 { config, lib, pkgs, ... }:
 
 {
+  imports = [ ./chat.nix ];
   # --- Home-manager basics ---
   home.stateVersion = "25.05";
 

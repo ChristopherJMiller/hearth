@@ -107,6 +107,10 @@ https://{{ include "hearth-home.fullname" . }}-kanidm:{{ .Values.kanidm.service.
 http://{{ include "hearth-home.fullname" . }}-headscale:{{ .Values.headscale.service.port }}
 {{- end }}
 
+{{- define "hearth-home.synapseUrl" -}}
+http://{{ include "hearth-home.fullname" . }}-synapse:{{ .Values.synapse.service.port }}
+{{- end }}
+
 {{/*
 Secrets helpers — resolve inline vs existing secret references.
 */}}

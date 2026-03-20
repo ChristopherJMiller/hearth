@@ -1,0 +1,107 @@
+{{- if .Values.capabilities.chat }}
+{{- if .Values.synapse.bootstrap.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-synapse-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "synapse") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "synapse-bootstrap") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl openssl > /dev/null 2>&1
+
+              SYNAPSE_URL="{{ include "hearth-home.synapseUrl" . }}"
+              SERVER_NAME="{{ .Values.synapse.config.serverName }}"
+              SHARED_SECRET="${SYNAPSE_REGISTRATION_SECRET}"
+              BOT_PASSWORD="${SYNAPSE_BOT_PASSWORD}"
+
+              echo "Waiting for Synapse to be ready..."
+              until curl -sf "${SYNAPSE_URL}/health" > /dev/null 2>&1; do
+                echo "  Synapse not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "Synapse is ready."
+
+              # Register hearth-bot admin user
+              echo ""
+              echo "==> Creating admin bot..."
+              NONCE=$(curl -s "${SYNAPSE_URL}/_synapse/admin/v1/register" | sed -n 's/.*"nonce":"\([^"]*\)".*/\1/p')
+              if [ -z "$NONCE" ]; then
+                echo "ERROR: Could not get registration nonce"
+                exit 1
+              fi
+
+              # Compute HMAC-SHA1
+              MAC=$(printf '%s\0%s\0%s\0%s' "$NONCE" "hearth-bot" "$BOT_PASSWORD" "admin" \
+                | openssl dgst -sha1 -hmac "$SHARED_SECRET" | awk '{print $NF}')
+
+              BOT_RESP=$(curl -s -X POST "${SYNAPSE_URL}/_synapse/admin/v1/register" \
+                -H "Content-Type: application/json" \
+                -d "{\"nonce\":\"${NONCE}\",\"username\":\"hearth-bot\",\"password\":\"${BOT_PASSWORD}\",\"mac\":\"${MAC}\",\"admin\":true}")
+
+              BOT_TOKEN=$(echo "$BOT_RESP" | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+              if [ -z "$BOT_TOKEN" ]; then
+                # May already exist — try login
+                BOT_TOKEN=$(curl -s -X POST "${SYNAPSE_URL}/_matrix/client/v3/login" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\",\"user\":\"hearth-bot\"},\"password\":\"${BOT_PASSWORD}\"}" \
+                  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+              fi
+
+              if [ -z "$BOT_TOKEN" ]; then
+                echo "WARNING: Could not authenticate bot. Skipping room creation."
+                exit 0
+              fi
+              echo "  Bot authenticated."
+
+              # Create default rooms
+              echo ""
+              echo "==> Creating default rooms..."
+              {{- range .Values.synapse.bootstrap.defaultRooms }}
+              ALIAS_CHECK=$(curl -s "${SYNAPSE_URL}/_matrix/client/v3/directory/room/%23{{ .alias }}:${SERVER_NAME}" \
+                -H "Authorization: Bearer ${BOT_TOKEN}")
+              if echo "$ALIAS_CHECK" | grep -q '"room_id"'; then
+                echo "  Room #{{ .alias }}:${SERVER_NAME} already exists"
+              else
+                curl -s -X POST "${SYNAPSE_URL}/_matrix/client/v3/createRoom" \
+                  -H "Authorization: Bearer ${BOT_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d '{"name":"{{ .name }}","topic":"{{ .topic }}","room_alias_name":"{{ .alias }}","visibility":"public","preset":"public_chat","creation_content":{"m.federate":false},"initial_state":[{"type":"m.room.history_visibility","content":{"history_visibility":"shared"}},{"type":"m.room.guest_access","content":{"guest_access":"forbidden"}}]}' > /dev/null
+                echo "  Created room #{{ .alias }}:${SERVER_NAME}"
+              fi
+              {{- end }}
+
+              echo ""
+              echo "=== Synapse bootstrap complete ==="
+          env:
+            - name: SYNAPSE_REGISTRATION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.fullname" . }}-synapse
+                  key: registration-shared-secret
+            - name: SYNAPSE_BOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.fullname" . }}-synapse
+                  key: bot-password
+{{- end }}
+{{- end }}

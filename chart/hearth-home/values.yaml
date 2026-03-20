@@ -15,6 +15,7 @@ capabilities:
   identity: true        # Kanidm — OIDC identity provider, PAM/NSS
   mesh: true            # Headscale — WireGuard mesh VPN coordinator
   builds: true          # hearth-build-worker(s)
+  chat: false           # Matrix/Synapse — corporate internal chat
   observability: false  # Grafana + Loki + Prometheus subcharts
 
 # ============================================================
@@ -342,6 +343,84 @@ buildWorker:
     enabled: true
     size: 50Gi
     storageClass: ""
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Synapse Matrix Chat (conditional on capabilities.chat)
+# ============================================================
+synapse:
+  image:
+    repository: matrixdotorg/synapse
+    tag: "v1.122.0"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  service:
+    port: 8008
+
+  config:
+    serverName: "chat.hearth.example.com"
+    publicBaseUrl: "https://chat.hearth.example.com"
+    enableRegistration: false
+    logLevel: INFO
+    reportStats: false
+    autoJoinRooms:
+      - "#general"
+      - "#random"
+
+  # OIDC via Kanidm (requires capabilities.identity=true)
+  oidc:
+    enabled: true
+    idpName: "Hearth Identity"
+    skipVerification: false
+    existingSecret: ""
+    existingSecretKey: "matrix-oidc-secret"
+
+  # Database — separate DB on the shared PostgreSQL instance
+  database:
+    name: synapse
+    user: synapse
+    existingSecret: ""
+    existingSecretPasswordKey: synapse-db-password
+
+  persistence:
+    mediaStore:
+      size: 20Gi
+
+  bootstrap:
+    enabled: true
+    defaultRooms:
+      - alias: general
+        name: General
+        topic: "Company-wide announcements and discussion"
+      - alias: random
+        name: Random
+        topic: "Off-topic chat and social"
+      - alias: it-support
+        name: IT Support
+        topic: "IT help desk — ask questions, report issues"
+
+  ingress:
+    enabled: true
+    className: ""
+    annotations: {}
+    hosts:
+      - host: chat.hearth.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
 
   podAnnotations: {}
   nodeSelector: {}
