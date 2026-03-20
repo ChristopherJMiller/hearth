@@ -254,6 +254,46 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                     }
                 }
 
+                // Pre-stage pending user environment closures from the cache.
+                // This pulls closures into the local nix store so they're ready
+                // for instant activation on next login.
+                for user_env in &resp.pending_user_envs {
+                    info!(
+                        username = %user_env.username,
+                        closure = %user_env.target_closure,
+                        "pre-staging user environment closure"
+                    );
+                    if let Some(cache_url) = &user_env.cache_url {
+                        let result = tokio::process::Command::new("nix")
+                            .args(["copy", "--from", cache_url, &user_env.target_closure])
+                            .output()
+                            .await;
+                        match result {
+                            Ok(out) if out.status.success() => {
+                                info!(
+                                    username = %user_env.username,
+                                    "pre-staged user env closure"
+                                );
+                            }
+                            Ok(out) => {
+                                let stderr = String::from_utf8_lossy(&out.stderr);
+                                warn!(
+                                    username = %user_env.username,
+                                    %stderr,
+                                    "nix copy for user env pre-staging failed"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    username = %user_env.username,
+                                    error = %e,
+                                    "failed to run nix copy for user env pre-staging"
+                                );
+                            }
+                        }
+                    }
+                }
+
                 // Track user env count from response for metrics
                 user_env_count = resp.pending_user_envs.len() as u64;
             }

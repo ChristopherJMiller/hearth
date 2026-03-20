@@ -10,8 +10,9 @@
 #   4. kanidm-unixd resolves the test user via NSS
 #   5. hearth-greeter (headless mode) authenticates via greetd → PAM → Kanidm
 #   6. Greeter requests environment prep from agent via IPC
-#   7. Agent sends Ready (no home_flake_ref = instant)
-#   8. Greeter starts desktop session via greetd
+#   7. Agent resolves user env (queries control plane, falls back to role template)
+#   8. Agent activates environment via home-manager (mock in test)
+#   9. Greeter starts desktop session via greetd
 #
 # Nodes:
 #   - kanidm: Kanidm identity server with TLS + bootstrap
@@ -60,7 +61,27 @@ pkgs.testers.nixosTest {
         serverUrl = "http://controlplane:3000";
         machineId = machineUuid;
         pollInterval = 5;
+        homeFlakeRef = "path:/etc/hearth/test-flake";
       };
+
+      # Mock home-manager: logs invocation and creates marker files to prove
+      # the agent correctly invokes it with the right role and user.
+      environment.systemPackages = [
+        (pkgs.writeShellScriptBin "home-manager" ''
+          echo "home-manager called with args: $@" > /tmp/home-manager-invocation
+          for arg in "$@"; do
+            case "$arg" in
+              *#*)
+                role="''${arg##*#}"
+                mkdir -p "$HOME/.config"
+                echo "$role" > "$HOME/.hearth-role"
+                echo "activated" > "$HOME/.config/hearth-activated"
+                ;;
+            esac
+          done
+          exit 0
+        '')
+      ];
 
       services.hearth.greeter.enable = true;
 
@@ -170,5 +191,20 @@ pkgs.testers.nixosTest {
 
     # Verify the agent is still running
     desktop.succeed("systemctl is-active hearth-agent.service")
+
+    # --- Verify home-manager activation was attempted ---
+    # The mock home-manager script writes its invocation to /tmp.
+    # The agent falls back to role template since the mock API doesn't
+    # serve per-user closures.
+    desktop.wait_until_succeeds(
+        "test -f /tmp/home-manager-invocation",
+        timeout=30,
+    )
+
+    invocation = desktop.succeed("cat /tmp/home-manager-invocation")
+    # Verify the invocation included the flake ref and a role name
+    assert "path:/etc/hearth/test-flake#" in invocation, (
+        f"Expected flake ref in home-manager invocation, got: {invocation}"
+    )
   '';
 }
