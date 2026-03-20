@@ -393,6 +393,13 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             warn!(error = %e, "failed to report building status");
         }
 
+        // Ensure the user's home directory exists before any activation.
+        // PAM's pam_mkhomedir runs during session open, but the agent
+        // prepares the environment before the greeter calls start_session.
+        if let Err(e) = ensure_home_dir(&user) {
+            warn!(error = %e, "failed to ensure home directory (continuing anyway)");
+        }
+
         // Try to use a pre-built per-user closure from the control plane.
         // If available, pull it from the cache and activate it.
         // If not, fall back to role template activation via home-manager switch.
@@ -454,32 +461,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
                 // Activate the home-manager generation.
                 let activate_path = format!("{closure}/activate");
-                tokio::select! {
-                    output = tokio::process::Command::new("runuser")
-                        .args(["-u", &user, "--", &activate_path])
-                        .output() => {
-                        match output {
-                            Ok(out) if out.status.success() => Ok(()),
-                            Ok(out) => {
-                                let stderr = String::from_utf8_lossy(&out.stderr);
-                                Err(format!("per-user closure activation failed: {stderr}"))
-                            }
-                            Err(e) => Err(format!("failed to activate per-user closure: {e}")),
-                        }
-                    }
-                    () = bg_shutdown.cancelled() => {
-                        let mut st = state_bg.lock().await;
-                        st.prepare_status
-                            .insert(user.clone(), PrepareStatus::Error("shutdown during preparation".into()));
-                        let _ = event_tx
-                            .send(AgentEvent::Error {
-                                username: user,
-                                message: "shutdown during preparation".into(),
-                            })
-                            .await;
-                        return;
-                    }
-                }
+                run_as_user(&user, &activate_path, &[], &bg_shutdown).await
             } else if let Some(flake_ref) = flake_ref {
                 // No pre-built closure — fall back to role template via home-manager switch.
                 let flake_target = format!("{flake_ref}#{role}");
@@ -489,6 +471,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                 // runuser runs the command in the target user's env which may
                 // not have home-manager, so we pass the absolute path.
                 let hm_bin = which("home-manager").unwrap_or_else(|| "home-manager".into());
+                let hm_str = hm_bin.to_str().unwrap_or("home-manager");
 
                 let _ = event_tx
                     .send(AgentEvent::Progress {
@@ -498,32 +481,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                     })
                     .await;
 
-                tokio::select! {
-                    output = tokio::process::Command::new("runuser")
-                        .args(["-u", &user, "--", hm_bin.to_str().unwrap_or("home-manager"), "switch", "--flake", &flake_target])
-                        .output() => {
-                        match output {
-                            Ok(out) if out.status.success() => Ok(()),
-                            Ok(out) => {
-                                let stderr = String::from_utf8_lossy(&out.stderr);
-                                Err(format!("home-manager switch failed: {stderr}"))
-                            }
-                            Err(e) => Err(format!("failed to run home-manager: {e}")),
-                        }
-                    }
-                    () = bg_shutdown.cancelled() => {
-                        let mut st = state_bg.lock().await;
-                        st.prepare_status
-                            .insert(user.clone(), PrepareStatus::Error("shutdown during preparation".into()));
-                        let _ = event_tx
-                            .send(AgentEvent::Error {
-                                username: user,
-                                message: "shutdown during preparation".into(),
-                            })
-                            .await;
-                        return;
-                    }
-                }
+                run_as_user(&user, hm_str, &["switch", "--flake", &flake_target], &bg_shutdown).await
             } else {
                 info!(%user, %role, "no pre-built closure and no home_flake_ref configured, skipping activation");
                 Ok(())
@@ -580,6 +538,85 @@ fn which(name: &str) -> Option<std::path::PathBuf> {
             if full.is_file() { Some(full) } else { None }
         })
     })
+}
+
+/// Ensure a user's home directory exists before environment activation.
+///
+/// The agent runs as root and prepares the user environment *before* the PAM
+/// session is opened (which is when `pam_mkhomedir` would normally create
+/// the home directory). We must create it ourselves so that `runuser`-based
+/// activation can write to `$HOME`.
+fn ensure_home_dir(username: &str) -> Result<(), String> {
+    let output = std::process::Command::new("getent")
+        .args(["passwd", username])
+        .output()
+        .map_err(|e| format!("getent passwd failed: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!("user {username} not found in passwd database"));
+    }
+
+    let entry = String::from_utf8_lossy(&output.stdout);
+    let fields: Vec<&str> = entry.trim().split(':').collect();
+    if fields.len() < 7 {
+        return Err(format!("invalid passwd entry for {username}"));
+    }
+
+    let uid: u32 = fields[2]
+        .parse()
+        .map_err(|_| format!("invalid uid in passwd entry for {username}"))?;
+    let gid: u32 = fields[3]
+        .parse()
+        .map_err(|_| format!("invalid gid in passwd entry for {username}"))?;
+    let home = fields[5];
+
+    let home_path = std::path::Path::new(home);
+    if !home_path.exists() {
+        info!(%username, %home, "creating home directory");
+        std::fs::create_dir_all(home_path)
+            .map_err(|e| format!("failed to create home directory {home}: {e}"))?;
+
+        // chown to the user
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::chown;
+            chown(home_path, Some(uid), Some(gid))
+                .map_err(|e| format!("failed to chown {home} to {uid}:{gid}: {e}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Run a command as a specific user via `runuser`, with shutdown support.
+///
+/// Returns `Ok(())` on success, `Err(message)` on failure.
+async fn run_as_user(
+    username: &str,
+    command: &str,
+    args: &[&str],
+    shutdown: &CancellationToken,
+) -> Result<(), String> {
+    let mut cmd_args = vec!["-u", username, "--", command];
+    cmd_args.extend(args);
+
+    tokio::select! {
+        output = tokio::process::Command::new("runuser")
+            .args(&cmd_args)
+            .output() => {
+            match output {
+                Ok(out) if out.status.success() => Ok(()),
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    Err(format!("{command} failed: {stderr}"))
+                }
+                Err(e) => Err(format!("failed to run {command}: {e}")),
+            }
+        }
+        () = shutdown.cancelled() => {
+            Err("shutdown during preparation".into())
+        }
+    }
 }
 
 /// Serialize an [`AgentEvent`] as a single JSON line and write it to the stream.

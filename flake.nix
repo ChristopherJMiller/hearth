@@ -350,6 +350,27 @@
         admin = import ./home-modules/admin.nix;
       };
 
+      # --- Home-Manager Configurations (for CI verification and development) ---
+      #
+      # These use a placeholder "hearth" user. For real fleet devices, per-user
+      # closures are built by the build worker via lib.buildUserEnv with the
+      # actual username from the control plane.
+      homeConfigurations = nixpkgs.lib.genAttrs
+        [ "default" "developer" "designer" "admin" ]
+        (role:
+          home-manager.lib.homeManagerConfiguration {
+            pkgs = nixpkgs.legacyPackages.x86_64-linux;
+            modules = [
+              self.homeModules.common
+              self.homeModules.${role}
+              {
+                home.username = "hearth";
+                home.homeDirectory = "/home/hearth";
+              }
+            ];
+          }
+        );
+
       # --- Fleet host builder helper ---
       lib.mkFleetHost = import ./lib/mk-fleet-host.nix {
         inherit self nixpkgs;

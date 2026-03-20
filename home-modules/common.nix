@@ -36,7 +36,7 @@
     enable = true;
     # username and email are set per-user by the control plane via
     # the per-user home-manager closure, not in the role profile
-    extraConfig = {
+    settings = {
       init.defaultBranch = "main";
       pull.rebase = true;
       push.autoSetupRemote = true;

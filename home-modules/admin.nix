@@ -117,20 +117,21 @@
   # --- SSH configuration ---
   programs.ssh = {
     enable = true;
-    extraConfig = ''
-      # Default settings for fleet machines
-      Host *
-        ServerAliveInterval 60
-        ServerAliveCountMax 3
-        AddKeysToAgent yes
-        IdentitiesOnly yes
-
-      # Example fleet machine pattern — site-specific config
-      # will override this via per-user closures
-      Host ws-*
-        User admin
-        ForwardAgent no
-    '';
+    enableDefaultConfig = false;
+    matchBlocks = {
+      "*" = {
+        serverAliveInterval = 60;
+        serverAliveCountMax = 3;
+        extraOptions = {
+          AddKeysToAgent = "yes";
+          IdentitiesOnly = "yes";
+        };
+      };
+      "ws-*" = {
+        user = "admin";
+        forwardAgent = false;
+      };
+    };
   };
 
   # --- tmux for persistent sessions ---
@@ -167,7 +168,7 @@
   };
 
   # --- Git for admin ---
-  programs.git.extraConfig = {
+  programs.git.settings = {
     rerere.enabled = true;
   };
 

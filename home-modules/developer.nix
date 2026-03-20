@@ -99,20 +99,21 @@
   };
 
   # --- Git: developer-specific extras ---
-  programs.git = {
-    delta = {
-      enable = true;
-      options = {
-        navigate = true;
-        line-numbers = true;
-        syntax-theme = "Monokai Extended";
-      };
-    };
-    extraConfig = {
-      rerere.enabled = true;
-      column.ui = "auto";
-      branch.sort = "-committerdate";
-      fetch.prune = true;
+  programs.git.settings = {
+    rerere.enabled = true;
+    column.ui = "auto";
+    branch.sort = "-committerdate";
+    fetch.prune = true;
+  };
+
+  # --- Delta (git diff pager) ---
+  programs.delta = {
+    enable = true;
+    enableGitIntegration = true;
+    options = {
+      navigate = true;
+      line-numbers = true;
+      syntax-theme = "Monokai Extended";
     };
   };
 

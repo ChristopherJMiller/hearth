@@ -216,12 +216,19 @@ pkgs.testers.nixosTest {
         "journalctl -u hearth-agent -o cat | grep -q 'no pre-built closure\\|falling back to role template'"
     )
 
-    # Verify the mock home-manager wrote the marker file in the user's home
+    # --- Verify the mock home-manager wrote the marker file in the user's home ---
+    # Resolve the actual home directory from the NSS passwd entry rather than
+    # hardcoding it — kanidm-unixd may use UUID-based home dirs depending on
+    # the home_attr setting (e.g. /home/<uuid> with a /home/<spn> symlink).
+    user_home = desktop.succeed(
+        "getent passwd testuser@kanidm | cut -d: -f6"
+    ).strip()
+
     desktop.wait_until_succeeds(
-        "test -f /home/testuser@kanidm/.hearth-role",
+        f"test -f {user_home}/.hearth-role",
         timeout=10,
     )
-    role = desktop.succeed("cat /home/testuser@kanidm/.hearth-role").strip()
+    role = desktop.succeed(f"cat {user_home}/.hearth-role").strip()
     assert role == "default", (
         f"Expected role 'default' in marker file, got '{role}'"
     )
