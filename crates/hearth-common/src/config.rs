@@ -13,6 +13,7 @@ pub struct AgentConfig {
     #[serde(default)]
     pub role_mapping: Option<RoleMapping>,
     pub home: Option<HomeConfig>,
+    pub cache: Option<CacheConfig>,
     #[serde(default)]
     pub headscale: Option<HeadscaleAgentConfig>,
 }
@@ -124,6 +125,14 @@ pub struct AtticConfig {
 pub struct HomeConfig {
     /// Flake reference for home-manager role profiles.
     pub flake_ref: String,
+}
+
+// --- Binary cache configuration ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfig {
+    /// Attic binary cache URL for closure pulls.
+    pub url: String,
 }
 
 // --- Role mapping ---

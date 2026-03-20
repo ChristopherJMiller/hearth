@@ -201,7 +201,9 @@ in
         HEARTH_METRICS_PATH = cfg.metricsPath;
       };
 
-      path = [ pkgs.nix ] ++ lib.optional cfg.headscale.enable pkgs.tailscale;
+      path = [ pkgs.nix ]
+        ++ lib.optional (cfg.homeFlakeRef != null) pkgs.home-manager
+        ++ lib.optional cfg.headscale.enable pkgs.tailscale;
 
       serviceConfig = {
         Type = "notify";

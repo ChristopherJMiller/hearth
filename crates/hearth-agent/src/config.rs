@@ -122,6 +122,9 @@ machine_token_path = "/var/lib/hearth/machine-token"
 [home]
 flake_ref = "github:myorg/fleet-config"
 
+[cache]
+url = "https://cache.hearth.example.com/fleet-prod"
+
 [role_mapping]
 default_role = "default"
 
@@ -142,6 +145,10 @@ mesh_server_url = "http://100.64.0.1:3000"
         assert_eq!(
             config.home.unwrap().flake_ref,
             "github:myorg/fleet-config"
+        );
+        assert_eq!(
+            config.cache.unwrap().url,
+            "https://cache.hearth.example.com/fleet-prod"
         );
         let rm = config.role_mapping.unwrap();
         assert_eq!(rm.mappings.len(), 2);
