@@ -1,0 +1,88 @@
+{{- if and .Values.capabilities.mail .Values.stalwart.hosted }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-stalwart
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "stalwart") | nindent 4 }}
+data:
+  config.toml: |
+    [server]
+    hostname = {{ .Values.stalwart.config.hostname | quote }}
+    max-connections = 1024
+
+    [server.listener.http]
+    bind = ["0.0.0.0:8080"]
+    protocol = "http"
+
+    [server.listener.imaps]
+    bind = ["0.0.0.0:993"]
+    protocol = "imap"
+    tls.implicit = true
+
+    [server.listener.submission]
+    bind = ["0.0.0.0:587"]
+    protocol = "smtp"
+    tls.implicit = false
+    tls.starttls = true
+
+    # ---------------------------------------------------------------
+    # Storage — PostgreSQL backend (shared cluster database)
+    # ---------------------------------------------------------------
+    [store."postgresql"]
+    type = "postgresql"
+    host = "{{ if .Values.postgresql.enabled }}{{ .Release.Name }}-postgresql{{ else }}{{ .Values.externalDatabase.host }}{{ end }}"
+    port = 5432
+    database = {{ .Values.stalwart.database.name | quote }}
+    user = {{ .Values.stalwart.database.user | quote }}
+    password = "%{env:STALWART_DB_PASSWORD}%"
+
+    [storage]
+    data = "postgresql"
+    blob = "postgresql"
+    fts = "postgresql"
+    lookup = "postgresql"
+    directory = "postgresql"
+
+    # ---------------------------------------------------------------
+    # Directory — local users managed via admin API
+    # ---------------------------------------------------------------
+    [directory."postgresql"]
+    type = "sql"
+    store = "postgresql"
+
+    {{- if and .Values.capabilities.identity .Values.stalwart.oidc.enabled }}
+    # ---------------------------------------------------------------
+    # Authentication — Kanidm OIDC/OAuth2
+    # ---------------------------------------------------------------
+    [auth.oauth]
+    key = "%{file:/opt/stalwart-mail/etc/oidc_client_secret}%"
+
+    [oauth."kanidm"]
+    issuer-url = "{{ include "hearth-home.kanidmUrl" . }}/oauth2/openid/hearth-stalwart"
+    client-id = "hearth-stalwart"
+    {{- end }}
+
+    # ---------------------------------------------------------------
+    # Domain configuration
+    # ---------------------------------------------------------------
+    [session.rcpt]
+    relay = false
+
+    [queue.outbound]
+    hostname = {{ .Values.stalwart.config.hostname | quote }}
+
+    # ---------------------------------------------------------------
+    # Autoconfig / Autodiscover (Thunderbird + Outlook)
+    # ---------------------------------------------------------------
+    [server.autoconfig]
+    domain = {{ .Values.stalwart.config.domain | quote }}
+
+    # ---------------------------------------------------------------
+    # Logging
+    # ---------------------------------------------------------------
+    [tracing."stdout"]
+    type = "stdout"
+    level = "info"
+    enable = true
+{{- end }}

@@ -188,6 +188,30 @@ spec:
               echo "    - {{ . }}"
               {{- end }}
 
+              # ---------------------------------------------------------------
+              # Enable Calendar and Contacts apps
+              # ---------------------------------------------------------------
+              echo ""
+              echo "==> Enabling calendar and contacts apps..."
+              occ app:install calendar 2>/dev/null || echo "    calendar already installed"
+              occ app:enable calendar 2>/dev/null || true
+              occ app:install contacts 2>/dev/null || echo "    contacts already installed"
+              occ app:enable contacts 2>/dev/null || true
+              echo "    Calendar and contacts apps enabled"
+
+              {{- if .Values.nextcloud.bootstrap.sharedCalendars }}
+              # ---------------------------------------------------------------
+              # Shared organizational calendars
+              # ---------------------------------------------------------------
+              echo ""
+              echo "==> Creating shared organizational calendars..."
+              {{- range .Values.nextcloud.bootstrap.sharedCalendars }}
+              echo "    Creating calendar: {{ .name }}"
+              occ dav:create-calendar admin "{{ .id }}" 2>/dev/null || echo "    Calendar '{{ .id }}' already exists"
+              {{- end }}
+              echo "    Shared calendars ready"
+              {{- end }}
+
               echo ""
               echo "=== Nextcloud bootstrap complete ==="
 {{- end }}

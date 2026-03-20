@@ -115,6 +115,10 @@ http://{{ include "hearth-home.fullname" . }}-synapse:{{ .Values.synapse.service
 http://{{ include "hearth-home.fullname" . }}-nextcloud:{{ .Values.nextcloud.service.port }}
 {{- end }}
 
+{{- define "hearth-home.stalwartUrl" -}}
+http://{{ include "hearth-home.fullname" . }}-stalwart:{{ .Values.stalwart.service.port }}
+{{- end }}
+
 {{/*
 Secrets helpers — resolve inline vs existing secret references.
 */}}

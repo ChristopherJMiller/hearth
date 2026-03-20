@@ -50,6 +50,9 @@
 , matrixUrl ? null
 , matrixServerName ? null
 , nextcloudUrl ? null
+, mailImapHost ? null
+, mailSmtpHost ? null
+, mailDomain ? null
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -84,6 +87,7 @@ nixpkgs.lib.nixosSystem {
     ../modules/headscale-client.nix
     ../modules/chat.nix
     ../modules/nextcloud.nix
+    ../modules/thunderbird.nix
     ../modules/logging.nix
     ../modules/metrics.nix
     ../modules/roles/default.nix
@@ -177,6 +181,19 @@ nixpkgs.lib.nixosSystem {
         enable = true;
         serverUrl = nextcloudUrl;
       };
+
+      # --- Email, Calendar & Contacts (Thunderbird) ---
+      services.hearth.thunderbird = lib.mkIf (nextcloudUrl != null) ({
+        enable = true;
+        inherit nextcloudUrl;
+      } // lib.optionalAttrs (mailImapHost != null) {
+        mail = {
+          enable = true;
+          imapHost = mailImapHost;
+          smtpHost = mailSmtpHost;
+          domain = mailDomain;
+        };
+      });
 
       # --- Service directory desktop integration ---
       services.hearth.services = lib.mkIf (matrixUrl != null || nextcloudUrl != null) {

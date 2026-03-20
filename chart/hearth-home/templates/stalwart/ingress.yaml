@@ -1,0 +1,35 @@
+{{- if and .Values.capabilities.mail .Values.stalwart.hosted .Values.stalwart.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-stalwart
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "stalwart") | nindent 4 }}
+  {{- with .Values.stalwart.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.stalwart.ingress.className }}
+  ingressClassName: {{ .Values.stalwart.ingress.className }}
+  {{- end }}
+  {{- if .Values.stalwart.ingress.tls }}
+  tls:
+    {{- toYaml .Values.stalwart.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.stalwart.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "hearth-home.fullname" $ }}-stalwart
+                port:
+                  name: http
+          {{- end }}
+    {{- end }}
+{{- end }}

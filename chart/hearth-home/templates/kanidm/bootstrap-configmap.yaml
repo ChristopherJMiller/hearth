@@ -274,6 +274,40 @@ data:
       -H "Authorization: Bearer ${IDM_TOKEN}" | sed -n 's/.*"oauth2_rs_basic_secret":\["\([^"]*\)".*/\1/p' || echo "")
     {{- end }}
 
+    {{- if and $.Values.capabilities.mail $.Values.stalwart.hosted $.Values.stalwart.oidc.enabled }}
+    # -----------------------------------------------------------------------
+    # Create Stalwart Mail OAuth2 client (confidential, for mail capability)
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "==> Creating Stalwart Mail OAuth2 client..."
+    if resource_exists "/v1/oauth2/hearth-stalwart" "$IDM_TOKEN"; then
+      echo "  OAuth2 client 'hearth-stalwart' already exists"
+    else
+      STALWART_URL="{{ $.Values.stalwart.config.hostname }}"
+      $C -X POST "${KANIDM_URL}/v1/oauth2/_basic" \
+        -H "Authorization: Bearer ${IDM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"attrs\":{\"name\":[\"hearth-stalwart\"],\"displayname\":[\"Hearth Mail\"],\"oauth2_rs_origin_landing\":[\"https://${STALWART_URL}\"]}}" > /dev/null
+      echo "  Created OAuth2 client 'hearth-stalwart' (confidential)"
+    fi
+
+    # Set scope map
+    $C -X POST "${KANIDM_URL}/v1/oauth2/hearth-stalwart/_scopemap/hearth-users" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '["openid","profile","email"]' > /dev/null 2>&1 || true
+
+    # Configure short usernames
+    $C -X PATCH "${KANIDM_URL}/v1/oauth2/hearth-stalwart" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"attrs":{"oauth2_prefer_short_username":["true"]}}' > /dev/null 2>&1 || true
+
+    # Retrieve client secret
+    STALWART_SECRET=$($C "${KANIDM_URL}/v1/oauth2/hearth-stalwart" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" | sed -n 's/.*"oauth2_rs_basic_secret":\["\([^"]*\)".*/\1/p' || echo "")
+    {{- end }}
+
     # -----------------------------------------------------------------------
     # Create service account (idempotent)
     # -----------------------------------------------------------------------
@@ -312,6 +346,9 @@ data:
       {{- end }}
       {{- if $.Values.oauth2Proxy.enabled }}
       --from-literal=proxy-oidc-secret="${PROXY_SECRET:-}" \
+      {{- end }}
+      {{- if and $.Values.capabilities.mail $.Values.stalwart.hosted $.Values.stalwart.oidc.enabled }}
+      --from-literal=stalwart-oidc-secret="${STALWART_SECRET:-}" \
       {{- end }}
       --dry-run=client -o yaml | kubectl apply -f -
 

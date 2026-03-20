@@ -1,0 +1,262 @@
+suite: Stalwart Mail Server
+release:
+  name: hearth
+  namespace: default
+tests:
+  # ── Deployment ────────────────────────────────────────────
+  - it: should render Stalwart Deployment when mail enabled and hosted
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-stalwart$"
+
+  - it: should not render Deployment when mail disabled (default)
+    template: stalwart/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Deployment when mail enabled but not hosted
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set correct image
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.image.tag: "v0.11"
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "stalwartlabs/mail-server:v0\\.11"
+
+  - it: should include health probes
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+
+  - it: should expose imap smtp and http ports
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].name
+          value: imap
+      - equal:
+          path: spec.template.spec.containers[0].ports[2].name
+          value: smtp
+
+  # ── Service ───────────────────────────────────────────────
+  - it: should render Service with three ports when mail enabled and hosted
+    template: stalwart/service.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].name
+          value: http
+      - equal:
+          path: spec.ports[1].name
+          value: imap
+      - equal:
+          path: spec.ports[2].name
+          value: smtp
+
+  - it: should not render Service when mail disabled
+    template: stalwart/service.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Service when not hosted
+    template: stalwart/service.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── ConfigMap ─────────────────────────────────────────────
+  - it: should render ConfigMap with correct hostname
+    template: stalwart/configmap.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.config.hostname: "mail.mycompany.com"
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["config.toml"]
+          pattern: 'hostname = "mail\.mycompany\.com"'
+
+  - it: should include OIDC config when identity and mail both enabled
+    template: stalwart/configmap.yaml
+    set:
+      capabilities.mail: true
+      capabilities.identity: true
+      stalwart.hosted: true
+      stalwart.oidc.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["config.toml"]
+          pattern: "oauth2/openid/hearth-stalwart"
+
+  - it: should not include OIDC config when identity disabled
+    template: stalwart/configmap.yaml
+    set:
+      capabilities.mail: true
+      capabilities.identity: false
+      stalwart.hosted: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.toml"]
+          pattern: "oauth2/openid/hearth-stalwart"
+
+  - it: should not render ConfigMap when not hosted
+    template: stalwart/configmap.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── PVC ───────────────────────────────────────────────────
+  - it: should render PVC when mail enabled and hosted
+    template: stalwart/pvc.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: spec.resources.requests.storage
+          value: 10Gi
+
+  - it: should not render PVC when not hosted
+    template: stalwart/pvc.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Secret ────────────────────────────────────────────────
+  - it: should render Secret with db and admin passwords when hosted
+    template: stalwart/secret.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - isKind:
+          of: Secret
+      - exists:
+          path: data["db-password"]
+      - exists:
+          path: data["admin-password"]
+
+  - it: should not render Secret when not hosted
+    template: stalwart/secret.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Ingress ───────────────────────────────────────────────
+  - it: should render Ingress when mail enabled, hosted, and ingress enabled
+    template: stalwart/ingress.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.ingress.enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+
+  - it: should not render Ingress when not hosted
+    template: stalwart/ingress.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+      stalwart.ingress.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Ingress when ingress disabled
+    template: stalwart/ingress.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.ingress.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Bootstrap Job ─────────────────────────────────────────
+  - it: should render bootstrap Job when mail hosted and bootstrap enabled
+    template: stalwart/job-bootstrap.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.bootstrap.enabled: true
+    asserts:
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install
+
+  - it: should not render bootstrap Job when not hosted
+    template: stalwart/job-bootstrap.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+      stalwart.bootstrap.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render bootstrap Job when bootstrap disabled
+    template: stalwart/job-bootstrap.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.bootstrap.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

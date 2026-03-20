@@ -17,6 +17,7 @@ capabilities:
   builds: true          # hearth-build-worker(s)
   chat: false           # Matrix/Synapse — corporate internal chat
   cloud: false          # Nextcloud — cloud storage & collaboration
+  mail: false           # Mail — enable mail capability (see stalwart section for hosted vs external)
   observability: false  # Grafana + Loki + Prometheus subcharts
 
 # ============================================================
@@ -500,6 +501,11 @@ nextcloud:
       - Documents
       - Projects
       - Shared
+    sharedCalendars:
+      - id: company-holidays
+        name: "Company Holidays"
+      - id: all-hands
+        name: "All-Hands & Company Events"
 
   ingress:
     enabled: true
@@ -508,6 +514,80 @@ nextcloud:
       nginx.ingress.kubernetes.io/proxy-body-size: "16G"
     hosts:
       - host: cloud.hearth.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Mail (conditional on capabilities.mail)
+#
+# Two modes:
+#   hosted: true  → deploy Stalwart Mail Server in-cluster
+#   hosted: false → point Thunderbird at an external IMAP/SMTP server
+# ============================================================
+stalwart:
+  # When hosted=true, Stalwart is deployed as a Helm workload.
+  # When hosted=false, only externalMail settings are used (no pods created).
+  hosted: true
+
+  # External mail server — used when hosted=false.
+  # These are passed to fleet devices for Thunderbird autoconfig.
+  externalMail:
+    imapHost: ""
+    smtpHost: ""
+    domain: ""
+
+  image:
+    repository: stalwartlabs/mail-server
+    tag: "v0.10"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  service:
+    port: 8080        # HTTP admin / JMAP
+    imapPort: 993
+    smtpPort: 587
+
+  config:
+    hostname: "mail.hearth.example.com"
+    domain: "hearth.example.com"
+
+  # OIDC via Kanidm (requires capabilities.identity=true)
+  oidc:
+    enabled: true
+    existingSecret: ""
+    existingSecretKey: "stalwart-oidc-secret"
+
+  # Database — separate DB on the shared PostgreSQL instance
+  database:
+    name: stalwart
+    user: stalwart
+
+  persistence:
+    size: 10Gi
+
+  bootstrap:
+    enabled: true
+
+  ingress:
+    enabled: true
+    className: ""
+    annotations: {}
+    hosts:
+      - host: mail.hearth.example.com
         paths:
           - path: /
             pathType: Prefix

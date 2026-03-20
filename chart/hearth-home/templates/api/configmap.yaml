@@ -49,3 +49,19 @@ data:
   HEARTH_IDENTITY_URL: {{ include "hearth-home.kanidmUrl" . | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.capabilities.mail }}
+  {{- if .Values.stalwart.hosted }}
+  {{- if and .Values.stalwart.ingress.enabled .Values.stalwart.ingress.hosts }}
+  HEARTH_MAIL_URL: "https://{{ (index .Values.stalwart.ingress.hosts 0).host }}"
+  {{- else }}
+  HEARTH_MAIL_URL: {{ include "hearth-home.stalwartUrl" . | quote }}
+  {{- end }}
+  HEARTH_MAIL_IMAP_HOST: {{ .Values.stalwart.config.hostname | quote }}
+  HEARTH_MAIL_SMTP_HOST: {{ .Values.stalwart.config.hostname | quote }}
+  HEARTH_MAIL_DOMAIN: {{ .Values.stalwart.config.domain | quote }}
+  {{- else }}
+  HEARTH_MAIL_IMAP_HOST: {{ .Values.stalwart.externalMail.imapHost | quote }}
+  HEARTH_MAIL_SMTP_HOST: {{ .Values.stalwart.externalMail.smtpHost | quote }}
+  HEARTH_MAIL_DOMAIN: {{ .Values.stalwart.externalMail.domain | quote }}
+  {{- end }}
+  {{- end }}

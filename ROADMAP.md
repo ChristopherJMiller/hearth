@@ -11,6 +11,8 @@ Hearth is an enterprise NixOS desktop fleet management platform. This roadmap tr
 - **Binary cache:** Attic (multi-tenant, content-addressed dedup)
 - **Identity:** Kanidm (primary), SSSD on fleet devices, FreeIPA fallback for Kerberos
 - **Desktop:** GNOME + greetd + GTK4 greeter
+- **Collaboration:** Matrix/Synapse (chat), Nextcloud (cloud/CalDAV/CardDAV), Stalwart (mail)
+- **PIM:** Thunderbird (managed via policies + TbSync), GNOME Online Accounts (shell calendar/contacts)
 
 ## Key Technical Decisions
 
@@ -418,15 +420,19 @@ Company-wide people directory sourced from Kanidm identity data, enriched with d
 - **hearth-api:** New `routes/directory.rs` (handler + 6 unit tests), `matrix_server_name` field on `AppState`, Nextcloud URL derived from `state.services` at request time
 - **Frontend:** New `api/directory.ts` (useDirectory hook), new `routes/directory.tsx` (DirectoryPage with search + card grid), router + sidebar wiring
 
-#### 6D-2: Email, Calendar & Contacts (Future)
+#### 6D-2: Email, Calendar & Contacts ✓
 
-Thunderbird as the unified PIM client (mail + calendar + contacts), connected to Nextcloud CalDAV/CardDAV and the org's mail server. GNOME Online Accounts also connected for shell panel calendar integration.
+Thunderbird as the unified PIM client (mail + calendar + contacts), connected to Nextcloud CalDAV/CardDAV and the org's mail server. GNOME Online Accounts also connected for shell panel calendar integration. Stalwart Mail Server available as an optional self-hosted mail capability.
 
-- [ ] **Thunderbird home-manager module:** `home-modules/thunderbird.nix` deploying Thunderbird with `programs.thunderbird.policies` — pre-configured Nextcloud CalDAV/CardDAV server, disabled telemetry, managed extensions. Autostart option. Added to GNOME favorites across role profiles.
-- [ ] **Kanidm OIDC for mail:** Deploy `thunderbird-custom-idp` extension via `ExtensionSettings` policy — enables OAuth2/OIDC auth for IMAP/SMTP via Kanidm. Eliminates stored passwords for mail accounts.
-- [ ] **Mail autoconfig:** Thunderbird autoconfig XML served from the control plane (`autoconfig.<domain>/mail/config-v1.1.xml`) or placed locally via NixOS, pre-configuring IMAP/SMTP server settings. Supports both self-hosted mail (Stalwart, Dovecot) and external providers (Gmail, Exchange).
-- [ ] **GNOME Online Accounts:** Home-manager module configuring a Nextcloud GNOME Online Account entry. Feeds `evolution-data-server` so GNOME Shell panel clock shows upcoming events and GNOME Contacts works alongside Thunderbird.
-- [ ] **Shared organizational calendar:** Nextcloud bootstrap creates default shared calendars (company holidays, all-hands). Auto-subscribed for all users via Nextcloud group calendar sharing. Visible in both Thunderbird and GNOME shell.
+- [x] **Thunderbird home-manager module:** `home-modules/thunderbird.nix` deploying Thunderbird with managed policies — pre-configured Nextcloud CalDAV/CardDAV via TbSync + DAV-4-TbSync force-installed extensions, disabled telemetry, autostart option. Added to GNOME favorites across all role profiles.
+- [x] **Kanidm OIDC for mail:** Deploy `thunderbird-custom-idp` extension via `ExtensionSettings` policy — enables OAuth2/OIDC auth for IMAP/SMTP via Kanidm. Eliminates stored passwords for mail accounts. Conditional on `mail.useOidc`.
+- [x] **Mail autoconfig:** Local Thunderbird autoconfig XML placed via NixOS home-manager, pre-configuring IMAP/SMTP server settings with OAuth2 auth. Supports both self-hosted (Stalwart) and external IMAP/SMTP providers.
+- [x] **Stalwart Mail Server:** Optional Helm capability (`capabilities.mail`) with hosted/external toggle. When `stalwart.hosted=true`, deploys Stalwart in-cluster with Kanidm OIDC, shared PostgreSQL, bootstrap job. When `stalwart.hosted=false`, passes external IMAP/SMTP host settings to fleet devices. Kanidm bootstrap auto-creates `hearth-stalwart` OAuth2 client.
+- [x] **GNOME Online Accounts:** `home-modules/gnome-online-accounts.nix` pre-seeds a Nextcloud account in GOA. Feeds `evolution-data-server` so GNOME Shell panel clock shows upcoming events and GNOME Contacts works alongside Thunderbird.
+- [x] **Shared organizational calendar:** Nextcloud bootstrap creates calendar/contacts apps and default shared calendars (company holidays, all-hands) via `occ dav:create-calendar`. Configurable in `values.yaml` under `nextcloud.bootstrap.sharedCalendars`.
+- [x] **NixOS module:** `modules/thunderbird.nix` ensures system-level dependencies (gnome-online-accounts, evolution-data-server). `mk-fleet-host.nix` auto-enables Thunderbird when `nextcloudUrl` is set; mail is opt-in via `mailImapHost`/`mailSmtpHost`/`mailDomain`.
+
+**Stats:** 3 new NixOS/home-manager modules, 7 Helm templates, 1 Helm test suite (30 tests), 5 modified role profiles, Nextcloud bootstrap extended. Helm tests: 211 total (was 105).
 
 #### 6D-3: Collaborative Document Editing (Future)
 

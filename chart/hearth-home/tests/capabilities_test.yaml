@@ -150,6 +150,52 @@ tests:
       - hasDocuments:
           count: 0
 
+  # ── Mail (Stalwart) ──────────────────────────────────────
+  - it: should render Stalwart Deployment when mail enabled and hosted
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-stalwart$"
+
+  - it: should not render Stalwart Deployment when mail disabled (default)
+    template: stalwart/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Stalwart when mail enabled but not hosted (external)
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Stalwart Service when mail not hosted
+    template: stalwart/service.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Stalwart PVC when mail not hosted
+    template: stalwart/pvc.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
   # ── oauth2-proxy ──────────────────────────────────────────
   - it: should render oauth2-proxy Deployment when identity enabled (default)
     template: oauth2-proxy/deployment.yaml

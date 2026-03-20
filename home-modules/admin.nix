@@ -197,6 +197,8 @@
         "element-desktop.desktop"
       ] ++ lib.optionals config.hearth.nextcloud.enable [
         "com.nextcloud.desktopclient.nextcloud.desktop"
+      ] ++ lib.optionals config.hearth.thunderbird.enable [
+        "thunderbird.desktop"
       ];
     };
 

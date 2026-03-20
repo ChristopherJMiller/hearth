@@ -1,0 +1,86 @@
+{{- if and .Values.capabilities.mail .Values.stalwart.hosted }}
+{{- if .Values.stalwart.bootstrap.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-stalwart-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "stalwart") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "stalwart-bootstrap") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl > /dev/null 2>&1
+
+              STALWART_URL="{{ include "hearth-home.stalwartUrl" . }}"
+              ADMIN_PASSWORD="${STALWART_ADMIN_PASSWORD}"
+              DOMAIN="{{ .Values.stalwart.config.domain }}"
+
+              echo "==> Stalwart Mail bootstrap"
+              echo "    URL: ${STALWART_URL}"
+              echo ""
+
+              # ---------------------------------------------------------------
+              # Wait for Stalwart to be ready
+              # ---------------------------------------------------------------
+              echo "==> Waiting for Stalwart to be ready..."
+              MAX_WAIT=120
+              WAITED=0
+              until curl -sf "${STALWART_URL}/healthz" > /dev/null 2>&1; do
+                if [ "$WAITED" -ge "$MAX_WAIT" ]; then
+                  echo "ERROR: Stalwart not ready after ${MAX_WAIT}s"
+                  exit 1
+                fi
+                echo "  Stalwart not ready, retrying in 5s... (${WAITED}s)"
+                sleep 5
+                WAITED=$((WAITED + 5))
+              done
+              echo "    Stalwart is ready"
+
+              # ---------------------------------------------------------------
+              # Configure domain
+              # ---------------------------------------------------------------
+              echo ""
+              echo "==> Configuring mail domain: ${DOMAIN}"
+              curl -sf -X POST "${STALWART_URL}/api/domain/${DOMAIN}" \
+                -u "admin:${ADMIN_PASSWORD}" \
+                -H "Content-Type: application/json" > /dev/null 2>&1 || echo "    Domain may already exist"
+              echo "    Domain configured"
+
+              # ---------------------------------------------------------------
+              # Create postmaster account
+              # ---------------------------------------------------------------
+              echo ""
+              echo "==> Ensuring postmaster account..."
+              curl -sf -X POST "${STALWART_URL}/api/principal" \
+                -u "admin:${ADMIN_PASSWORD}" \
+                -H "Content-Type: application/json" \
+                -d "{\"type\":\"individual\",\"name\":\"postmaster\",\"emails\":[\"postmaster@${DOMAIN}\"],\"description\":\"Postmaster\"}" > /dev/null 2>&1 || echo "    postmaster may already exist"
+              echo "    Postmaster account ready"
+
+              echo ""
+              echo "=== Stalwart Mail bootstrap complete ==="
+          env:
+            - name: STALWART_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.fullname" . }}-stalwart
+                  key: admin-password
+{{- end }}
+{{- end }}
