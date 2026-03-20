@@ -412,7 +412,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
             if let Some(closure) = &prebuilt.closure {
                 // Validate the closure path before using it.
-                if !closure.starts_with("/nix/store/") || closure.len() < 44 {
+                if !hearth_common::nix_store::is_valid_store_path(closure) {
                     error!(%user, %closure, "invalid closure path from control plane");
                     return;
                 }

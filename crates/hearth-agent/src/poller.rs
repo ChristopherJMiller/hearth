@@ -258,6 +258,14 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                 // This pulls closures into the local nix store so they're ready
                 // for instant activation on next login.
                 for user_env in &resp.pending_user_envs {
+                    if !hearth_common::nix_store::is_valid_store_path(&user_env.target_closure) {
+                        warn!(
+                            username = %user_env.username,
+                            closure = %user_env.target_closure,
+                            "invalid store path in pending user env, skipping"
+                        );
+                        continue;
+                    }
                     info!(
                         username = %user_env.username,
                         closure = %user_env.target_closure,

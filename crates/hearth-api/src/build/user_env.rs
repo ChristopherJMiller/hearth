@@ -4,11 +4,10 @@
 //! base role template with per-user overrides. The closure is pushed to the
 //! Attic binary cache and the store path is returned.
 
-use std::path::Path;
-
 use serde::Serialize;
 use tracing::{error, info};
 
+use crate::build::cache;
 use crate::db::UserConfigRow;
 
 /// Per-user config written as JSON for the Nix expression to consume.
@@ -29,8 +28,7 @@ struct UserConfigJson {
 pub async fn build_user_env(
     config: &UserConfigRow,
     flake_ref: &str,
-    cache_url: Option<&str>,
-    attic_token: Option<&str>,
+    cache_name: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Validate flake_ref to prevent Nix expression injection. Only allow
     // characters valid in flake references (alphanumeric, colons, slashes,
@@ -108,39 +106,12 @@ in
         "per-user closure built successfully"
     );
 
-    // Push to Attic cache if configured.
-    if let (Some(cache), Some(token)) = (cache_url, attic_token) {
-        push_to_cache(&closure, cache, token).await;
+    // Push to Attic cache if configured. Uses the existing cache module.
+    if let Some(cache_name) = cache_name
+        && let Err(e) = cache::push_to_cache(cache_name, &closure).await
+    {
+        tracing::warn!(%closure, error = %e, "failed to push per-user closure to cache");
     }
 
     Ok(closure)
-}
-
-/// Push a closure to the Attic binary cache. Best-effort; logs warnings on failure.
-async fn push_to_cache(closure: &str, cache_url: &str, token: &str) {
-    info!(%closure, %cache_url, "pushing per-user closure to cache");
-
-    let result = tokio::process::Command::new("attic")
-        .args(["push", cache_url, closure])
-        .env("ATTIC_TOKEN", token)
-        .output()
-        .await;
-
-    match result {
-        Ok(out) if out.status.success() => {
-            info!(%closure, "pushed per-user closure to cache");
-        }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            tracing::warn!(%closure, %stderr, "attic push returned non-zero");
-        }
-        Err(e) => {
-            tracing::warn!(%closure, error = %e, "failed to run attic push");
-        }
-    }
-}
-
-/// Validate that a Nix store path looks reasonable.
-pub fn is_valid_store_path(path: &str) -> bool {
-    Path::new(path).starts_with("/nix/store/") && path.len() > 44
 }

@@ -221,14 +221,12 @@ async fn execute_user_env_job(
 
     let flake_ref = std::env::var("HEARTH_FLAKE_REF")
         .unwrap_or_else(|_| "github:hearth-os/hearth".into());
-    let cache_url = std::env::var("ATTIC_CACHE_URL").ok();
-    let attic_token = std::env::var("ATTIC_TOKEN").ok();
+    let cache_name = std::env::var("ATTIC_CACHE_NAME").ok();
 
     match user_env::build_user_env(
         &config,
         &flake_ref,
-        cache_url.as_deref(),
-        attic_token.as_deref(),
+        cache_name.as_deref(),
     )
     .await
     {
