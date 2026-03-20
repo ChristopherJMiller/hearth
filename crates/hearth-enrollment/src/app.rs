@@ -47,6 +47,8 @@ pub struct EnrollmentData {
     pub serial_number: Option<String>,
     /// Generated NixOS hardware-configuration.nix content from the device.
     pub hardware_config: Option<String>,
+    /// Headscale pre-auth key for mesh VPN join on first boot.
+    pub headscale_preauth_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +219,7 @@ impl App {
         self.data.cache_token = token;
         self.data.machine_token = self.status.take_machine_token();
         self.data.disko_config = self.status.take_disko_config();
+        self.data.headscale_preauth_key = self.status.take_headscale_preauth_key();
     }
 
     pub async fn tick(&mut self) {

@@ -167,6 +167,7 @@
           vm-offline-fallback = import ./tests/offline-fallback.nix { inherit pkgs lib hearth-agent; };
           vm-agent-system-switch = import ./tests/agent-system-switch.nix { inherit pkgs lib hearth-agent; };
           vm-kanidm-auth = import ./tests/kanidm-auth.nix { pkgs = kanidmPkgs; inherit lib; };
+          vm-headscale-mesh = import ./tests/headscale-mesh.nix { inherit pkgs lib hearth-agent; };
           vm-full-login-flow = import ./tests/full-login-flow.nix {
             pkgs = kanidmPkgs;
             inherit lib hearth-agent hearth-greeter;

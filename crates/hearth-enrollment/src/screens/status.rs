@@ -32,6 +32,8 @@ pub struct StatusScreen {
     machine_token: Option<String>,
     /// Disko config name for disk partitioning during provisioning.
     disko_config: Option<String>,
+    /// Headscale pre-auth key for mesh VPN join on first boot.
+    headscale_preauth_key: Option<String>,
 }
 
 impl StatusScreen {
@@ -47,6 +49,7 @@ impl StatusScreen {
             cache_token: None,
             machine_token: None,
             disko_config: None,
+            headscale_preauth_key: None,
         }
     }
 
@@ -68,6 +71,11 @@ impl StatusScreen {
     /// Returns the disko config name for disk partitioning.
     pub fn take_disko_config(&mut self) -> Option<String> {
         self.disko_config.take()
+    }
+
+    /// Returns the Headscale pre-auth key for mesh VPN join.
+    pub fn take_headscale_preauth_key(&mut self) -> Option<String> {
+        self.headscale_preauth_key.take()
     }
 
     pub fn start_polling(&mut self, data: &EnrollmentData) {
@@ -210,6 +218,9 @@ impl StatusScreen {
                         }
                         if self.disko_config.is_none() {
                             self.disko_config = resp.disko_config;
+                        }
+                        if self.headscale_preauth_key.is_none() {
+                            self.headscale_preauth_key = resp.headscale_preauth_key;
                         }
                         self.status = PollStatus::Approved;
                     }

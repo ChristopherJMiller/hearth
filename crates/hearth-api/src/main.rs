@@ -47,9 +47,15 @@ async fn main() {
         "auth configuration loaded"
     );
 
+    let headscale = hearth_api::headscale::HeadscaleClient::from_env();
+    if let Some(ref hs) = headscale {
+        info!(url = hs.url(), "headscale integration enabled");
+    }
+
     let state = AppState {
         pool,
         auth_config: auth_config.clone(),
+        headscale,
     };
 
     // Spawn background tasks

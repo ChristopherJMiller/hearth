@@ -99,6 +99,7 @@ pub async fn test_app() -> (Router, TestDb) {
             machine_token_secret: Some(b"test-secret-key-for-machine-tokens".to_vec()),
             jwks_cache: Default::default(),
         },
+        headscale: None,
     };
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
     (router, db)
@@ -220,6 +221,7 @@ pub async fn test_app_with_auth() -> AuthTestContext {
             machine_token_secret: Some(machine_secret.clone()),
             jwks_cache,
         },
+        headscale: None,
     };
 
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());

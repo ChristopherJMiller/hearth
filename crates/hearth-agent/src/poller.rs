@@ -167,6 +167,7 @@ pub async fn run_poll_loop<C: HearthApiClient>(
             uptime_seconds: None,
             update_in_progress: None,
             update_error: update_error.clone(),
+            headscale_ip: crate::headscale::detect_headscale_ip(),
         };
         match client.send_heartbeat(&heartbeat).await {
             Ok(resp) => {

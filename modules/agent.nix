@@ -29,6 +29,12 @@ let
       mappings = cfg.roleMapping;
       default_role = cfg.defaultRole;
     };
+  } // lib.optionalAttrs (cfg.headscale.enable) {
+    headscale = {
+      report_ip = cfg.headscale.reportIp;
+    } // lib.optionalAttrs (cfg.headscale.meshServerUrl != null) {
+      mesh_server_url = cfg.headscale.meshServerUrl;
+    };
   });
 in
 {
@@ -136,6 +142,27 @@ in
         home-manager based user environment management.
       '';
     };
+
+    headscale = {
+      enable = lib.mkEnableOption "Headscale mesh VPN IP reporting in heartbeats";
+
+      reportIp = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Report the Headscale mesh IP address in heartbeats.";
+      };
+
+      meshServerUrl = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "http://100.64.0.1:3000";
+        description = ''
+          Optional control plane URL reachable over the Headscale mesh.
+          When set, the agent tries this URL first and falls back to
+          the public serverUrl on failure.
+        '';
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -174,7 +201,7 @@ in
         HEARTH_METRICS_PATH = cfg.metricsPath;
       };
 
-      path = [ pkgs.nix ];
+      path = [ pkgs.nix ] ++ lib.optional cfg.headscale.enable pkgs.tailscale;
 
       serviceConfig = {
         Type = "notify";

@@ -14,6 +14,7 @@ import {
   LuFingerprint,
   LuBox,
   LuTarget,
+  LuNetwork,
 } from 'react-icons/lu';
 
 const enrollmentColors: Record<string, string> = {
@@ -186,6 +187,27 @@ export function MachineDetailPage() {
               icon={<LuTarget size={16} />}
               label="Target Closure"
               value={machine.target_closure ?? 'None'}
+              mono
+            />
+            <InfoField
+              icon={<LuNetwork size={16} />}
+              label="Mesh VPN Address"
+              value={
+                machine.headscale_ip ? (
+                  <span className="flex items-center gap-2">
+                    <span>{machine.headscale_ip}</span>
+                    <button
+                      type="button"
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] hover:text-[var(--color-text-primary)] cursor-pointer"
+                      onClick={() => navigator.clipboard.writeText(`ssh root@${machine.headscale_ip}`)}
+                    >
+                      Copy SSH
+                    </button>
+                  </span>
+                ) : (
+                  'Not connected'
+                )
+              }
               mono
             />
             <InfoField

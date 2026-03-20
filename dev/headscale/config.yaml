@@ -1,0 +1,40 @@
+# Headscale configuration for local development.
+# See https://headscale.net/ref/configuration/ for all options.
+
+server_url: http://localhost:8085
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 0.0.0.0:9090
+
+private_key_path: /var/lib/headscale/private.key
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+
+derp:
+  server:
+    enabled: false
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+
+database:
+  type: sqlite3
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+
+dns:
+  base_domain: hearth.local
+  magic_dns: true
+  nameservers:
+    global:
+      - 1.1.1.1
+
+log:
+  level: info
+
+policy:
+  mode: file
+  path: ""

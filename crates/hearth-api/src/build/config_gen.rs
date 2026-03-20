@@ -249,6 +249,8 @@ mod tests {
             hardware_profile: None,
             instance_data_hash: None,
             module_library_ref: None,
+            headscale_ip: None,
+            headscale_node_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

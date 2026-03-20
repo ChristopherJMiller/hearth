@@ -46,6 +46,7 @@
 , diskoDevice ? "/dev/sda"
 , metricsRemoteWriteUrl ? null
 , lokiUrl ? null
+, headscaleUrl ? null
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -77,6 +78,7 @@ nixpkgs.lib.nixosSystem {
     ../modules/compliance/default.nix
     ../modules/secure-boot.nix
     ../modules/tpm-fde.nix
+    ../modules/headscale-client.nix
     ../modules/logging.nix
     ../modules/metrics.nix
     ../modules/roles/default.nix
@@ -151,6 +153,12 @@ nixpkgs.lib.nixosSystem {
 
       # --- Metrics ---
       services.hearth.metrics = lib.mkIf (metricsRemoteWriteUrl != null) { enable = true; remoteWriteUrl = metricsRemoteWriteUrl; };
+
+      # --- Headscale mesh VPN ---
+      services.hearth.headscaleClient = lib.mkIf (headscaleUrl != null) {
+        enable = true;
+        serverUrl = headscaleUrl;
+      };
 
       # --- Boot loader (reasonable defaults, hardware module can override) ---
       boot.loader.systemd-boot.enable = lib.mkDefault true;

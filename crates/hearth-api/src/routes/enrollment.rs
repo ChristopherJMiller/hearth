@@ -13,6 +13,58 @@ use crate::auth::OperatorIdentity;
 use crate::auth::OptionalIdentity;
 use crate::cache_token;
 use crate::error::AppError;
+
+/// If Headscale is configured, generate a single-use pre-auth key and merge it
+/// into the extra_config JSON alongside cache credentials.
+async fn merge_headscale_preauth(
+    state: &AppState,
+    extra_config: &mut Option<serde_json::Value>,
+    machine_id: uuid::Uuid,
+) -> (Option<String>, Option<String>) {
+    let Some(ref hs) = state.headscale else {
+        return (None, None);
+    };
+
+    match hs.create_preauth_key(false, false, 3600).await {
+        Ok(key) => {
+            let url = hs.url().to_string();
+            info!(machine_id = %machine_id, "generated Headscale pre-auth key");
+            let ec = extra_config.get_or_insert_with(|| serde_json::json!({}));
+            if let Some(obj) = ec.as_object_mut() {
+                obj.insert("headscale_preauth_key".into(), serde_json::json!(key));
+                obj.insert("headscale_url".into(), serde_json::json!(url));
+            }
+            (Some(key), Some(url))
+        }
+        Err(e) => {
+            tracing::warn!(
+                machine_id = %machine_id,
+                error = %e,
+                "failed to generate Headscale pre-auth key, proceeding without"
+            );
+            (None, None)
+        }
+    }
+}
+
+/// Extract Headscale fields from extra_config JSON.
+fn extract_headscale_fields(
+    extra_config: Option<&serde_json::Value>,
+) -> (Option<String>, Option<String>) {
+    extra_config
+        .map(|ec| {
+            let key = ec
+                .get("headscale_preauth_key")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let url = ec
+                .get("headscale_url")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            (key, url)
+        })
+        .unwrap_or((None, None))
+}
 use crate::repo;
 
 pub async fn enroll(
@@ -78,6 +130,8 @@ pub async fn enroll(
         cache_url: None,
         cache_token: None,
         disko_config: None,
+        headscale_preauth_key: None,
+        headscale_url: None,
     };
 
     Ok((StatusCode::CREATED, Json(resp)))
@@ -95,7 +149,7 @@ async fn auto_approve_enrollment(
     let disko_config = "standard".to_string();
 
     // Mint a short-lived pull-only cache token for this device.
-    let extra_config = match cache_token::mint_pull_token(
+    let mut extra_config = match cache_token::mint_pull_token(
         &format!("enrollment-{id}"),
         Duration::from_secs(4 * 3600),
     ) {
@@ -117,6 +171,9 @@ async fn auto_approve_enrollment(
             }))
         }
     };
+
+    // Generate Headscale pre-auth key if configured.
+    let (hs_key, hs_url) = merge_headscale_preauth(state, &mut extra_config, id).await;
 
     // Mint a long-lived machine auth token.
     let (machine_token, token_hash) = crate::auth::mint_machine_token(id, &state.auth_config)?;
@@ -195,6 +252,8 @@ async fn auto_approve_enrollment(
                     cache_url: resp_cache_url,
                     cache_token: resp_cache_token,
                     disko_config: resp_disko,
+                    headscale_preauth_key: hs_key,
+                    headscale_url: hs_url,
                 }),
             ))
         }
@@ -213,6 +272,8 @@ async fn auto_approve_enrollment(
                     cache_url: None,
                     cache_token: None,
                     disko_config: None,
+                    headscale_preauth_key: None,
+                    headscale_url: None,
                 }),
             ))
         }
@@ -230,7 +291,7 @@ pub async fn approve(
     let disko_config = req.disko_config.unwrap_or_else(|| "standard".to_string());
 
     // Mint a short-lived pull-only cache token for this device.
-    let extra_config = match cache_token::mint_pull_token(
+    let mut extra_config = match cache_token::mint_pull_token(
         &format!("enrollment-{id}"),
         Duration::from_secs(4 * 3600),
     ) {
@@ -252,6 +313,9 @@ pub async fn approve(
             }))
         }
     };
+
+    // Generate Headscale pre-auth key if configured.
+    let (hs_key, hs_url) = merge_headscale_preauth(&state, &mut extra_config, id).await;
 
     // Mint a long-lived machine auth token.
     let (machine_token, token_hash) = crate::auth::mint_machine_token(id, &state.auth_config)?;
@@ -336,6 +400,8 @@ pub async fn approve(
                 cache_url: resp_cache_url,
                 cache_token: resp_cache_token,
                 disko_config: resp_disko,
+                headscale_preauth_key: hs_key,
+                headscale_url: hs_url,
             }))
         }
         None => Err(AppError::NotFound(format!(
@@ -383,7 +449,14 @@ pub async fn enrollment_status(
             };
 
             // Extract provisioning data when the device is approved.
-            let (target_closure, resp_cache_url, resp_cache_token, resp_disko) = if is_approved {
+            let (
+                target_closure,
+                resp_cache_url,
+                resp_cache_token,
+                resp_disko,
+                resp_hs_key,
+                resp_hs_url,
+            ) = if is_approved {
                 let tc = machine.target_closure.clone();
                 let (cu, ct, dc) = machine
                     .extra_config
@@ -404,9 +477,10 @@ pub async fn enrollment_status(
                         (cu, ct, dc)
                     })
                     .unwrap_or((None, None, None));
-                (tc, cu, ct, dc)
+                let (hk, hu) = extract_headscale_fields(machine.extra_config.as_ref());
+                (tc, cu, ct, dc, hk, hu)
             } else {
-                (None, None, None, None)
+                (None, None, None, None, None, None)
             };
 
             Ok(Json(EnrollmentResponse {
@@ -419,6 +493,8 @@ pub async fn enrollment_status(
                 cache_url: resp_cache_url,
                 cache_token: resp_cache_token,
                 disko_config: resp_disko,
+                headscale_preauth_key: resp_hs_key,
+                headscale_url: resp_hs_url,
             }))
         }
         None => Err(AppError::NotFound(format!("machine {id} not found"))),

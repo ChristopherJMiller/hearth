@@ -125,6 +125,21 @@ web-check:
 build-iso:
     nix build .#enrollment-iso
 
+# Set up Headscale mesh VPN for development
+headscale-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Creating Headscale user..."
+    docker compose exec -T headscale headscale users create hearth 2>/dev/null || echo "    User 'hearth' already exists"
+    echo "==> Generating API key..."
+    API_KEY=$(docker compose exec -T headscale headscale apikeys create --expiration 8760h 2>/dev/null)
+    echo ""
+    echo "=== Headscale ready ==="
+    echo ""
+    echo "Add to your environment or dev/kanidm/.env:"
+    echo "  export HEADSCALE_URL=http://localhost:8085"
+    echo "  export HEADSCALE_API_KEY=$API_KEY"
+
 # Push a Nix closure to the local Attic cache
 cache-push PATH:
     attic push hearth {{PATH}}

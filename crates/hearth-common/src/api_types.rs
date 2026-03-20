@@ -43,6 +43,12 @@ pub struct Machine {
     /// Git commit ref of the module library used for the current build.
     #[serde(default)]
     pub module_library_ref: Option<String>,
+    /// Headscale mesh VPN IP address (100.x.y.z).
+    #[serde(default)]
+    pub headscale_ip: Option<String>,
+    /// Headscale node identifier for API correlation.
+    #[serde(default)]
+    pub headscale_node_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -87,6 +93,9 @@ pub struct HeartbeatRequest {
     pub update_in_progress: Option<bool>,
     #[serde(default)]
     pub update_error: Option<String>,
+    /// Headscale mesh VPN IP address reported by the agent.
+    #[serde(default)]
+    pub headscale_ip: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -414,6 +423,12 @@ pub struct EnrollmentResponse {
     /// The enrollment TUI resolves this to /etc/hearth/disko-configs/{name}.nix.
     #[serde(default)]
     pub disko_config: Option<String>,
+    /// Headscale pre-auth key for mesh VPN join (single-use, short-lived).
+    #[serde(default)]
+    pub headscale_preauth_key: Option<String>,
+    /// Headscale coordination server URL.
+    #[serde(default)]
+    pub headscale_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

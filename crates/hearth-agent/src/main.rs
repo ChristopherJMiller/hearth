@@ -7,6 +7,7 @@
 
 mod actions;
 mod config;
+mod headscale;
 mod installer;
 mod ipc;
 mod metrics;
@@ -98,7 +99,16 @@ async fn main() {
         }
     };
 
-    info!(%machine_id, server = %cfg.server.url, "agent configured");
+    // When a mesh server URL is configured, use it as the primary API endpoint.
+    // This enables communication over the Headscale mesh for environments where
+    // the control plane isn't reachable over the public internet.
+    let api_url = cfg
+        .headscale
+        .as_ref()
+        .and_then(|hs| hs.mesh_server_url.as_deref())
+        .unwrap_or(&cfg.server.url);
+
+    info!(%machine_id, server = %api_url, "agent configured");
 
     // --- Build shared API client (with machine token if available) ---
     let client = {
@@ -107,17 +117,14 @@ async fn main() {
             Ok(token) => {
                 let token = token.trim().to_string();
                 info!("loaded machine token from {}", token_path.display());
-                Arc::new(ReqwestApiClient::new_with_token(
-                    cfg.server.url.clone(),
-                    token,
-                ))
+                Arc::new(ReqwestApiClient::new_with_token(api_url.to_string(), token))
             }
             Err(_) => {
                 warn!(
                     path = %token_path.display(),
                     "no machine token found, running without auth (dev mode)"
                 );
-                Arc::new(ReqwestApiClient::new(cfg.server.url.clone()))
+                Arc::new(ReqwestApiClient::new(api_url.to_string()))
             }
         }
     };

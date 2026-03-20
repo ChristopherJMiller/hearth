@@ -13,6 +13,18 @@ pub struct AgentConfig {
     #[serde(default)]
     pub role_mapping: Option<RoleMapping>,
     pub home_flake_ref: Option<String>,
+    #[serde(default)]
+    pub headscale: Option<HeadscaleAgentConfig>,
+}
+
+/// Headscale mesh VPN configuration for the agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeadscaleAgentConfig {
+    /// When true, agent reports its Headscale IP in heartbeats.
+    #[serde(default = "default_true")]
+    pub report_ip: bool,
+    /// Optional mesh URL for control plane communication over Headscale.
+    pub mesh_server_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +200,9 @@ pub struct SessionConfig {
     pub fallback_command: String,
 }
 
+fn default_true() -> bool {
+    true
+}
 fn default_org_name() -> String {
     "Your Organization".to_string()
 }

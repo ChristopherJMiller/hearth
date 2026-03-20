@@ -66,6 +66,8 @@ pub struct MachineRow {
     pub hardware_profile: Option<String>,
     pub instance_data_hash: Option<String>,
     pub module_library_ref: Option<String>,
+    pub headscale_ip: Option<String>,
+    pub headscale_node_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -92,6 +94,8 @@ impl From<MachineRow> for api_types::Machine {
             hardware_profile: row.hardware_profile,
             instance_data_hash: row.instance_data_hash,
             module_library_ref: row.module_library_ref,
+            headscale_ip: row.headscale_ip,
+            headscale_node_id: row.headscale_node_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }

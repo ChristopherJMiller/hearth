@@ -25,6 +25,7 @@ const MACHINE_COLUMNS: &str = "id, hostname, hardware_fingerprint, enrollment_st
     enrolled_by, machine_token_hash,
     hardware_report, serial_number, hardware_config, hardware_profile,
     instance_data_hash, module_library_ref,
+    headscale_ip, headscale_node_id,
     created_at, updated_at";
 
 pub async fn list_machines(pool: &PgPool) -> Result<Vec<MachineRow>, sqlx::Error> {
@@ -116,12 +117,14 @@ pub async fn record_heartbeat(
         "UPDATE machines SET
             last_heartbeat = now(),
             current_closure = COALESCE($2, current_closure),
+            headscale_ip = COALESCE($3, headscale_ip),
             updated_at = now()
          WHERE id = $1
          RETURNING target_closure",
     )
     .bind(req.machine_id)
     .bind(&req.current_closure)
+    .bind(&req.headscale_ip)
     .fetch_optional(pool)
     .await?;
 

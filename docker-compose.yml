@@ -62,9 +62,23 @@ services:
       - grafana-data:/var/lib/grafana
       - ./deploy/grafana:/etc/grafana/provisioning/dashboards
 
+  headscale:
+    image: headscale/headscale:0.23
+    command: serve
+    ports: ["8085:8080", "9090:9090"]
+    volumes:
+      - ./dev/headscale/config.yaml:/etc/headscale/config.yaml:ro
+      - headscale-data:/var/lib/headscale
+    healthcheck:
+      test: ["CMD", "headscale", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   pgdata:
   attic-data:
   kanidm-data:
   loki-data:
   grafana-data:
+  headscale-data:

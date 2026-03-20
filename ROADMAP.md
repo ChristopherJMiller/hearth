@@ -252,14 +252,35 @@ Close the enrollment → build → deploy pipeline so that every machine gets a 
 
 ## Phase 5: Scale & Advanced Features {#phase-5}
 
-### 5A: Headscale Mesh
+### 5A: Headscale Mesh ✓
 
-Optional VPN overlay for direct device access and secure fleet communication.
+Optional VPN overlay for direct device access and secure fleet communication. MagicDNS with `hearth.local` base domain gives every fleet device a stable DNS name (e.g., `ws-0042.hearth.local`), laying the foundation for future intranet services.
 
-- [ ] **Headscale server deployment:** Add Headscale to the control plane docker-compose / Helm chart. Configure as the coordination server for the fleet mesh.
-- [ ] **Enrollment integration:** The control plane generates a one-time Headscale pre-auth key during enrollment approval, included in the machine's provisioned NixOS config. Fleet devices join the mesh automatically on first boot.
-- [ ] **Direct device SSH:** IT can SSH into any enrolled device via its Headscale address. The console shows Headscale addresses on the machine detail page.
-- [ ] **Agent communication over mesh (optional):** For environments where fleet devices cannot reach the control plane over the public internet, the agent can be configured to communicate over the Headscale mesh instead.
+- [x] **Headscale server deployment:** Headscale added to docker-compose (`headscale/headscale:0.23`, port 8085). Dev config at `dev/headscale/config.yaml` with SQLite, `100.64.0.0/10` prefix, MagicDNS on `hearth.local`. `just headscale-setup` recipe for user/API key provisioning.
+- [x] **Enrollment integration:** Control plane generates a single-use Headscale pre-auth key (1h TTL) during enrollment approval via REST API client (`headscale.rs`). Key stored in `extra_config` JSON and returned in `EnrollmentResponse`. Enrollment TUI writes key to `/mnt/var/lib/hearth/headscale-key` during provisioning. NixOS `headscale-client.nix` module consumes key on first boot via oneshot service (`tailscale up --login-server --authkey`), then deletes it.
+- [x] **Direct device SSH:** `headscale_ip` and `headscale_node_id` columns on machines table. Agent detects Headscale IP via `tailscale status --json` and reports it in heartbeats. Console machine detail page shows "Mesh VPN Address" with copy-SSH button. SSH enabled by headscale-client module.
+- [x] **Agent communication over mesh:** Agent config supports `headscale.mesh_server_url`. When set, agent uses the mesh URL as its primary API endpoint. NixOS agent module generates the TOML config. `mk-fleet-host.nix` accepts `headscaleUrl` parameter.
+- [x] **VM integration test:** `tests/headscale-mesh.nix` validates module wiring, join service ConditionPathExists gating, firewall rules, and agent heartbeat flow.
+
+#### Future: Intranet Services over Mesh
+
+The Headscale mesh with MagicDNS provides the foundation for fleet-internal services accessible via `*.hearth.local` DNS names. Planned capabilities:
+
+- **Internal knowledge base / wiki** accessible at e.g. `wiki.hearth.local` from any fleet device
+- **Custom DNS records** via Headscale `dns.extra_records` for named service endpoints
+- **Subnet routing** to bridge the mesh into existing on-prem infrastructure (office LANs, NAS, printers)
+- **Control plane over mesh** for air-gapped deployments where fleet devices have no public internet route
+
+### Stats
+- **hearth-api:** 1 new source file (headscale.rs: REST client for pre-auth keys + node listing), enrollment.rs extended with pre-auth key generation on approval, repo.rs heartbeat query +headscale_ip, lib.rs AppState +headscale field, main.rs HeadscaleClient init
+- **hearth-common:** api_types.rs +headscale fields on Machine/HeartbeatRequest/EnrollmentResponse, config.rs +HeadscaleAgentConfig
+- **hearth-agent:** 1 new source file (headscale.rs: detect_headscale_ip via tailscale status), poller.rs +headscale_ip in heartbeat, main.rs mesh_server_url support
+- **hearth-enrollment:** status.rs +headscale_preauth_key capture, app.rs +state transfer, provision.rs +headscale-key file write
+- **Frontend:** types.ts +headscale_ip/headscale_node_id on Machine, $machineId.tsx +Mesh VPN Address field with Copy SSH button
+- **NixOS:** New `modules/headscale-client.nix` (Tailscale + oneshot join service + firewall + SSH), agent.nix +headscale config options + tailscale in PATH, mk-fleet-host.nix +headscaleUrl parameter
+- **Infra:** docker-compose.yml +headscale service, dev/headscale/config.yaml, justfile +headscale-setup recipe
+- **SQL:** migration 015 (headscale_ip, headscale_node_id columns on machines)
+- **Tests:** New `tests/lib/headscale-test.nix` (reusable Headscale server + bootstrap helper), `tests/headscale-mesh.nix` (4-node VM test: real Headscale + Tailscale mesh with peer connectivity + agent heartbeat verification)
 
 ### 5B: Compliance Engine ✓
 

@@ -50,6 +50,8 @@ pub struct ProvisionScreen {
     /// Disko config name (e.g., "standard", "luks-lvm"). When set, disko is used
     /// instead of manual sgdisk/mkfs partitioning.
     disko_config: Option<String>,
+    /// Headscale pre-auth key for mesh VPN join on first boot.
+    headscale_preauth_key: Option<String>,
     last_poll: Option<Instant>,
     dots: usize,
     log_lines: Vec<String>,
@@ -68,6 +70,7 @@ impl ProvisionScreen {
             machine_token: None,
             target_disk: None,
             disko_config: None,
+            headscale_preauth_key: None,
             last_poll: None,
             dots: 0,
             log_lines: Vec::new(),
@@ -92,10 +95,12 @@ impl ProvisionScreen {
         self.cache_token = data.cache_token.clone();
         self.machine_token = data.machine_token.clone();
         self.disko_config = data.disko_config.clone();
+        self.headscale_preauth_key = data.headscale_preauth_key.clone();
         info!(
             machine_id = ?self.machine_id,
             has_cache_token = self.cache_token.is_some(),
             disko_config = ?self.disko_config,
+            has_headscale_key = self.headscale_preauth_key.is_some(),
             "provisioning screen started"
         );
     }
@@ -537,6 +542,17 @@ impl ProvisionScreen {
                     warn!("failed to write machine-token to {token_path}: {e}");
                 } else {
                     self.log("Machine auth token written");
+                }
+            }
+
+            // Write the Headscale pre-auth key so the headscale-client
+            // NixOS module can join the mesh on first boot.
+            if let Some(ref key) = self.headscale_preauth_key {
+                let key_path = format!("{id_dir}/headscale-key");
+                if let Err(e) = tokio::fs::write(&key_path, key).await {
+                    warn!("failed to write headscale-key to {key_path}: {e}");
+                } else {
+                    self.log("Headscale pre-auth key written");
                 }
             }
         }

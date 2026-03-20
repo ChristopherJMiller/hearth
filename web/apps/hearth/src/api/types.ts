@@ -12,6 +12,8 @@ export interface Machine {
   tags: string[];
   extra_config: Record<string, unknown> | null;
   last_heartbeat: string | null;
+  headscale_ip: string | null;
+  headscale_node_id: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -5,6 +5,7 @@ pub mod db;
 pub mod deployment_fsm;
 mod deployment_monitor;
 pub mod error;
+pub mod headscale;
 pub mod health_check;
 pub mod identity_sync;
 pub mod metrics;
@@ -38,6 +39,7 @@ pub async fn identity_sync_run(pool: PgPool, auth_config: AuthConfig, cancel: Ca
 pub struct AppState {
     pub pool: PgPool,
     pub auth_config: AuthConfig,
+    pub headscale: Option<headscale::HeadscaleClient>,
 }
 
 pub fn machines_routes() -> Router<AppState> {
