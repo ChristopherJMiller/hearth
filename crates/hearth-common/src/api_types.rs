@@ -556,6 +556,65 @@ pub struct PendingUserEnv {
     pub cache_url: Option<String>,
 }
 
+// --- Per-user config types ---
+
+/// Per-user environment configuration (machine-independent).
+/// Role templates are initial seeds; user_configs is the source of truth.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserConfig {
+    pub id: Uuid,
+    pub username: String,
+    pub base_role: String,
+    pub overrides: serde_json::Value,
+    pub config_hash: Option<String>,
+    pub latest_closure: Option<String>,
+    pub build_status: UserEnvBuildStatus,
+    pub build_error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum UserEnvBuildStatus {
+    Pending,
+    Building,
+    Built,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpsertUserConfigRequest {
+    pub base_role: Option<String>,
+    pub overrides: Option<serde_json::Value>,
+}
+
+/// Response from the agent's env-closure lookup endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserEnvClosureResponse {
+    /// Pre-built per-user closure, if available.
+    pub closure: Option<String>,
+    /// Binary cache URL to pull the closure from.
+    pub cache_url: Option<String>,
+    /// Role template to fall back to if no pre-built closure exists.
+    pub fallback_role: String,
+}
+
+/// A per-user environment build job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserEnvBuildJob {
+    pub id: Uuid,
+    pub username: String,
+    pub config_hash: String,
+    pub status: BuildJobStatus,
+    pub worker_id: Option<String>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub closure: Option<String>,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 // --- Compliance report types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

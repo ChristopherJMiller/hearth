@@ -15,7 +15,8 @@ use crate::db::{
     DeploymentRow, DeploymentSbomRow, DeploymentStatusDb, DriftedMachineRow, HeartbeatResultRow,
     InstallMethodDb, MachineRow, MachineUpdateStatusDb, PendingActionRow, PendingInstallRow,
     PendingUserEnvRow, PolicyResultRow, SoftwareRequestRow, SoftwareRequestStatusDb,
-    TargetStateRow, UserEnvStatusDb, UserEnvironmentRow, UserRow,
+    TargetStateRow, UserConfigRow, UserEnvBuildJobRow, UserEnvStatusDb,
+    UserEnvironmentRow, UserRow,
 };
 use crate::routes::reports::{ComplianceReport, DeploymentTimelineEntry, EnrollmentTimelineEntry};
 
@@ -1623,4 +1624,229 @@ pub async fn get_machine_current_sbom(
     .bind(machine_id)
     .fetch_optional(pool)
     .await
+}
+
+// --- User config queries ---
+
+pub async fn get_user_config(
+    pool: &PgPool,
+    username: &str,
+) -> Result<Option<UserConfigRow>, sqlx::Error> {
+    sqlx::query_as::<_, UserConfigRow>(
+        "SELECT id, username, base_role, overrides, config_hash, latest_closure,
+                build_status, build_error, created_at, updated_at
+         FROM user_configs
+         WHERE username = $1",
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Upsert a user config. Recomputes config_hash and sets build_status to pending
+/// if the hash changed (indicating a rebuild is needed).
+pub async fn upsert_user_config(
+    pool: &PgPool,
+    username: &str,
+    base_role: &str,
+    overrides: &serde_json::Value,
+) -> Result<UserConfigRow, sqlx::Error> {
+    let config_hash = compute_user_config_hash(base_role, overrides);
+
+    sqlx::query_as::<_, UserConfigRow>(
+        "INSERT INTO user_configs (username, base_role, overrides, config_hash, build_status)
+         VALUES ($1, $2, $3, $4, 'pending')
+         ON CONFLICT (username) DO UPDATE SET
+             base_role = $2,
+             overrides = $3,
+             config_hash = $4,
+             build_status = CASE
+                 WHEN user_configs.config_hash IS DISTINCT FROM $4 THEN 'pending'::user_env_build_status
+                 ELSE user_configs.build_status
+             END,
+             build_error = CASE
+                 WHEN user_configs.config_hash IS DISTINCT FROM $4 THEN NULL
+                 ELSE user_configs.build_error
+             END,
+             updated_at = now()
+         RETURNING id, username, base_role, overrides, config_hash, latest_closure,
+                   build_status, build_error, created_at, updated_at",
+    )
+    .bind(username)
+    .bind(base_role)
+    .bind(overrides)
+    .bind(&config_hash)
+    .fetch_one(pool)
+    .await
+}
+
+/// Get user configs that need builds.
+pub async fn get_pending_user_config_builds(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<UserConfigRow>, sqlx::Error> {
+    sqlx::query_as::<_, UserConfigRow>(
+        "SELECT id, username, base_role, overrides, config_hash, latest_closure,
+                build_status, build_error, created_at, updated_at
+         FROM user_configs
+         WHERE build_status = 'pending'
+         ORDER BY updated_at ASC
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Claim the next pending user env build job (using SKIP LOCKED for concurrency).
+pub async fn claim_user_env_build(
+    pool: &PgPool,
+    worker_id: &str,
+) -> Result<Option<UserEnvBuildJobRow>, sqlx::Error> {
+    sqlx::query_as::<_, UserEnvBuildJobRow>(
+        "UPDATE user_env_build_jobs
+         SET status = 'claimed', worker_id = $1, claimed_at = now(), updated_at = now()
+         WHERE id = (
+             SELECT id FROM user_env_build_jobs
+             WHERE status = 'pending'
+             ORDER BY created_at ASC
+             FOR UPDATE SKIP LOCKED
+             LIMIT 1
+         )
+         RETURNING id, username, config_hash, status, worker_id, claimed_at,
+                   closure, error_message, created_at, updated_at",
+    )
+    .bind(worker_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Complete a user env build: update the job, set the closure on user_configs,
+/// and fan out target_closure to all user_environments for this user.
+pub async fn complete_user_env_build(
+    pool: &PgPool,
+    job_id: Uuid,
+    closure: &str,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    // Get the username and config_hash for this job
+    let job = sqlx::query_as::<_, UserEnvBuildJobRow>(
+        "SELECT id, username, config_hash, status, worker_id, claimed_at,
+                closure, error_message, created_at, updated_at
+         FROM user_env_build_jobs WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Update the build job
+    sqlx::query(
+        "UPDATE user_env_build_jobs
+         SET status = 'completed', closure = $2, updated_at = now()
+         WHERE id = $1",
+    )
+    .bind(job_id)
+    .bind(closure)
+    .execute(&mut *tx)
+    .await?;
+
+    // Update user_configs with the built closure
+    sqlx::query(
+        "UPDATE user_configs
+         SET latest_closure = $2, build_status = 'built', build_error = NULL, updated_at = now()
+         WHERE username = $1 AND config_hash = $3",
+    )
+    .bind(&job.username)
+    .bind(closure)
+    .bind(&job.config_hash)
+    .execute(&mut *tx)
+    .await?;
+
+    // Fan out: set target_closure on all user_environments for this user
+    sqlx::query(
+        "UPDATE user_environments
+         SET target_closure = $2, updated_at = now()
+         WHERE username = $1 AND (target_closure IS DISTINCT FROM $2)",
+    )
+    .bind(&job.username)
+    .bind(closure)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Mark a user env build job as failed.
+pub async fn fail_user_env_build(
+    pool: &PgPool,
+    job_id: Uuid,
+    error: &str,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    // Get the username for this job
+    let job = sqlx::query_as::<_, UserEnvBuildJobRow>(
+        "SELECT id, username, config_hash, status, worker_id, claimed_at,
+                closure, error_message, created_at, updated_at
+         FROM user_env_build_jobs WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Update the build job
+    sqlx::query(
+        "UPDATE user_env_build_jobs
+         SET status = 'failed', error_message = $2, updated_at = now()
+         WHERE id = $1",
+    )
+    .bind(job_id)
+    .bind(error)
+    .execute(&mut *tx)
+    .await?;
+
+    // Update user_configs
+    sqlx::query(
+        "UPDATE user_configs
+         SET build_status = 'failed', build_error = $2, updated_at = now()
+         WHERE username = $1",
+    )
+    .bind(&job.username)
+    .bind(error)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Enqueue a per-user environment build job.
+pub async fn enqueue_user_env_build(
+    pool: &PgPool,
+    username: &str,
+    config_hash: &str,
+) -> Result<UserEnvBuildJobRow, sqlx::Error> {
+    sqlx::query_as::<_, UserEnvBuildJobRow>(
+        "INSERT INTO user_env_build_jobs (username, config_hash)
+         VALUES ($1, $2)
+         RETURNING id, username, config_hash, status, worker_id, claimed_at,
+                   closure, error_message, created_at, updated_at",
+    )
+    .bind(username)
+    .bind(config_hash)
+    .fetch_one(pool)
+    .await
+}
+
+/// Compute a deterministic hash for a user config (base_role + overrides).
+fn compute_user_config_hash(base_role: &str, overrides: &serde_json::Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(base_role.as_bytes());
+    hasher.update(b"|");
+    let overrides_str = serde_json::to_string(overrides).unwrap_or_default();
+    hasher.update(overrides_str.as_bytes());
+    format!("{:x}", hasher.finalize())
 }

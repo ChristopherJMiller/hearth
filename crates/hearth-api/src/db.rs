@@ -226,6 +226,90 @@ impl From<UserEnvironmentRow> for api_types::UserEnvironment {
     }
 }
 
+// --- User config types ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "user_env_build_status", rename_all = "snake_case")]
+pub enum UserEnvBuildStatusDb {
+    Pending,
+    Building,
+    Built,
+    Failed,
+}
+
+impl From<UserEnvBuildStatusDb> for api_types::UserEnvBuildStatus {
+    fn from(s: UserEnvBuildStatusDb) -> Self {
+        match s {
+            UserEnvBuildStatusDb::Pending => api_types::UserEnvBuildStatus::Pending,
+            UserEnvBuildStatusDb::Building => api_types::UserEnvBuildStatus::Building,
+            UserEnvBuildStatusDb::Built => api_types::UserEnvBuildStatus::Built,
+            UserEnvBuildStatusDb::Failed => api_types::UserEnvBuildStatus::Failed,
+        }
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct UserConfigRow {
+    pub id: Uuid,
+    pub username: String,
+    pub base_role: String,
+    pub overrides: serde_json::Value,
+    pub config_hash: Option<String>,
+    pub latest_closure: Option<String>,
+    pub build_status: UserEnvBuildStatusDb,
+    pub build_error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<UserConfigRow> for api_types::UserConfig {
+    fn from(row: UserConfigRow) -> Self {
+        api_types::UserConfig {
+            id: row.id,
+            username: row.username,
+            base_role: row.base_role,
+            overrides: row.overrides,
+            config_hash: row.config_hash,
+            latest_closure: row.latest_closure,
+            build_status: row.build_status.into(),
+            build_error: row.build_error,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct UserEnvBuildJobRow {
+    pub id: Uuid,
+    pub username: String,
+    pub config_hash: String,
+    pub status: BuildJobStatusDb,
+    pub worker_id: Option<String>,
+    pub claimed_at: Option<DateTime<Utc>>,
+    pub closure: Option<String>,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<UserEnvBuildJobRow> for api_types::UserEnvBuildJob {
+    fn from(row: UserEnvBuildJobRow) -> Self {
+        api_types::UserEnvBuildJob {
+            id: row.id,
+            username: row.username,
+            config_hash: row.config_hash,
+            status: row.status.into(),
+            worker_id: row.worker_id,
+            claimed_at: row.claimed_at,
+            closure: row.closure,
+            error_message: row.error_message,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
 // --- Software catalog enums ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
