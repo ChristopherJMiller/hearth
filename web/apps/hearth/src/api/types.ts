@@ -178,6 +178,31 @@ export interface EnrollmentTimelineEntry {
   pending: number;
 }
 
+// --- Phase 5D: Per-User Environment ---
+
+export type UserEnvBuildStatus = 'pending' | 'building' | 'built' | 'failed';
+
+export interface UserConfig {
+  id: string;
+  username: string;
+  base_role: string;
+  overrides: Record<string, unknown>;
+  config_hash: string | null;
+  latest_closure: string | null;
+  build_status: UserEnvBuildStatus;
+  build_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateMyConfigRequest {
+  git_user_name?: string;
+  git_user_email?: string;
+  editor?: string;
+  shell_aliases?: Record<string, string>;
+  session_variables?: Record<string, string>;
+}
+
 // --- Phase 5B: Compliance Engine ---
 
 export type DriftStatus = 'compliant' | 'drifted' | 'no_target';

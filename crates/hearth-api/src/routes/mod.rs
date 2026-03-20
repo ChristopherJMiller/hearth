@@ -10,6 +10,7 @@ pub mod environments;
 pub mod health;
 pub mod heartbeat;
 pub mod machines;
+pub mod me_config;
 pub mod reports;
 pub mod requests;
 pub mod stats;

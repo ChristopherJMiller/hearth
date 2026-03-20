@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -9,6 +11,36 @@ use crate::AppState;
 use crate::auth::{AdminIdentity, MachineIdentity};
 use crate::error::AppError;
 use crate::repo;
+
+/// Validate that `extra_packages` in the overrides only contains allowed packages.
+///
+/// When `allowlist` is `None`, all packages are allowed (no restrictions).
+/// Returns the list of disallowed package names on failure.
+fn validate_extra_packages(
+    overrides: &serde_json::Value,
+    allowlist: &Option<HashSet<String>>,
+) -> Result<(), Vec<String>> {
+    let Some(allowlist) = allowlist else {
+        return Ok(());
+    };
+
+    let Some(packages) = overrides.get("extra_packages").and_then(|v| v.as_array()) else {
+        return Ok(());
+    };
+
+    let disallowed: Vec<String> = packages
+        .iter()
+        .filter_map(|v| v.as_str())
+        .filter(|name| !allowlist.contains(*name))
+        .map(String::from)
+        .collect();
+
+    if disallowed.is_empty() {
+        Ok(())
+    } else {
+        Err(disallowed)
+    }
+}
 
 /// GET /api/v1/users/{username}/config — get a user's per-user config (admin).
 pub async fn get_config(
@@ -35,6 +67,14 @@ pub async fn upsert_config(
 ) -> Result<(StatusCode, Json<UserConfig>), AppError> {
     let base_role = req.base_role.as_deref().unwrap_or("default");
     let overrides = req.overrides.as_ref().cloned().unwrap_or_default();
+
+    if let Err(disallowed) = validate_extra_packages(&overrides, &state.package_allowlist) {
+        return Err(AppError::BadRequest(format!(
+            "packages not in allowlist: {}",
+            disallowed.join(", ")
+        )));
+    }
+
     let row = repo::upsert_user_config(&state.pool, &username, base_role, &overrides).await?;
     Ok((StatusCode::OK, Json(row.into())))
 }

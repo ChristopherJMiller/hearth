@@ -54,11 +54,19 @@ async fn main() {
 
     let cache_url = std::env::var("ATTIC_CACHE_URL").ok();
 
+    let package_allowlist: Option<std::collections::HashSet<String>> = std::env::var("HEARTH_PACKAGE_ALLOWLIST")
+        .ok()
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect());
+    if let Some(ref al) = package_allowlist {
+        info!(count = al.len(), "package allowlist loaded");
+    }
+
     let state = AppState {
         pool,
         auth_config: auth_config.clone(),
         headscale,
         cache_url,
+        package_allowlist,
     };
 
     // Spawn background tasks

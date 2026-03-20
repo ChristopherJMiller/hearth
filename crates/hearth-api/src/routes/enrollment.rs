@@ -75,7 +75,7 @@ pub async fn enroll(
     // Extract the enrolling user's identity from their auth token (if present).
     let (enrolled_by, is_admin) = match &identity.0 {
         Some(AuthIdentity::User(claims)) => {
-            let username = claims.preferred_username.as_deref().unwrap_or(&claims.sub);
+            let username = claims.username();
             // Upsert the user record so we track known identities.
             let _ = repo::upsert_user(
                 &state.pool,

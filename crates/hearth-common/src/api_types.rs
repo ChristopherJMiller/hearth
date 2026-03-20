@@ -492,6 +492,13 @@ pub struct AuthClaims {
     pub groups: Vec<String>,
 }
 
+impl AuthClaims {
+    /// The display username: `preferred_username` if available, otherwise `sub`.
+    pub fn username(&self) -> &str {
+        self.preferred_username.as_deref().unwrap_or(&self.sub)
+    }
+}
+
 /// Authenticated identity attached to a request by the auth middleware.
 #[derive(Debug, Clone)]
 pub enum AuthIdentity {
@@ -587,6 +594,19 @@ pub enum UserEnvBuildStatus {
 pub struct UpsertUserConfigRequest {
     pub base_role: Option<String>,
     pub overrides: Option<serde_json::Value>,
+}
+
+/// Self-service config update — restricted fields only.
+///
+/// Users can modify their own environment via `/api/v1/me/config`.
+/// Admin-only fields (base_role, extra_packages) are excluded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMyConfigRequest {
+    pub git_user_name: Option<String>,
+    pub git_user_email: Option<String>,
+    pub editor: Option<String>,
+    pub shell_aliases: Option<std::collections::HashMap<String, String>>,
+    pub session_variables: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Response from the agent's env-closure lookup endpoint.

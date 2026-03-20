@@ -90,6 +90,9 @@ pub struct AppState {
     pub headscale: Option<headscale::HeadscaleClient>,
     /// Attic binary cache URL for user environment closures.
     pub cache_url: Option<String>,
+    /// When set, only these nixpkgs attributes are allowed in user
+    /// `extra_packages` overrides. `None` means all packages are allowed.
+    pub package_allowlist: Option<std::collections::HashSet<String>>,
 }
 
 pub fn machines_routes() -> Router<AppState> {
@@ -221,6 +224,13 @@ pub fn auth_me_route() -> Router<AppState> {
     Router::new().route("/me", get(routes::auth_me::me))
 }
 
+pub fn me_config_routes() -> Router<AppState> {
+    Router::new().route(
+        "/config",
+        get(routes::me_config::get_my_config).put(routes::me_config::update_my_config),
+    )
+}
+
 pub fn action_result_routes() -> Router<AppState> {
     Router::new().route("/{id}/result", post(routes::actions::report_action_result))
 }
@@ -303,6 +313,7 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
             environments_routes(),
         )
         .nest("/api/v1/users", user_config_routes())
+        .nest("/api/v1/me", me_config_routes())
         .fallback_service(spa)
         .layer(middleware::from_fn(metrics::track_request))
         .layer(cors)

@@ -437,11 +437,14 @@
               }
             );
 
-            # TODO: Add a configurable package allowlist/denylist. Currently any
-            # nixpkgs attribute can be requested via extra_packages, which may
-            # include security-sensitive tools on an enterprise fleet.
-            home.packages = lib.optionals (cfg.overrides ? extra_packages)
-              (map (name: pkgs.${name}) cfg.overrides.extra_packages);
+            # Package allowlist/denylist: the API layer enforces an allowlist,
+            # but as defense-in-depth we also filter here. If package_denylist
+            # is provided in the config, those packages are silently dropped.
+            home.packages = let
+              requested = cfg.overrides.extra_packages or [];
+              denylist = cfg.package_denylist or [];
+              allowed = builtins.filter (name: !(builtins.elem name denylist)) requested;
+            in map (name: pkgs.${name}) allowed;
 
             home.sessionVariables =
               (lib.optionalAttrs (cfg.overrides ? editor) {

@@ -17,7 +17,7 @@ pub async fn create_action(
     Path(machine_id): Path<Uuid>,
     Json(req): Json<CreateActionRequest>,
 ) -> Result<Json<PendingAction>, AppError> {
-    let actor = claims.preferred_username.as_deref().unwrap_or(&claims.sub);
+    let actor = claims.username();
 
     let row = repo::create_action(
         &state.pool,

@@ -19,9 +19,10 @@ import {
 import { useAuth } from '../useAuth';
 import { useRoles } from '../hooks/useRoles';
 
-// All users see the catalog
+// All users see the catalog + settings
 const userItems: SidebarItem[] = [
   { id: 'catalog', label: 'Software Catalog', icon: <LuBookOpen size={18} /> },
+  { id: 'settings', label: 'Settings', icon: <LuSettings size={18} /> },
 ];
 
 // Admins/operators see the full admin nav
@@ -39,6 +40,7 @@ const adminItems: SidebarItem[] = [
 
 const routeMap: Record<string, string> = {
   catalog: '/catalog',
+  settings: '/settings',
   dashboard: '/dashboard',
   machines: '/machines',
   enrollment: '/enrollment',

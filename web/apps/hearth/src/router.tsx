@@ -18,6 +18,7 @@ import { RequestsPage } from './routes/requests/index';
 import { AuditPage } from './routes/audit/index';
 import { ReportsPage } from './routes/reports';
 import { CompliancePage } from './routes/compliance';
+import { SettingsPage } from './routes/settings';
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -109,6 +110,12 @@ const complianceRoute = createRoute({
   component: CompliancePage,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  component: SettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
@@ -124,6 +131,7 @@ const routeTree = rootRoute.addChildren([
   auditRoute,
   reportsRoute,
   complianceRoute,
+  settingsRoute,
 ]);
 
 export const router = createRouter({
