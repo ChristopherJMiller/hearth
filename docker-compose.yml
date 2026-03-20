@@ -63,6 +63,7 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./deploy/grafana:/etc/grafana/provisioning/dashboards
+      - ./deploy/grafana-datasources:/etc/grafana/provisioning/datasources
 
   headscale:
     image: headscale/headscale:0.23

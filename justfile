@@ -57,6 +57,36 @@ setup:
     echo "  just enroll    — Boot enrollment ISO in QEMU"
     echo "  just check     — Run all checks"
 
+# Run the full demo environment (setup + seed data + start API)
+demo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Hearth Demo Environment ==="
+    echo ""
+    just setup
+    echo "==> Seeding demo data..."
+    bash dev/seed-demo-data.sh
+    echo ""
+    echo "=== Demo ready! ==="
+    echo ""
+    echo "  Web UI:        http://localhost:3000"
+    echo "  Element Chat:  http://localhost:8088"
+    echo "  Nextcloud:     http://localhost:8089"
+    echo "  Grafana:       http://localhost:3001"
+    echo "  Kanidm:        https://localhost:8443"
+    echo ""
+    echo "  Login:  testadmin / test-demo-enrollment  (admin)"
+    echo "          testuser  / test-demo-enrollment  (user)"
+    echo ""
+    echo "  See docs/DEMO.md for walkthrough scenarios."
+    echo ""
+    echo "  Starting API server..."
+    just dev
+
+# Seed the database with demo data (requires infrastructure running)
+seed:
+    bash dev/seed-demo-data.sh
+
 # Start the API server (sources Kanidm auth config from dev/kanidm/.env)
 dev:
     #!/usr/bin/env bash
@@ -67,6 +97,12 @@ dev:
     else
         echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
     fi
+    # Service directory URLs for dev environment
+    export HEARTH_SERVER_URL=http://localhost:3000
+    export HEARTH_CHAT_URL=http://localhost:8088
+    export HEARTH_CLOUD_URL=http://localhost:8089
+    export HEARTH_IDENTITY_URL=https://localhost:8443
+    export HEARTH_MATRIX_SERVER_NAME=hearth.local
     exec cargo run -p hearth-api
 
 # Start API server with file watching
@@ -79,6 +115,12 @@ dev-watch:
     else
         echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
     fi
+    # Service directory URLs for dev environment
+    export HEARTH_SERVER_URL=http://localhost:3000
+    export HEARTH_CHAT_URL=http://localhost:8088
+    export HEARTH_CLOUD_URL=http://localhost:8089
+    export HEARTH_IDENTITY_URL=https://localhost:8443
+    export HEARTH_MATRIX_SERVER_NAME=hearth.local
     exec cargo watch -x 'run -p hearth-api'
 
 # Start a build worker
