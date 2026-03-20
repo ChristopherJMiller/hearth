@@ -483,6 +483,20 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A person in the company directory, enriched with derived contact info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryPerson {
+    pub username: String,
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+    pub groups: Vec<String>,
+    /// Derived Matrix ID, e.g. `@alice:hearth.local`.
+    pub matrix_id: Option<String>,
+    /// Derived Nextcloud profile URL.
+    pub nextcloud_url: Option<String>,
+    pub last_seen: Option<DateTime<Utc>>,
+}
+
 /// Claims extracted from a validated JWT (Kanidm OIDC or machine token).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthClaims {

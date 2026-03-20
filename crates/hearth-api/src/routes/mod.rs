@@ -5,6 +5,7 @@ pub mod build_jobs;
 pub mod catalog;
 pub mod compliance;
 pub mod deployments;
+pub mod directory;
 pub mod enrollment;
 pub mod environments;
 pub mod health;

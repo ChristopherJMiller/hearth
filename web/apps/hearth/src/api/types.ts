@@ -269,6 +269,18 @@ export interface ServiceInfo {
   icon: string | null;
 }
 
+// --- People Directory ---
+
+export interface DirectoryPerson {
+  username: string;
+  display_name: string | null;
+  email: string | null;
+  groups: string[];
+  matrix_id: string | null;
+  nextcloud_url: string | null;
+  last_seen: string | null;
+}
+
 export interface DeploymentSbom {
   id: string;
   deployment_id: string;

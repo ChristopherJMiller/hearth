@@ -401,6 +401,47 @@ Common patterns extracted as services multiply. Includes Nextcloud OIDC bootstra
 - **NixOS:** New `home-modules/services.nix` (systemd user service/timer for .desktop sync), `common.nix` imports services.nix, `mk-fleet-host.nix` auto-enables services module
 - **Tests:** 24 new helm-unittest tests, 183 total passing
 
+### 6D: Enterprise Productivity {#phase-6d}
+
+Surfaces collaboration tools in ways that integrate naturally with the GNOME desktop and each other. Builds on the identity, chat, and cloud capabilities from earlier phases.
+
+#### 6D-1: People Directory ✓
+
+Company-wide people directory sourced from Kanidm identity data, enriched with derived contact info from enabled services. Zero extra infrastructure — a view over data that already exists.
+
+- [x] **Directory API:** `GET /api/v1/directory/people` endpoint (requires `UserIdentity` auth). Queries the `users` table, enriches each person with derived Matrix ID (`@username:{matrix_server_name}` via `HEARTH_MATRIX_SERVER_NAME` env var) and Nextcloud profile URL (derived from the `cloud` service entry). 6 unit tests covering all service combinations, trailing-slash normalization, and missing fields.
+- [x] **Directory page:** `/directory` page in the web app — searchable card grid showing each person with initials avatar, display name, username, group badges, contact links (email `mailto:`, Matrix via `matrix.to`, Nextcloud profile), and relative "last seen" timestamp. Available to all authenticated users.
+- [x] **Sidebar navigation:** "People" item with `LuUsers` icon added to the user-visible nav (alongside Catalog, Services, Settings).
+
+##### Stats
+- **hearth-common:** `DirectoryPerson` type in api_types.rs (username, display_name, email, groups, matrix_id, nextcloud_url, last_seen)
+- **hearth-api:** New `routes/directory.rs` (handler + 6 unit tests), `matrix_server_name` field on `AppState`, Nextcloud URL derived from `state.services` at request time
+- **Frontend:** New `api/directory.ts` (useDirectory hook), new `routes/directory.tsx` (DirectoryPage with search + card grid), router + sidebar wiring
+
+#### 6D-2: Calendar & Contacts (Future)
+
+Desktop integration for Nextcloud's built-in CalDAV/CardDAV services. GNOME's native apps (Calendar, Contacts) become the interface — no extra web UIs needed.
+
+- [ ] **GNOME Online Accounts:** Home-manager module configuring a Nextcloud GNOME Online Account entry. Single sign-on populates Calendar, Contacts, and Files automatically. Requires `gnome-online-accounts` with Nextcloud provider.
+- [ ] **GNOME Calendar + Contacts:** Add `gnome-calendar` and `gnome-contacts` to role profiles. Pre-configured via GNOME Online Accounts — no manual CalDAV/CardDAV URL entry needed.
+- [ ] **Shared organizational calendar:** Nextcloud bootstrap creates default shared calendars (company holidays, all-hands). Auto-subscribed for all users via Nextcloud group calendar sharing.
+
+#### 6D-3: Collaborative Document Editing (Future)
+
+Real-time co-editing of documents, spreadsheets, and slides inside Nextcloud — the Google Docs/Sheets/Slides equivalent.
+
+- [ ] **Collabora Online integration:** Collabora Online (LibreOffice-based) deployed as a Helm capability (`capabilities.office`). Nextcloud `richdocuments` app connects to Collabora for browser-based collaborative editing. Supports ODF, OOXML, and PDF export. Kanidm SSO via Nextcloud session.
+- [ ] **Desktop integration:** LibreOffice on fleet devices already works with synced ~/Nextcloud files. Collabora handles browser-based multi-user editing; LibreOffice handles offline/local editing. No conflict — files sync via Nextcloud Desktop client.
+
+#### 6D-4: Video Conferencing (Future)
+
+Self-hosted video meetings integrated with chat and calendar.
+
+- [ ] **Jitsi Meet deployment:** Jitsi Meet deployed as a Helm capability (`capabilities.meet`). Kanidm SSO via oauth2-proxy forward-auth. Prosody XMPP backend, JVB media routing.
+- [ ] **Matrix integration:** Element Desktop configured with Jitsi widget for in-chat video calls. Click-to-call from any Matrix room.
+- [ ] **Calendar integration:** Nextcloud calendar events can embed Jitsi Meet links. Meeting URLs auto-generated on event creation.
+- [ ] **Desktop integration:** `.desktop` launcher for Jitsi via service discovery. GNOME Calendar shows meeting links inline.
+
 ---
 
 ## Icebox {#icebox}

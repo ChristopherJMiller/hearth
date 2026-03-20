@@ -95,6 +95,8 @@ pub struct AppState {
     pub package_allowlist: Option<std::collections::HashSet<String>>,
     /// Available platform services (built from env vars at startup).
     pub services: Vec<hearth_common::api_types::ServiceInfo>,
+    /// Matrix server name for directory contact derivation (e.g. `hearth.local`).
+    pub matrix_server_name: Option<String>,
 }
 
 pub fn machines_routes() -> Router<AppState> {
@@ -248,6 +250,10 @@ pub fn services_routes() -> Router<AppState> {
     Router::new().route("/", get(routes::services::list_services))
 }
 
+pub fn directory_routes() -> Router<AppState> {
+    Router::new().route("/people", get(routes::directory::list_people))
+}
+
 pub fn compliance_routes() -> Router<AppState> {
     Router::new()
         .route("/drift", get(routes::compliance::list_drift))
@@ -288,10 +294,38 @@ pub fn build_services_from_env() -> Vec<hearth_common::api_types::ServiceInfo> {
     use hearth_common::api_types::{ServiceCategory, ServiceInfo};
 
     let definitions: &[(&str, &str, &str, ServiceCategory, &str, &str)] = &[
-        ("HEARTH_SERVER_URL", "hearth", "Hearth Console", ServiceCategory::Infrastructure, "Fleet management console", "flame"),
-        ("HEARTH_CHAT_URL", "chat", "Hearth Chat", ServiceCategory::Communication, "Corporate chat powered by Matrix", "message-square"),
-        ("HEARTH_CLOUD_URL", "cloud", "Cloud Storage", ServiceCategory::Storage, "File storage and collaboration powered by Nextcloud", "cloud"),
-        ("HEARTH_IDENTITY_URL", "identity", "Identity Management", ServiceCategory::Identity, "Account management and single sign-on", "shield"),
+        (
+            "HEARTH_SERVER_URL",
+            "hearth",
+            "Hearth Console",
+            ServiceCategory::Infrastructure,
+            "Fleet management console",
+            "flame",
+        ),
+        (
+            "HEARTH_CHAT_URL",
+            "chat",
+            "Hearth Chat",
+            ServiceCategory::Communication,
+            "Corporate chat powered by Matrix",
+            "message-square",
+        ),
+        (
+            "HEARTH_CLOUD_URL",
+            "cloud",
+            "Cloud Storage",
+            ServiceCategory::Storage,
+            "File storage and collaboration powered by Nextcloud",
+            "cloud",
+        ),
+        (
+            "HEARTH_IDENTITY_URL",
+            "identity",
+            "Identity Management",
+            ServiceCategory::Identity,
+            "Account management and single sign-on",
+            "shield",
+        ),
     ];
 
     let services: Vec<ServiceInfo> = definitions
@@ -352,6 +386,7 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
         )
         .nest("/api/v1/users", user_config_routes())
         .nest("/api/v1/services", services_routes())
+        .nest("/api/v1/directory", directory_routes())
         .nest("/api/v1/me", me_config_routes())
         .fallback_service(spa)
         .layer(middleware::from_fn(metrics::track_request))
