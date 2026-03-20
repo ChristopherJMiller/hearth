@@ -1,0 +1,35 @@
+{{- if and .Values.capabilities.mesh .Values.headscale.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-headscale
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+  {{- with .Values.headscale.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.headscale.ingress.className }}
+  ingressClassName: {{ .Values.headscale.ingress.className }}
+  {{- end }}
+  {{- if .Values.headscale.ingress.tls }}
+  tls:
+    {{- toYaml .Values.headscale.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.headscale.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "hearth-home.fullname" $ }}-headscale
+                port:
+                  name: http
+          {{- end }}
+    {{- end }}
+{{- end }}

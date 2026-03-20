@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-attic
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "attic") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.attic.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "hearth-home.selectorLabels" (dict "context" . "component" "attic") | nindent 4 }}

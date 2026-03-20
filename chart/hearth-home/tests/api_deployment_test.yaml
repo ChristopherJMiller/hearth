@@ -1,0 +1,127 @@
+suite: API Deployment
+templates:
+  - api/deployment.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  - it: should render a Deployment by default
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: hearth-hearth-home-api
+
+  - it: should use the specified image and tag
+    set:
+      api.image.repository: custom-repo
+      api.image.tag: v1.0.0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "custom-repo:v1.0.0"
+
+  - it: should set the correct replica count
+    set:
+      api.replicas: 5
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 5
+
+  - it: should include wait-for-postgres initContainer
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-postgres
+
+  - it: should point initContainer at bitnami postgresql by default
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: hearth-postgresql
+
+  - it: should point initContainer at external database host when postgresql disabled
+    set:
+      postgresql.enabled: false
+      externalDatabase.host: db.external.com
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: db\.external\.com
+
+  - it: should set DATABASE_URL env var
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_URL
+          any: true
+
+  - it: should mount HEARTH_MACHINE_TOKEN_SECRET from secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HEARTH_MACHINE_TOKEN_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: hearth-hearth-home-secrets
+                key: machine-token-secret
+          any: true
+
+  - it: should inject HEADSCALE_API_KEY when mesh enabled and existingSecret set
+    set:
+      capabilities.mesh: true
+      headscale.apiKey.existingSecret: my-hs-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HEADSCALE_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-hs-secret
+                key: api-key
+          any: true
+
+  - it: should not inject HEADSCALE_API_KEY when mesh disabled
+    set:
+      capabilities.mesh: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HEADSCALE_API_KEY
+          any: true
+
+  - it: should set resource limits
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 256Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: "1"
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 512Mi
+
+  - it: should have liveness and readiness probes
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /api/v1/health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 3000
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/v1/health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 3000

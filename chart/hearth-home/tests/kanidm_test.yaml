@@ -1,0 +1,119 @@
+suite: Kanidm
+templates:
+  - kanidm/statefulset.yaml
+  - kanidm/secret.yaml
+  - kanidm/configmap.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  # ---------- StatefulSet tests ----------
+
+  - it: should render Kanidm StatefulSet with single replica
+    template: kanidm/statefulset.yaml
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: should mount TLS cert and key from secret
+    template: kanidm/statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls
+            mountPath: /data/cert.pem
+            subPath: tls.crt
+            readOnly: true
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls
+            mountPath: /data/key.pem
+            subPath: tls.key
+            readOnly: true
+          any: true
+
+  - it: should mount config at /data/server.toml
+    template: kanidm/statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /data/server.toml
+            subPath: server.toml
+            readOnly: true
+          any: true
+
+  - it: should have volumeClaimTemplate for data
+    template: kanidm/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.name
+          value: data
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 5Gi
+
+  - it: should use custom persistence size
+    template: kanidm/statefulset.yaml
+    set:
+      kanidm.persistence.size: 20Gi
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 20Gi
+
+  - it: should use existing TLS secret when provided
+    template: kanidm/statefulset.yaml
+    set:
+      kanidm.tls.existingSecret: my-tls-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls
+            secret:
+              secretName: my-tls-secret
+          any: true
+
+  # ---------- TLS Secret tests ----------
+
+  - it: should render TLS secret when no existingSecret
+    template: kanidm/secret.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: type
+          value: kubernetes.io/tls
+
+  - it: should not render TLS secret when existingSecret is set
+    template: kanidm/secret.yaml
+    set:
+      kanidm.tls.existingSecret: my-tls
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ---------- ConfigMap tests ----------
+
+  - it: should render Kanidm config with correct domain and origin
+    template: kanidm/configmap.yaml
+    set:
+      kanidm.config.domain: idm.company.com
+      kanidm.config.origin: "https://idm.company.com"
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["server.toml"]
+          pattern: 'domain = "idm\.company\.com"'
+      - matchRegex:
+          path: data["server.toml"]
+          pattern: 'origin = "https://idm\.company\.com"'

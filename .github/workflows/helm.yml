@@ -1,0 +1,117 @@
+name: Helm Chart CI
+
+on:
+  pull_request:
+    paths:
+      - "chart/**"
+      - ".github/workflows/helm.yml"
+  push:
+    branches: [main]
+    paths:
+      - "chart/**"
+      - ".github/workflows/helm.yml"
+
+jobs:
+  lint-and-unittest:
+    name: Lint & Unit Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.17.0
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git
+
+      - name: Fetch chart dependencies
+        run: helm dependency update chart/hearth-home
+
+      - name: Helm lint
+        run: helm lint chart/hearth-home --strict
+
+      - name: Run unit tests
+        run: helm unittest chart/hearth-home
+
+  kubeconform:
+    name: Schema Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.17.0
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xzf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Fetch chart dependencies
+        run: helm dependency update chart/hearth-home
+
+      - name: Validate default values
+        run: |
+          helm template hearth chart/hearth-home \
+            --set capabilities.observability=false \
+            | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+
+      - name: Validate all capabilities
+        run: |
+          helm template hearth chart/hearth-home \
+            --set capabilities.observability=false \
+            --set capabilities.identity=true \
+            --set capabilities.mesh=true \
+            --set capabilities.builds=true \
+            | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+
+      - name: Validate core only
+        run: |
+          helm template hearth chart/hearth-home \
+            --set capabilities.identity=false \
+            --set capabilities.mesh=false \
+            --set capabilities.builds=false \
+            --set capabilities.observability=false \
+            | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+
+  ct-smoke-test:
+    name: Chart Testing (install)
+    runs-on: ubuntu-latest
+    needs: [lint-and-unittest, kubeconform]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.17.0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - uses: helm/chart-testing-action@v2.7.0
+
+      - name: Fetch chart dependencies
+        run: helm dependency update chart/hearth-home
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1.12.0
+
+      - name: Install chart with CI values
+        run: |
+          helm install hearth-ci chart/hearth-home \
+            -f chart/hearth-home/ci/ct-values.yaml \
+            --wait --timeout 300s
+
+      - name: Run helm tests
+        run: helm test hearth-ci --timeout 120s
+
+      - name: Cleanup
+        if: always()
+        run: helm uninstall hearth-ci --wait || true

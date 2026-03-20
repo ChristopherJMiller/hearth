@@ -1,0 +1,211 @@
+{{- if .Values.capabilities.identity }}
+{{- if .Values.kanidm.bootstrap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  bootstrap.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    KANIDM_URL="${KANIDM_URL}"
+    KANIDM_POD="${KANIDM_POD}"
+    KANIDM_NAMESPACE="${KANIDM_NAMESPACE}"
+    KANIDM_SECRET_NAME="${KANIDM_SECRET_NAME}"
+
+    C="curl -sk"
+
+    # -----------------------------------------------------------------------
+    # Wait for Kanidm to be ready
+    # -----------------------------------------------------------------------
+    echo "Waiting for Kanidm to be ready..."
+    until $C "${KANIDM_URL}/status" | grep -q "true"; do
+      echo "  Kanidm not ready, retrying in 5s..."
+      sleep 5
+    done
+    echo "Kanidm is ready."
+
+    # -----------------------------------------------------------------------
+    # Recover admin credentials via kubectl exec
+    # -----------------------------------------------------------------------
+    echo "Recovering admin credentials..."
+    RECOVER_OUTPUT=$(kubectl exec -n "${KANIDM_NAMESPACE}" "${KANIDM_POD}" -- \
+      kanidmd recover-account admin 2>&1 || true)
+    ADMIN_PW=$(echo "$RECOVER_OUTPUT" | grep -oP 'new_password:\s*"\K[^"]+' || \
+               echo "$RECOVER_OUTPUT" | tail -1 | sed 's/.*: //')
+
+    if [ -z "$ADMIN_PW" ]; then
+      echo "ERROR: Could not recover admin password"
+      echo "Output: $RECOVER_OUTPUT"
+      exit 1
+    fi
+    echo "  admin password recovered"
+
+    echo "Recovering idm_admin credentials..."
+    IDM_RECOVER=$(kubectl exec -n "${KANIDM_NAMESPACE}" "${KANIDM_POD}" -- \
+      kanidmd recover-account idm_admin 2>&1 || true)
+    IDM_ADMIN_PW=$(echo "$IDM_RECOVER" | grep -oP 'new_password:\s*"\K[^"]+' || \
+                   echo "$IDM_RECOVER" | tail -1 | sed 's/.*: //')
+
+    if [ -z "$IDM_ADMIN_PW" ]; then
+      echo "ERROR: Could not recover idm_admin password"
+      exit 1
+    fi
+    echo "  idm_admin password recovered"
+
+    # -----------------------------------------------------------------------
+    # Auth helper: authenticate via REST API, return bearer token
+    # -----------------------------------------------------------------------
+    auth_kanidm() {
+      local user="$1" pass="$2"
+      local cookies headers
+
+      cookies=$(mktemp)
+      headers=$(mktemp)
+
+      # Step 1: init
+      $C -D "$headers" -c "$cookies" -X POST "${KANIDM_URL}/v1/auth" \
+        -H "Content-Type: application/json" \
+        -d "{\"step\":{\"init\":\"${user}\"}}" > /dev/null
+
+      # Step 2: begin password method
+      $C -b "$cookies" -c "$cookies" -X POST "${KANIDM_URL}/v1/auth" \
+        -H "Content-Type: application/json" \
+        -d '{"step":{"begin":"password"}}' > /dev/null
+
+      # Step 3: provide password
+      local auth_resp
+      auth_resp=$($C -b "$cookies" -X POST "${KANIDM_URL}/v1/auth" \
+        -H "Content-Type: application/json" \
+        -d "{\"step\":{\"cred\":{\"password\":\"${pass}\"}}}")
+
+      rm -f "$headers" "$cookies"
+
+      # Extract token from success state
+      echo "$auth_resp" | grep -oP '"success":"[^"]*"' | cut -d'"' -f4 || \
+      echo "$auth_resp" | sed -n 's/.*"success":"\([^"]*\)".*/\1/p'
+    }
+
+    echo "Authenticating as admin..."
+    ADMIN_TOKEN=$(auth_kanidm "admin" "$ADMIN_PW")
+    if [ -z "$ADMIN_TOKEN" ]; then
+      echo "ERROR: Failed to authenticate as admin"
+      exit 1
+    fi
+    echo "  Authenticated as admin"
+
+    echo "Authenticating as idm_admin..."
+    IDM_TOKEN=$(auth_kanidm "idm_admin" "$IDM_ADMIN_PW")
+    if [ -z "$IDM_TOKEN" ]; then
+      echo "ERROR: Failed to authenticate as idm_admin"
+      exit 1
+    fi
+    echo "  Authenticated as idm_admin"
+
+    # -----------------------------------------------------------------------
+    # Helper functions
+    # -----------------------------------------------------------------------
+    resource_exists() {
+      local path="$1" token="${2:-$IDM_TOKEN}"
+      local body
+      body=$($C "${KANIDM_URL}${path}" -H "Authorization: Bearer ${token}")
+      [ "$body" != "null" ] && [ -n "$body" ] && \
+        ! echo "$body" | grep -qE '"(notauthenticated|accessdenied)"'
+    }
+
+    # -----------------------------------------------------------------------
+    # Create groups (idempotent)
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "==> Creating groups..."
+    {{- range .Values.kanidm.bootstrap.groups }}
+    if resource_exists "/v1/group/{{ . }}"; then
+      echo "  Group '{{ . }}' already exists"
+    else
+      $C -X POST "${KANIDM_URL}/v1/group" \
+        -H "Authorization: Bearer ${IDM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d '{"attrs":{"name":["{{ . }}"]}}' > /dev/null
+      echo "  Created group '{{ . }}'"
+    fi
+    {{- end }}
+
+    # -----------------------------------------------------------------------
+    # Create OAuth2 clients (idempotent)
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "==> Creating OAuth2 clients..."
+    {{- range .Values.kanidm.bootstrap.oauth2Clients }}
+    if resource_exists "/v1/oauth2/{{ .name }}" "$IDM_TOKEN"; then
+      echo "  OAuth2 client '{{ .name }}' already exists"
+    else
+      {{- if .public }}
+      $C -X POST "${KANIDM_URL}/v1/oauth2/_public" \
+        -H "Authorization: Bearer ${IDM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d '{"attrs":{"name":["{{ .name }}"],"displayname":["{{ .displayName }}"],"oauth2_rs_origin_landing":["'"${API_INGRESS_URL}"'"]}}' > /dev/null
+      {{- else }}
+      $C -X POST "${KANIDM_URL}/v1/oauth2/_basic" \
+        -H "Authorization: Bearer ${IDM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d '{"attrs":{"name":["{{ .name }}"],"displayname":["{{ .displayName }}"],"oauth2_rs_origin_landing":["'"${API_INGRESS_URL}"'"]}}' > /dev/null
+      {{- end }}
+      echo "  Created OAuth2 client '{{ .name }}'"
+    fi
+
+    # Set scope map for {{ .name }}
+    $C -X POST "${KANIDM_URL}/v1/oauth2/{{ .name }}/_scopemap/hearth-users" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '[{{ range $i, $s := .scopes }}{{ if $i }},{{ end }}"{{ $s }}"{{ end }}]' > /dev/null 2>&1 || true
+
+    # Configure short usernames
+    $C -X PATCH "${KANIDM_URL}/v1/oauth2/{{ .name }}" \
+      -H "Authorization: Bearer ${IDM_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"attrs":{"oauth2_prefer_short_username":["true"]}}' > /dev/null 2>&1 || true
+    {{- end }}
+
+    # -----------------------------------------------------------------------
+    # Create service account (idempotent)
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "==> Creating hearth-api-svc service account..."
+    if resource_exists "/v1/service_account/hearth-api-svc" "$ADMIN_TOKEN"; then
+      echo "  Service account 'hearth-api-svc' already exists"
+    else
+      $C -X POST "${KANIDM_URL}/v1/service_account" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"attrs":{"name":["hearth-api-svc"],"displayname":["Hearth API Service"]}}' > /dev/null
+      echo "  Created service account 'hearth-api-svc'"
+    fi
+
+    API_TOKEN=$($C -X POST "${KANIDM_URL}/v1/service_account/hearth-api-svc/_api_token" \
+      -H "Authorization: Bearer $ADMIN_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"label":"hearth-api","expiry":null}' 2>/dev/null | sed -n 's/^"\(.*\)"$/\1/p' || echo "")
+
+    # -----------------------------------------------------------------------
+    # Store credentials in Kubernetes Secret
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "==> Storing credentials in Kubernetes Secret..."
+    kubectl create secret generic "${KANIDM_SECRET_NAME}" \
+      --namespace "${KANIDM_NAMESPACE}" \
+      --from-literal=admin-password="${ADMIN_PW}" \
+      --from-literal=idm-admin-password="${IDM_ADMIN_PW}" \
+      --from-literal=api-service-token="${API_TOKEN}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+    echo ""
+    echo "=== Kanidm bootstrap complete ==="
+{{- end }}
+{{- end }}

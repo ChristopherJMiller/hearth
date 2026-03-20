@@ -30,6 +30,9 @@ dev/kanidm/.env
 # Only ignore the private key — the cert is public and needed by the enrollment ISO
 dev/kanidm/key.pem
 
+# Helm subchart tarballs (fetched via `helm dep update`)
+chart/hearth-home/charts/*.tgz
+
 # OS
 .DS_Store
 Thumbs.db

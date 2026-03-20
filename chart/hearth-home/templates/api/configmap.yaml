@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-api
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "api") | nindent 4 }}
+data:
+  LOG_FORMAT: {{ .Values.api.config.logFormat | quote }}
+  RUST_LOG: {{ .Values.api.config.rustLog | quote }}
+  HEARTH_WEB_DIST: {{ .Values.api.config.webDistPath | quote }}
+  HEARTH_IDENTITY_SYNC_INTERVAL_SECS: {{ .Values.api.config.identitySyncIntervalSecs | quote }}
+  HEARTH_FLAKE_REF: {{ .Values.api.config.flakeRef | quote }}
+  HEARTH_ATTIC_SERVER: {{ include "hearth-home.atticUrl" . | quote }}
+  HEARTH_ATTIC_CACHE: {{ .Values.attic.config.cacheName | quote }}
+  {{- if and .Values.api.ingress.enabled .Values.api.ingress.hosts }}
+  HEARTH_SERVER_URL: "https://{{ (index .Values.api.ingress.hosts 0).host }}"
+  {{- else }}
+  HEARTH_SERVER_URL: {{ include "hearth-home.apiUrl" . | quote }}
+  {{- end }}
+  {{- if .Values.capabilities.identity }}
+  KANIDM_OIDC_ISSUER: "{{ include "hearth-home.kanidmUrl" . }}/oauth2/openid/hearth-console"
+  KANIDM_OIDC_AUDIENCE: "hearth-console,hearth-enrollment"
+  HEARTH_KANIDM_URL: {{ include "hearth-home.kanidmUrl" . | quote }}
+  {{- end }}
+  {{- if .Values.capabilities.mesh }}
+  HEADSCALE_URL: {{ include "hearth-home.headscaleUrl" . | quote }}
+  {{- end }}
+  {{- if .Values.capabilities.builds }}
+  HEARTH_BINARY_CACHE_URL: {{ include "hearth-home.atticUrl" . | quote }}
+  {{- end }}

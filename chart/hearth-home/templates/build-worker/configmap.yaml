@@ -1,0 +1,20 @@
+{{- if .Values.capabilities.builds }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-build-worker
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "build-worker") | nindent 4 }}
+data:
+  LOG_FORMAT: {{ .Values.buildWorker.config.logFormat | quote }}
+  RUST_LOG: {{ .Values.buildWorker.config.rustLog | quote }}
+  HEARTH_WORKER_POLL_SECS: {{ .Values.buildWorker.config.pollIntervalSecs | quote }}
+  HEARTH_ATTIC_CACHE: {{ .Values.buildWorker.config.atticCache | quote }}
+  HEARTH_SBOM_DIR: {{ .Values.buildWorker.config.sbomDir | quote }}
+  HEARTH_FLAKE_REF: {{ .Values.buildWorker.config.flakeRef | quote }}
+  HEARTH_SERVER_URL: {{ include "hearth-home.apiUrl" . | quote }}
+  HEARTH_BINARY_CACHE_URL: {{ include "hearth-home.atticUrl" . | quote }}
+  {{- if .Values.capabilities.identity }}
+  HEARTH_KANIDM_URL: {{ include "hearth-home.kanidmUrl" . | quote }}
+  {{- end }}
+{{- end }}

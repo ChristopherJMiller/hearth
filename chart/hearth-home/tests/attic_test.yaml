@@ -1,0 +1,137 @@
+suite: Attic
+templates:
+  - attic/deployment.yaml
+  - attic/configmap.yaml
+  - attic/pvc.yaml
+  - attic/service.yaml
+  - attic/ingress.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  - it: should render Attic Deployment
+    template: attic/deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-attic$"
+
+  - it: should have initContainer for JWT secret injection
+    template: attic/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: inject-secret
+
+  - it: should mount config template and writable config volume on initContainer
+    template: attic/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: config-template
+            mountPath: /etc/attic-template
+            readOnly: true
+          any: true
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /etc/attic
+          any: true
+
+  - it: should mount config and data volumes on main container
+    template: attic/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /etc/attic
+            readOnly: true
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: data
+            mountPath: /var/lib/attic
+          any: true
+
+  - it: should render server.toml with local storage by default
+    template: attic/configmap.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["server.toml"]
+          pattern: 'type = "local"'
+      - matchRegex:
+          path: data["server.toml"]
+          pattern: 'path = "/var/lib/attic/storage"'
+
+  - it: should render server.toml with S3 storage
+    template: attic/configmap.yaml
+    set:
+      attic.storage.type: s3
+      attic.storage.s3.bucket: my-bucket
+      attic.storage.s3.region: us-east-1
+    asserts:
+      - matchRegex:
+          path: data["server.toml"]
+          pattern: 'type = "s3"'
+      - matchRegex:
+          path: data["server.toml"]
+          pattern: 'bucket = "my-bucket"'
+      - matchRegex:
+          path: data["server.toml"]
+          pattern: 'region = "us-east-1"'
+
+  - it: should create PVC for local storage
+    template: attic/pvc.yaml
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: spec.resources.requests.storage
+          value: 50Gi
+
+  - it: should not create PVC for S3 storage
+    template: attic/pvc.yaml
+    set:
+      attic.storage.type: s3
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render Service on correct port
+    template: attic/service.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+
+  - it: should not render ingress when disabled (default)
+    template: attic/ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render ingress when enabled
+    template: attic/ingress.yaml
+    set:
+      attic.ingress.enabled: true
+      attic.ingress.hosts:
+        - host: cache.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - isKind:
+          of: Ingress
+      - matchRegex:
+          path: metadata.name
+          pattern: "-attic$"

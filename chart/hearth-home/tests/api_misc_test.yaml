@@ -1,0 +1,93 @@
+suite: API PDB, ServiceAccount, ServiceMonitor
+templates:
+  - api/pdb.yaml
+  - api/serviceaccount.yaml
+  - api/servicemonitor.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  # --- PodDisruptionBudget ---
+  - it: should render PDB when enabled
+    template: api/pdb.yaml
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: metadata.name
+          value: hearth-hearth-home-api
+
+  - it: should set correct minAvailable on PDB
+    template: api/pdb.yaml
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 1
+
+  - it: should set custom minAvailable on PDB
+    template: api/pdb.yaml
+    set:
+      api.podDisruptionBudget.minAvailable: 2
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 2
+
+  - it: should not render PDB when disabled
+    template: api/pdb.yaml
+    set:
+      api.podDisruptionBudget.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # --- ServiceAccount ---
+  - it: should render ServiceAccount when create is true
+    template: api/serviceaccount.yaml
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: hearth-hearth-home-api
+
+  - it: should not render ServiceAccount when create is false
+    template: api/serviceaccount.yaml
+    set:
+      api.serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should include ServiceAccount annotations when set
+    template: api/serviceaccount.yaml
+    set:
+      api.serviceAccount.annotations:
+        my-annotation: my-value
+    asserts:
+      - equal:
+          path: metadata.annotations.my-annotation
+          value: my-value
+
+  # --- ServiceMonitor ---
+  - it: should render ServiceMonitor when observability enabled
+    template: api/servicemonitor.yaml
+    set:
+      capabilities.observability: true
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: metadata.name
+          value: hearth-hearth-home-api
+      - equal:
+          path: spec.endpoints[0].path
+          value: /metrics
+
+  - it: should not render ServiceMonitor when observability disabled
+    template: api/servicemonitor.yaml
+    set:
+      capabilities.observability: false
+    asserts:
+      - hasDocuments:
+          count: 0

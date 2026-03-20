@@ -1,0 +1,22 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-test-db
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "test") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  containers:
+    - name: test
+      image: postgres:16
+      command:
+        - sh
+        - -c
+        - |
+          pg_isready -h {{ .Release.Name }}-postgresql -p 5432 -U {{ .Values.postgresql.auth.username }} \
+            && echo "PostgreSQL connection check passed"
+  restartPolicy: Never
+{{- end }}

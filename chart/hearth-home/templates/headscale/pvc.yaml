@@ -1,0 +1,17 @@
+{{- if .Values.capabilities.mesh }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-headscale
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.headscale.persistence.size }}
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,23 @@
+{{- if .Values.capabilities.identity }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-test-kanidm
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "test") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  containers:
+    - name: test
+      image: curlimages/curl:8.5.0
+      command:
+        - sh
+        - -c
+        - |
+          curl -sk --max-time 10 \
+            "https://{{ include "hearth-home.fullname" . }}-kanidm:{{ .Values.kanidm.service.port }}/status" \
+            && echo "Kanidm status check passed"
+  restartPolicy: Never
+{{- end }}

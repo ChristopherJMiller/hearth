@@ -150,6 +150,30 @@
           cargoNextestExtraArgs = "--workspace";
         });
 
+        # Helm chart validation (lint + kubeconform)
+        helmChartLint = pkgs.runCommand "helm-chart-lint" {
+          nativeBuildInputs = [ pkgs.kubernetes-helm pkgs.kubeconform ];
+        } ''
+          # helm lint
+          helm lint ${./chart/hearth-home} --strict
+
+          # Render and validate with kubeconform (skip CRDs like ServiceMonitor)
+          helm template hearth ${./chart/hearth-home} \
+            --set capabilities.observability=false \
+            | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+
+          # Render with all capabilities (except observability which pulls subcharts)
+          helm template hearth ${./chart/hearth-home} \
+            --set capabilities.identity=true \
+            --set capabilities.mesh=true \
+            --set capabilities.builds=true \
+            --set capabilities.observability=false \
+            | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+
+          mkdir -p $out
+          echo "Helm chart lint + kubeconform passed" > $out/result
+        '';
+
         lib = pkgs.lib;
 
         # pkgs with kanidm allowed (marked insecure in this nixpkgs)
@@ -196,6 +220,7 @@
         checks = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api hearth-build-worker;
           inherit workspaceClippy workspaceFmt workspaceTests;
+          inherit helmChartLint;
         } // vmTests;
 
         packages = {
@@ -250,6 +275,12 @@
             (pkgs.callPackage ./nix/kanidm-cli.nix {
               inherit (pkgs) rust-bin;
             })
+
+            # Helm chart tooling
+            kubernetes-helm
+            chart-testing
+            kubeconform
+            kind
 
             # Utilities
             jq

@@ -1,0 +1,137 @@
+suite: Capabilities toggles
+release:
+  name: hearth
+  namespace: default
+tests:
+  # ── Identity (Kanidm) ──────────────────────────────────────
+  - it: should render Kanidm StatefulSet when identity enabled (default)
+    template: kanidm/statefulset.yaml
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - matchRegex:
+          path: metadata.name
+          pattern: "-kanidm$"
+
+  - it: should not render Kanidm StatefulSet when identity disabled
+    template: kanidm/statefulset.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Kanidm Service when identity disabled
+    template: kanidm/service.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Mesh (Headscale) ───────────────────────────────────────
+  - it: should render Headscale Deployment when mesh enabled (default)
+    template: headscale/deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-headscale$"
+
+  - it: should not render Headscale Deployment when mesh disabled
+    template: headscale/deployment.yaml
+    set:
+      capabilities.mesh: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Headscale Service when mesh disabled
+    template: headscale/service.yaml
+    set:
+      capabilities.mesh: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render Headscale PVC when mesh disabled
+    template: headscale/pvc.yaml
+    set:
+      capabilities.mesh: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Builds (build-worker) ──────────────────────────────────
+  - it: should render build-worker Deployment when builds enabled (default)
+    template: build-worker/deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: metadata.name
+          pattern: "-build-worker$"
+
+  - it: should not render build-worker when builds disabled
+    template: build-worker/deployment.yaml
+    set:
+      capabilities.builds: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set correct worker replicas
+    template: build-worker/deployment.yaml
+    set:
+      buildWorker.replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  # ── Observability ──────────────────────────────────────────
+  - it: should not render ServiceMonitor when observability disabled (default)
+    template: observability/servicemonitor.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render ServiceMonitors when observability enabled
+    template: observability/servicemonitor.yaml
+    set:
+      capabilities.observability: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ServiceMonitor
+        documentIndex: 0
+      - isKind:
+          of: ServiceMonitor
+        documentIndex: 1
+
+  - it: should render only API ServiceMonitor when observability enabled but mesh disabled
+    template: observability/servicemonitor.yaml
+    set:
+      capabilities.observability: true
+      capabilities.mesh: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ServiceMonitor
+
+  - it: should not render API ServiceMonitor when observability disabled
+    template: api/servicemonitor.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render API ServiceMonitor when observability enabled
+    template: api/servicemonitor.yaml
+    set:
+      capabilities.observability: true
+    asserts:
+      - isKind:
+          of: ServiceMonitor

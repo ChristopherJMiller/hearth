@@ -1,0 +1,174 @@
+# Production overlay — use with: helm install hearth . -f values-production.yaml
+#
+# Assumes:
+# - External secrets pre-created (hearth-secrets, hearth-db-credentials, etc.)
+# - cert-manager available for TLS
+# - Ingress controller (e.g., nginx-ingress) configured
+# - Storage class for persistent volumes
+
+capabilities:
+  identity: true
+  mesh: true
+  builds: true
+  observability: true
+
+api:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  config:
+    logFormat: json
+    rustLog: "hearth_api=info,tower_http=info"
+    flakeRef: "github:your-org/fleet-config"
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: hearth.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: hearth-tls
+        hosts:
+          - hearth.example.com
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUPercent: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+secrets:
+  existingSecret: hearth-secrets
+
+postgresql:
+  enabled: false
+
+externalDatabase:
+  host: hearth-db.example.com
+  port: 5432
+  user: hearth
+  database: hearth
+  existingSecret: hearth-db-credentials
+  existingSecretPasswordKey: password
+
+attic:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  storage:
+    type: s3
+    s3:
+      bucket: hearth-binary-cache
+      region: us-east-1
+      endpoint: ""
+      credentialsSecret: hearth-s3-credentials
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    hosts:
+      - host: cache.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: cache-tls
+        hosts:
+          - cache.example.com
+
+kanidm:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  config:
+    domain: idm.example.com
+    origin: "https://idm.example.com"
+    trustXForwardFor: true
+  tls:
+    selfSigned: false
+    existingSecret: kanidm-tls
+  persistence:
+    size: 20Gi
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    hosts:
+      - host: idm.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: kanidm-tls
+        hosts:
+          - idm.example.com
+
+headscale:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  config:
+    serverUrl: "https://mesh.example.com"
+    baseDomain: example.com
+  apiKey:
+    existingSecret: hearth-headscale-api-key
+    existingSecretKey: api-key
+  persistence:
+    size: 10Gi
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: mesh.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: headscale-tls
+        hosts:
+          - mesh.example.com
+
+buildWorker:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "4"
+      memory: 8Gi
+    limits:
+      cpu: "8"
+      memory: 16Gi
+  config:
+    flakeRef: "github:your-org/fleet-config"
+  nixStore:
+    enabled: true
+    size: 100Gi

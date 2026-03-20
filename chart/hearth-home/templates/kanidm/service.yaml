@@ -1,0 +1,17 @@
+{{- if .Values.capabilities.identity }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: https
+      port: {{ .Values.kanidm.service.port }}
+      targetPort: https
+      protocol: TCP
+  selector:
+    {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+{{- end }}

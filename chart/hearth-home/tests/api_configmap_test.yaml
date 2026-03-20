@@ -1,0 +1,89 @@
+suite: API ConfigMap
+templates:
+  - api/configmap.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  - it: should include base config values
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: data.LOG_FORMAT
+          value: "json"
+      - equal:
+          path: data.RUST_LOG
+          value: "hearth_api=info,tower_http=debug"
+      - equal:
+          path: data.HEARTH_WEB_DIST
+          value: /app/web
+      - isNotEmpty:
+          path: data.HEARTH_ATTIC_SERVER
+      - isNotEmpty:
+          path: data.HEARTH_ATTIC_CACHE
+
+  - it: should include Kanidm env vars when identity enabled
+    set:
+      capabilities.identity: true
+    asserts:
+      - isNotEmpty:
+          path: data.KANIDM_OIDC_ISSUER
+      - isNotEmpty:
+          path: data.KANIDM_OIDC_AUDIENCE
+      - isNotEmpty:
+          path: data.HEARTH_KANIDM_URL
+
+  - it: should not include Kanidm env vars when identity disabled
+    set:
+      capabilities.identity: false
+    asserts:
+      - notExists:
+          path: data.KANIDM_OIDC_ISSUER
+      - notExists:
+          path: data.KANIDM_OIDC_AUDIENCE
+      - notExists:
+          path: data.HEARTH_KANIDM_URL
+
+  - it: should include HEADSCALE_URL when mesh enabled
+    set:
+      capabilities.mesh: true
+    asserts:
+      - isNotEmpty:
+          path: data.HEADSCALE_URL
+
+  - it: should not include HEADSCALE_URL when mesh disabled
+    set:
+      capabilities.mesh: false
+    asserts:
+      - notExists:
+          path: data.HEADSCALE_URL
+
+  - it: should include HEARTH_BINARY_CACHE_URL when builds enabled
+    set:
+      capabilities.builds: true
+    asserts:
+      - isNotEmpty:
+          path: data.HEARTH_BINARY_CACHE_URL
+
+  - it: should not include HEARTH_BINARY_CACHE_URL when builds disabled
+    set:
+      capabilities.builds: false
+    asserts:
+      - notExists:
+          path: data.HEARTH_BINARY_CACHE_URL
+
+  - it: should use ingress host for HEARTH_SERVER_URL when ingress enabled
+    # default values already have api.ingress.enabled=true and hosts[0].host=hearth.example.com
+    asserts:
+      - equal:
+          path: data.HEARTH_SERVER_URL
+          value: "https://hearth.example.com"
+
+  - it: should use internal URL when ingress disabled
+    set:
+      api.ingress.enabled: false
+    asserts:
+      - matchRegex:
+          path: data.HEARTH_SERVER_URL
+          pattern: "-api:"

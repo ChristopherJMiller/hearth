@@ -1,0 +1,94 @@
+{{- if .Values.capabilities.builds }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-build-worker
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "build-worker") | nindent 4 }}
+spec:
+  replicas: {{ .Values.buildWorker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "build-worker") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/build-worker/configmap.yaml") . | sha256sum }}
+      {{- with .Values.buildWorker.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "build-worker") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ if .Values.postgresql.enabled }}{{ .Release.Name }}-postgresql{{ else }}{{ .Values.externalDatabase.host }}{{ end }} {{ if .Values.postgresql.enabled }}5432{{ else }}{{ .Values.externalDatabase.port | default 5432 }}{{ end }}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+      containers:
+        - name: build-worker
+          image: "{{ .Values.buildWorker.image.repository }}:{{ .Values.buildWorker.image.tag }}"
+          imagePullPolicy: {{ .Values.buildWorker.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "hearth-home.fullname" . }}-build-worker
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.databaseSecretName" . }}
+                  key: {{ include "hearth-home.databaseSecretKey" . }}
+            - name: DATABASE_URL
+              value: {{ include "hearth-home.databaseUrl" . }}
+            - name: HEARTH_ATTIC_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.secretName" . }}
+                  key: attic-token-secret
+          resources:
+            {{- toYaml .Values.buildWorker.resources | nindent 12 }}
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp/hearth-builds
+            {{- if .Values.buildWorker.nixStore.enabled }}
+            - name: nix-store
+              mountPath: /nix
+            {{- end }}
+            - name: sbom
+              mountPath: {{ .Values.buildWorker.config.sbomDir }}
+      volumes:
+        - name: scratch
+          {{- if eq .Values.buildWorker.scratch.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ include "hearth-home.fullname" . }}-build-worker-scratch
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.buildWorker.scratch.emptyDir.sizeLimit }}
+          {{- end }}
+        {{- if .Values.buildWorker.nixStore.enabled }}
+        - name: nix-store
+          persistentVolumeClaim:
+            claimName: {{ include "hearth-home.fullname" . }}-build-worker-nix
+        {{- end }}
+        - name: sbom
+          emptyDir: {}
+      {{- with .Values.buildWorker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.buildWorker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.buildWorker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

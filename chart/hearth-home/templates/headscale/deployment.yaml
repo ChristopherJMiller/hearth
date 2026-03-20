@@ -1,0 +1,74 @@
+{{- if .Values.capabilities.mesh }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-headscale
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "headscale") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/headscale/configmap.yaml") . | sha256sum }}
+      {{- with .Values.headscale.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "headscale") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: headscale
+          image: "{{ .Values.headscale.image.repository }}:{{ .Values.headscale.image.tag }}"
+          imagePullPolicy: {{ .Values.headscale.image.pullPolicy }}
+          command: ["headscale", "serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command: ["headscale", "health"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["headscale", "health"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.headscale.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/headscale/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/headscale
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "hearth-home.fullname" . }}-headscale
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "hearth-home.fullname" . }}-headscale
+      {{- with .Values.headscale.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.headscale.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.headscale.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,42 @@
+apiVersion: v2
+name: hearth-home
+description: >-
+  Hearth Home Cluster — NixOS fleet management control plane and services.
+  Deploys the API server, binary cache, identity provider, mesh VPN coordinator,
+  build workers, and observability stack with a capabilities toggle model.
+version: 0.1.0
+appVersion: "0.1.0"
+type: application
+home: https://github.com/your-org/hearth
+keywords:
+  - nixos
+  - fleet-management
+  - enterprise
+  - desktop
+maintainers:
+  - name: Hearth Team
+
+dependencies:
+  # PostgreSQL — always required (disable for external DB)
+  - name: postgresql
+    version: "16.4.7"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+
+  # Grafana — observability capability
+  - name: grafana
+    version: "8.8.2"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: capabilities.observability
+
+  # Loki — observability capability
+  - name: loki
+    version: "6.24.0"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: capabilities.observability
+
+  # Prometheus — observability capability
+  - name: prometheus
+    version: "25.30.1"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: capabilities.observability

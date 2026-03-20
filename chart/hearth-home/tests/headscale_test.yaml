@@ -1,0 +1,37 @@
+suite: Headscale
+templates:
+  - headscale/configmap.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  - it: should render Headscale config with correct server URL
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "server_url: https://headscale\\.hearth\\.local"
+
+  - it: should render Headscale config with custom server URL
+    set:
+      headscale.config.serverUrl: "https://vpn.example.com"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "server_url: https://vpn\\.example\\.com"
+
+  - it: should render Headscale config with custom base domain
+    set:
+      headscale.config.baseDomain: mycompany.com
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_domain: mycompany\\.com"
+
+  - it: should not render configmap when mesh disabled
+    set:
+      capabilities.mesh: false
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -296,12 +296,26 @@ The Headscale mesh with MagicDNS provides the foundation for fleet-internal serv
 - **NixOS:** New `modules/compliance/` directory with default.nix + 5 control modules (CIS + STIG), mk-fleet-host.nix +complianceProfile parameter
 - **SQL:** migration 014 (compliance_policies, policy_results, deployment_sboms tables)
 
-### 5C: User Environment Polish
+### 5C: Hearth Home Cluster Helm Chart ✓
+
+Production-ready Kubernetes deployment for the Hearth control plane and all supporting services. Uses a capabilities toggle model for incremental adoption.
+
+- [x] **Helm chart scaffolding:** `chart/hearth-home/` with Chart.yaml, values.yaml (full schema), values-production.yaml example overlay, `_helpers.tpl` (labels, names, URL assembly, secret resolution, database URL construction).
+- [x] **Core templates (always deployed):** hearth-api Deployment (initContainer wait-for-postgres, conditional env vars per capability, secret injection, liveness/readiness probes on /api/v1/health), Service, ConfigMap, Secret (auto-generated with upgrade-safe lookup), Ingress, ServiceAccount, PDB. Attic binary cache Deployment (initContainer for JWT secret injection into server.toml), ConfigMap, PVC (local or S3), Ingress. PostgreSQL via Bitnami subchart (or external DB).
+- [x] **Identity capability (Kanidm):** StatefulSet (SQLite on PVC), Service, ConfigMap (server.toml), TLS Secret (self-signed cert generation with upgrade-safe lookup, or existing secret), Ingress (backend-protocol: HTTPS). Bootstrap Job (post-install Helm hook) with ServiceAccount + RBAC — creates groups, OAuth2 clients, API service account via kubectl exec + REST API. Production-minimal: no test users.
+- [x] **Mesh capability (Headscale):** Deployment, Service, ConfigMap (config.yaml with MagicDNS, DERP, prefixes), PVC, Ingress. API key injection via existingSecret.
+- [x] **Builds capability (Build worker):** Deployment with wait-for-postgres, ConfigMap, PVCs (persistent Nix store + scratch space). Heavy resource defaults (2 CPU, 4GB RAM).
+- [x] **Observability capability:** Grafana, Loki, Prometheus subcharts (conditionally pulled). ServiceMonitors for hearth-api and Headscale /metrics. Grafana dashboard ConfigMap (fleet overview).
+- [x] **Testing infrastructure:** 12 helm-unittest test suites (105 tests) covering all templates, capabilities toggles, conditional env vars, secret generation, Kanidm bootstrap RBAC. Kubeconform schema validation against K8s 1.29.0. Chart-testing (ct) smoke test config with CI values for Kind cluster. `helmChartLint` Nix flake check.
+- [x] **CI workflow:** `.github/workflows/helm.yml` — lint + unittest, kubeconform (3 value combos), ct install on Kind. Triggers on `chart/` changes.
+- [x] **Local cluster bootstrap:** `just helm-up` / `just helm-down` recipes for Kind cluster lifecycle. `just helm-check` runs lint + unittest + kubeconform.
+
+### 5D: User Environment Polish
 
 - [ ] **Closure pre-warming:** When a machine enrolls or changes role, the control plane enumerates likely users (from Kanidm group membership for the assigned role) and queues pre-builds of their per-user closures. Reduces first-login latency from "1–3 minute build" to "15–60 second cache pull."
 - [ ] **WiFi/802.1X certificate distribution:** The control plane provisions 802.1X machine certificates as part of enrollment secrets. The NixOS module configures `wpa_supplicant` or `iwd` with the certificate and network profile. Certificates rotate via the control plane's secret management.
 
-### 5D: Scale
+### 5E: Scale
 
 - [ ] **PXE/iPXE boot service:** Control plane serves boot images based on device identity — unknown devices get the enrollment image, known devices boot from local disk, reprovisioning devices get a fresh installer. Uses iPXE chain-loading from an HTTP endpoint. Enables zero-touch provisioning of 50+ machines simultaneously.
 - [ ] **gRPC/SSE push notifications:** Optional push channel from control plane to agent for latency-sensitive deployments. Agent maintains a long-lived connection over the Headscale mesh (or direct HTTPS). Control plane wakes the agent immediately when a new target closure is set, rather than waiting for the next 60-second poll cycle.
@@ -420,9 +434,15 @@ hearth/
 │   ├── packages/ui/            # @hearth/ui shared design system
 │   ├── apps/catalog/           # @hearth/catalog Software Center SPA
 │   └── apps/console/           # @hearth/console Admin Console SPA
-├── deploy/                     # Container deployment & observability
-│   ├── docker-compose.prod.yml # Production docker-compose
-│   ├── helm/                   # Helm chart for k8s deployment
+├── chart/
+│   └── hearth-home/            # Helm chart for Hearth Home Cluster
+│       ├── Chart.yaml          # Metadata + subchart dependencies
+│       ├── values.yaml         # Default values (capabilities model)
+│       ├── values-production.yaml # Production overlay example
+│       ├── templates/          # K8s manifests (api, attic, kanidm, headscale, build-worker, observability, tests)
+│       ├── tests/              # helm-unittest test suites (105 tests)
+│       └── ci/ct-values.yaml   # Minimal values for Kind smoke test
+├── deploy/                     # Observability config
 │   ├── grafana/
 │   │   └── fleet-overview.json # Pre-built Grafana dashboard
 │   └── promtail-config.yml    # Standard Promtail config for fleet
@@ -438,7 +458,7 @@ hearth/
 
 ## CI Pipeline
 
-Every PR: `nix flake check` (includes Rust builds, clippy, fmt, nextest, and VM integration tests on Linux) + `sqlx prepare --check`
+Every PR: `nix flake check` (includes Rust builds, clippy, fmt, nextest, VM integration tests, and Helm chart lint/kubeconform on Linux) + `sqlx prepare --check`. Helm chart changes additionally trigger `.github/workflows/helm.yml` (helm-unittest, kubeconform, ct install on Kind).
 
 Merges to main: additionally push to Attic.
 
@@ -456,7 +476,7 @@ Merges to main: additionally push to Attic.
 - Build worker runs natively via `cargo run -p hearth-build-worker`
 
 ### nix develop Shell
-Rust stable, cargo, clippy, rustfmt, rust-analyzer, sqlx-cli, GTK4 dev libs, pkg-config, nix-eval-jobs, attic-client, cargo-nextest, cargo-watch, docker-compose, jq, httpie
+Rust stable, cargo, clippy, rustfmt, rust-analyzer, sqlx-cli, GTK4 dev libs, pkg-config, nix-eval-jobs, attic-client, cargo-nextest, cargo-watch, docker-compose, kubernetes-helm, chart-testing, kubeconform, kind, jq, httpie
 
 ### NixOS VM Testing
 - **nixos-test (CI):** QEMU VMs, multi-node, `nix flake check`

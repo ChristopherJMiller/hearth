@@ -1,0 +1,102 @@
+{{- if .Values.capabilities.identity }}
+{{- if .Values.kanidm.bootstrap.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: "{{ .Values.kanidm.bootstrap.image.repository }}:{{ .Values.kanidm.bootstrap.image.tag }}"
+          imagePullPolicy: {{ .Values.kanidm.bootstrap.image.pullPolicy }}
+          command: ["/bin/bash", "/scripts/bootstrap.sh"]
+          env:
+            - name: KANIDM_POD
+              value: {{ include "hearth-home.fullname" . }}-kanidm-0
+            - name: KANIDM_NAMESPACE
+              value: {{ .Release.Namespace }}
+            - name: KANIDM_URL
+              value: "https://{{ include "hearth-home.fullname" . }}-kanidm:{{ .Values.kanidm.service.port }}"
+            - name: KANIDM_DOMAIN
+              value: {{ .Values.kanidm.config.domain }}
+            - name: KANIDM_SECRET_NAME
+              value: {{ include "hearth-home.fullname" . }}-kanidm-credentials
+            - name: API_INGRESS_URL
+              value: {{ if .Values.api.ingress.enabled }}https://{{ (first .Values.api.ingress.hosts).host }}{{ else }}{{ include "hearth-home.apiUrl" . }}{{ end }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+{{- end }}
+{{- end }}

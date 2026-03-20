@@ -1,0 +1,21 @@
+{{- if .Values.capabilities.mesh }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-headscale
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.headscale.service.port }}
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.headscale.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "hearth-home.selectorLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+{{- end }}

@@ -1,0 +1,153 @@
+suite: Kanidm Bootstrap
+templates:
+  - kanidm/job-bootstrap.yaml
+  - kanidm/bootstrap-configmap.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  # ---------- Bootstrap Job rendering ----------
+
+  - it: should render bootstrap Job when bootstrap enabled
+    template: kanidm/job-bootstrap.yaml
+    asserts:
+      - hasDocuments:
+          count: 4
+
+  - it: should not render bootstrap resources when bootstrap disabled
+    template: kanidm/job-bootstrap.yaml
+    set:
+      kanidm.bootstrap.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when identity capability is disabled
+    template: kanidm/job-bootstrap.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ---------- Individual document types ----------
+
+  - it: should create ServiceAccount for bootstrap
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ServiceAccount
+
+  - it: should create Role with pods/exec and secrets permissions
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Role
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods/exec"]
+            verbs: ["create"]
+          any: true
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["get", "create", "update", "patch"]
+          any: true
+
+  - it: should create RoleBinding for bootstrap
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: RoleBinding
+
+  - it: should have post-install hook annotation on Job
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 3
+    asserts:
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install
+
+  - it: should set correct env vars in bootstrap Job
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KANIDM_POD
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KANIDM_NAMESPACE
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KANIDM_URL
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KANIDM_SECRET_NAME
+          any: true
+
+  # ---------- Bootstrap ConfigMap ----------
+
+  - it: should render bootstrap script with configured groups
+    template: kanidm/bootstrap-configmap.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["bootstrap.sh"]
+          pattern: hearth-users
+      - matchRegex:
+          path: data["bootstrap.sh"]
+          pattern: hearth-admins
+
+  - it: should render bootstrap script with configured OAuth2 clients
+    template: kanidm/bootstrap-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["bootstrap.sh"]
+          pattern: hearth-console
+      - matchRegex:
+          path: data["bootstrap.sh"]
+          pattern: hearth-enrollment
+
+  - it: should render bootstrap script with custom groups
+    template: kanidm/bootstrap-configmap.yaml
+    set:
+      kanidm.bootstrap.groups:
+        - custom-group
+    asserts:
+      - matchRegex:
+          path: data["bootstrap.sh"]
+          pattern: custom-group
+
+  - it: should not render bootstrap configmap when bootstrap disabled
+    template: kanidm/bootstrap-configmap.yaml
+    set:
+      kanidm.bootstrap.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render bootstrap configmap when identity disabled
+    template: kanidm/bootstrap-configmap.yaml
+    set:
+      capabilities.identity: false
+    asserts:
+      - hasDocuments:
+          count: 0

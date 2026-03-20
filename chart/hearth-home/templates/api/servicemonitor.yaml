@@ -1,0 +1,16 @@
+{{- if .Values.capabilities.observability }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-api
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "api") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "api") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+{{- end }}

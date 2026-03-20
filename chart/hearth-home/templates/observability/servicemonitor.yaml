@@ -1,0 +1,33 @@
+{{- if .Values.capabilities.observability }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-api
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "api") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "api") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+{{- if .Values.capabilities.mesh }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-headscale
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "headscale") | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+{{- end }}
+{{- end }}

@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-attic
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "attic") | nindent 4 }}
+spec:
+  replicas: {{ .Values.attic.replicas }}
+  selector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "attic") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.attic.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "attic") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        - name: inject-secret
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              ENCODED=$(echo -n "${ATTIC_JWT_SECRET}" | base64)
+              cp /etc/attic-template/server.toml /etc/attic/server.toml
+              sed -i "s|PLACEHOLDER|${ENCODED}|g" /etc/attic/server.toml
+          env:
+            - name: ATTIC_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.secretName" . }}
+                  key: attic-token-secret
+          volumeMounts:
+            - name: config-template
+              mountPath: /etc/attic-template
+              readOnly: true
+            - name: config
+              mountPath: /etc/attic
+      containers:
+        - name: attic
+          image: "{{ .Values.attic.image.repository }}:{{ .Values.attic.image.tag }}"
+          imagePullPolicy: {{ .Values.attic.image.pullPolicy }}
+          command:
+            - atticd
+          args:
+            - "-f"
+            - "/etc/attic/server.toml"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.attic.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/attic
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/attic
+      volumes:
+        - name: config-template
+          configMap:
+            name: {{ include "hearth-home.fullname" . }}-attic
+        - name: config
+          emptyDir: {}
+        - name: data
+          {{- if and (eq .Values.attic.storage.type "local") .Values.attic.storage.local.size }}
+          persistentVolumeClaim:
+            claimName: {{ include "hearth-home.fullname" . }}-attic
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.attic.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.attic.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.attic.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

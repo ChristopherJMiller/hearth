@@ -1,0 +1,56 @@
+# Minimal values for chart-testing (ct) smoke test on a Kind cluster.
+# Uses small resource requests to fit in CI runners.
+
+api:
+  replicas: 1
+  image:
+    # Use a lightweight placeholder since the real image may not be available in CI
+    repository: nginx
+    tag: alpine
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  ingress:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+
+# Disable capabilities that need real images or special setup
+capabilities:
+  identity: false
+  mesh: false
+  builds: false
+  observability: false
+
+attic:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  ingress:
+    enabled: false
+
+postgresql:
+  enabled: true
+  auth:
+    username: hearth
+    password: hearth-ci-test
+    database: hearth
+  primary:
+    persistence:
+      size: 1Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi

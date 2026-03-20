@@ -1,0 +1,82 @@
+
+Hearth Home Cluster has been deployed!
+
+=== Core Services ===
+
+  hearth-api:
+    Internal: http://{{ include "hearth-home.fullname" . }}-api:{{ .Values.api.service.port }}
+{{- if .Values.api.ingress.enabled }}
+{{- range .Values.api.ingress.hosts }}
+    External: http{{ if $.Values.api.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+
+  Attic (binary cache):
+    Internal: {{ include "hearth-home.atticUrl" . }}
+{{- if .Values.attic.ingress.enabled }}
+{{- range .Values.attic.ingress.hosts }}
+    External: http{{ if $.Values.attic.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+
+  PostgreSQL:
+{{- if .Values.postgresql.enabled }}
+    Internal: {{ .Release.Name }}-postgresql:5432
+{{- else }}
+    External: {{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port | default 5432 }}
+{{- end }}
+
+=== Capabilities ===
+{{- if .Values.capabilities.identity }}
+
+  Kanidm (identity):
+    Internal: {{ include "hearth-home.kanidmUrl" . }}
+{{- if .Values.kanidm.ingress.enabled }}
+{{- range .Values.kanidm.ingress.hosts }}
+    External: https://{{ .host }}
+{{- end }}
+{{- end }}
+{{- if .Values.kanidm.bootstrap.enabled }}
+    Bootstrap credentials stored in: {{ include "hearth-home.fullname" . }}-kanidm-credentials
+{{- end }}
+{{- else }}
+  Kanidm: disabled
+{{- end }}
+{{- if .Values.capabilities.mesh }}
+
+  Headscale (mesh VPN):
+    Internal: {{ include "hearth-home.headscaleUrl" . }}
+{{- if .Values.headscale.ingress.enabled }}
+{{- range .Values.headscale.ingress.hosts }}
+    External: http{{ if $.Values.headscale.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+{{- else }}
+  Headscale: disabled
+{{- end }}
+{{- if .Values.capabilities.builds }}
+
+  Build worker: {{ .Values.buildWorker.replicas }} replica(s)
+{{- else }}
+  Build worker: disabled
+{{- end }}
+{{- if .Values.capabilities.observability }}
+
+  Observability: enabled (Grafana, Loki, Prometheus)
+{{- else }}
+  Observability: disabled
+{{- end }}
+
+=== Next Steps ===
+
+1. Verify the deployment:
+   $ helm test {{ .Release.Name }}
+
+2. Check API health:
+   $ kubectl port-forward svc/{{ include "hearth-home.fullname" . }}-api {{ .Values.api.service.port }}
+   $ curl http://localhost:{{ .Values.api.service.port }}/api/v1/health
+{{- if .Values.capabilities.identity }}
+
+3. Retrieve Kanidm admin credentials:
+   $ kubectl get secret {{ include "hearth-home.fullname" . }}-kanidm-credentials -o jsonpath='{.data.admin-password}' | base64 -d
+{{- end }}

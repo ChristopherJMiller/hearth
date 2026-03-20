@@ -1,0 +1,67 @@
+suite: API Ingress
+templates:
+  - api/ingress.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  - it: should render when enabled (default)
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: metadata.name
+          value: hearth-hearth-home-api
+
+  - it: should not render when disabled
+    set:
+      api.ingress.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set the correct host
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: "hearth.example.com"
+
+  - it: should set the correct backend service
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: hearth-hearth-home-api
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.name
+          value: http
+
+  - it: should include TLS when configured
+    set:
+      api.ingress.tls:
+        - hosts:
+            - hearth.example.com
+          secretName: hearth-tls
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: hearth-tls
+      - contains:
+          path: spec.tls[0].hosts
+          content: hearth.example.com
+
+  - it: should set ingressClassName when specified
+    set:
+      api.ingress.className: nginx
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+
+  - it: should include annotations when specified
+    set:
+      api.ingress.annotations:
+        custom-annotation: test-value
+    asserts:
+      - equal:
+          path: metadata.annotations.custom-annotation
+          value: test-value

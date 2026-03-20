@@ -1,0 +1,47 @@
+{{- if .Values.capabilities.mesh }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-headscale
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+data:
+  config.yaml: |
+    server_url: {{ .Values.headscale.config.serverUrl }}
+    listen_addr: 0.0.0.0:8080
+    metrics_listen_addr: 0.0.0.0:9090
+
+    private_key_path: /var/lib/headscale/private.key
+
+    noise:
+      private_key_path: /var/lib/headscale/noise_private.key
+
+    prefixes:
+      v4: {{ .Values.headscale.config.prefixes.v4 }}
+      v6: {{ .Values.headscale.config.prefixes.v6 }}
+
+    derp:
+      server:
+        enabled: {{ .Values.headscale.config.derp.serverEnabled }}
+      urls:
+        {{- toYaml .Values.headscale.config.derp.urls | nindent 8 }}
+
+    database:
+      type: sqlite3
+      sqlite:
+        path: /var/lib/headscale/db.sqlite
+
+    dns:
+      base_domain: {{ .Values.headscale.config.baseDomain }}
+      magic_dns: {{ .Values.headscale.config.magicDns }}
+      nameservers:
+        global:
+          - 1.1.1.1
+
+    log:
+      level: {{ .Values.headscale.config.logLevel }}
+
+    policy:
+      mode: file
+      path: ""
+{{- end }}

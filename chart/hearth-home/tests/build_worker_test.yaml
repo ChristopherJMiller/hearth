@@ -1,0 +1,85 @@
+suite: Build Worker
+templates:
+  - build-worker/deployment.yaml
+  - build-worker/configmap.yaml
+  - build-worker/pvc.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  - it: should include wait-for-postgres initContainer
+    template: build-worker/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-postgres
+
+  - it: should mount Nix store PVC when enabled
+    template: build-worker/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nix-store
+            mountPath: /nix
+          any: true
+
+  - it: should not mount Nix store when disabled
+    template: build-worker/deployment.yaml
+    set:
+      buildWorker.nixStore.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nix-store
+            mountPath: /nix
+          any: true
+
+  - it: should create Nix store PVC
+    template: build-worker/pvc.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: spec.resources.requests.storage
+          value: 50Gi
+
+  - it: should set correct environment variables
+    template: build-worker/configmap.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - isNotEmpty:
+          path: data.HEARTH_WORKER_POLL_SECS
+      - isNotEmpty:
+          path: data.HEARTH_ATTIC_CACHE
+      - isNotEmpty:
+          path: data.HEARTH_SERVER_URL
+
+  - it: should set HEARTH_ATTIC_CACHE to configured cache name
+    template: build-worker/configmap.yaml
+    asserts:
+      - equal:
+          path: data.HEARTH_ATTIC_CACHE
+          value: "hearth"
+
+  - it: should set HEARTH_WORKER_POLL_SECS from config
+    template: build-worker/configmap.yaml
+    set:
+      buildWorker.config.pollIntervalSecs: "10"
+    asserts:
+      - equal:
+          path: data.HEARTH_WORKER_POLL_SECS
+          value: "10"
+
+  - it: should mount SBOM directory
+    template: build-worker/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sbom
+            mountPath: /var/lib/hearth/sboms
+          any: true

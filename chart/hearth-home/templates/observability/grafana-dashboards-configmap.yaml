@@ -1,0 +1,59 @@
+{{- if .Values.capabilities.observability }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-grafana-dashboards
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "observability") | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  fleet-overview.json: |-
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [],
+      "panels": [
+        {
+          "title": "Enrolled Machines",
+          "type": "stat",
+          "datasource": { "type": "prometheus" },
+          "targets": [
+            { "expr": "hearth_fleet_machines_total", "legendFormat": "Total" }
+          ],
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+        },
+        {
+          "title": "Healthy Machines",
+          "type": "stat",
+          "datasource": { "type": "prometheus" },
+          "targets": [
+            { "expr": "hearth_fleet_machines_healthy", "legendFormat": "Healthy" }
+          ],
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 }
+        },
+        {
+          "title": "Pending Deployments",
+          "type": "stat",
+          "datasource": { "type": "prometheus" },
+          "targets": [
+            { "expr": "hearth_fleet_deployments_pending", "legendFormat": "Pending" }
+          ],
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 }
+        },
+        {
+          "title": "Build Jobs",
+          "type": "stat",
+          "datasource": { "type": "prometheus" },
+          "targets": [
+            { "expr": "hearth_fleet_build_jobs_pending", "legendFormat": "Pending" }
+          ],
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 }
+        }
+      ],
+      "schemaVersion": 39,
+      "title": "Hearth Fleet Overview",
+      "uid": "hearth-fleet-overview"
+    }
+{{- end }}

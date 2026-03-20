@@ -1,0 +1,76 @@
+{{- if .Values.capabilities.identity }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+spec:
+  serviceName: {{ include "hearth-home.fullname" . }}-kanidm
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.kanidm.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 8 }}
+    spec:
+      {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: kanidm
+          image: "{{ .Values.kanidm.image.repository }}:{{ .Values.kanidm.image.tag }}"
+          imagePullPolicy: {{ .Values.kanidm.image.pullPolicy }}
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.kanidm.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /data/server.toml
+              subPath: server.toml
+              readOnly: true
+            - name: tls
+              mountPath: /data/cert.pem
+              subPath: tls.crt
+              readOnly: true
+            - name: tls
+              mountPath: /data/key.pem
+              subPath: tls.key
+              readOnly: true
+            - name: data
+              mountPath: /data/db
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "hearth-home.fullname" . }}-kanidm
+        - name: tls
+          secret:
+            secretName: {{ if .Values.kanidm.tls.existingSecret }}{{ .Values.kanidm.tls.existingSecret }}{{ else }}{{ include "hearth-home.fullname" . }}-kanidm-tls{{ end }}
+      {{- with .Values.kanidm.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kanidm.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kanidm.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.kanidm.persistence.size }}
+{{- end }}

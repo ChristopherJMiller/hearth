@@ -144,3 +144,114 @@ headscale-setup:
 cache-push PATH:
     attic push hearth {{PATH}}
 
+# ===== Helm chart recipes =====
+
+# Lint the Helm chart
+helm-lint:
+    helm lint chart/hearth-home --strict
+
+# Run Helm chart unit tests (helm-unittest)
+helm-test:
+    helm unittest chart/hearth-home
+
+# Validate rendered manifests against K8s schemas
+helm-validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Validating default values..."
+    helm template hearth chart/hearth-home \
+        --set capabilities.observability=false \
+        | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+    echo "    Default values OK"
+    echo "==> Validating with all capabilities..."
+    helm template hearth chart/hearth-home \
+        --set capabilities.observability=false \
+        --set capabilities.identity=true \
+        --set capabilities.mesh=true \
+        --set capabilities.builds=true \
+        | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+    echo "    All capabilities OK"
+    echo "==> Validating minimal (core only)..."
+    helm template hearth chart/hearth-home \
+        --set capabilities.identity=false \
+        --set capabilities.mesh=false \
+        --set capabilities.builds=false \
+        --set capabilities.observability=false \
+        | kubeconform -strict -ignore-missing-schemas -kubernetes-version 1.29.0
+    echo "    Core only OK"
+
+# Run all Helm chart checks (lint + unittest + kubeconform)
+helm-check:
+    just helm-lint
+    just helm-test
+    just helm-validate
+
+# Update Helm chart dependencies
+helm-deps:
+    cd chart/hearth-home && helm dependency update
+
+# ===== Hearth Home Cluster (Kind) =====
+
+# Create a Kind cluster and deploy the Hearth Home Cluster
+helm-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLUSTER=hearth-home
+    if kind get clusters 2>/dev/null | grep -q "^${CLUSTER}$"; then
+        echo "Kind cluster '${CLUSTER}' already exists"
+    else
+        echo "==> Creating Kind cluster '${CLUSTER}'..."
+        kind create cluster --name "${CLUSTER}" --wait 60s
+    fi
+    echo "==> Updating Helm chart dependencies..."
+    helm dependency update chart/hearth-home
+    echo "==> Installing Hearth Home Cluster..."
+    helm upgrade --install hearth chart/hearth-home \
+        --create-namespace --namespace hearth \
+        --set capabilities.observability=false \
+        --wait --timeout 300s
+    echo ""
+    echo "=== Hearth Home Cluster is running ==="
+    echo ""
+    echo "  kubectl --context kind-${CLUSTER} -n hearth get pods"
+    echo "  just helm-status"
+    echo "  just helm-test-cluster"
+    echo "  just helm-down          # tear down"
+
+# Deploy with all capabilities enabled (identity, mesh, builds)
+helm-up-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CLUSTER=hearth-home
+    if ! kind get clusters 2>/dev/null | grep -q "^${CLUSTER}$"; then
+        echo "==> Creating Kind cluster '${CLUSTER}'..."
+        kind create cluster --name "${CLUSTER}" --wait 60s
+    fi
+    helm dependency update chart/hearth-home
+    echo "==> Installing Hearth Home Cluster (all capabilities)..."
+    helm upgrade --install hearth chart/hearth-home \
+        --create-namespace --namespace hearth \
+        --set capabilities.identity=true \
+        --set capabilities.mesh=true \
+        --set capabilities.builds=true \
+        --set capabilities.observability=false \
+        --wait --timeout 300s
+    echo ""
+    echo "=== Hearth Home Cluster is running (all capabilities) ==="
+
+# Show status of the Hearth Home Cluster
+helm-status:
+    kubectl --context kind-hearth-home -n hearth get pods,svc,pvc
+
+# Run helm tests against the running cluster
+helm-test-cluster:
+    helm test hearth --namespace hearth --timeout 120s
+
+# Port-forward hearth-api to localhost:3000
+helm-forward:
+    kubectl --context kind-hearth-home -n hearth port-forward svc/hearth-hearth-home-api 3000:3000
+
+# Tear down the Kind cluster
+helm-down:
+    kind delete cluster --name hearth-home
+

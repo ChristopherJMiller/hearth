@@ -1,0 +1,403 @@
+# ============================================================
+# Global settings
+# ============================================================
+global:
+  imagePullSecrets: []
+  storageClass: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ============================================================
+# Capabilities toggles
+# ============================================================
+capabilities:
+  identity: true        # Kanidm — OIDC identity provider, PAM/NSS
+  mesh: true            # Headscale — WireGuard mesh VPN coordinator
+  builds: true          # hearth-build-worker(s)
+  observability: false  # Grafana + Loki + Prometheus subcharts
+
+# ============================================================
+# hearth-api (always deployed)
+# ============================================================
+api:
+  image:
+    repository: ghcr.io/your-org/hearth-api
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+  config:
+    logFormat: json
+    rustLog: "hearth_api=info,tower_http=debug"
+    webDistPath: /app/web
+    identitySyncIntervalSecs: "300"
+    flakeRef: "github:myorg/fleet-config"
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  ingress:
+    enabled: true
+    className: ""
+    annotations: {}
+    hosts:
+      - host: hearth.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUPercent: 70
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  serviceAccount:
+    create: true
+    annotations: {}
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Secrets
+# ============================================================
+secrets:
+  # Provide an existing Secret name containing all hearth secrets.
+  # Expected keys: machine-token-secret, attic-token-secret
+  existingSecret: ""
+
+  # Inline values (used only if existingSecret is empty).
+  # Leave empty to auto-generate random values on first install.
+  machineTokenSecret: ""
+  atticTokenSecret: ""
+
+# ============================================================
+# PostgreSQL (Bitnami subchart)
+# ============================================================
+postgresql:
+  enabled: true
+  auth:
+    username: hearth
+    password: ""       # auto-generated if empty
+    database: hearth
+    existingSecret: ""
+  primary:
+    persistence:
+      size: 20Gi
+
+# External database (used when postgresql.enabled=false)
+externalDatabase:
+  host: ""
+  port: 5432
+  user: hearth
+  password: ""
+  database: hearth
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# ============================================================
+# Attic binary cache (always deployed)
+# ============================================================
+attic:
+  image:
+    repository: ghcr.io/zhaofengli/attic
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  service:
+    port: 8080
+
+  config:
+    cacheName: hearth
+    compression: zstd
+    chunking:
+      narSizeThreshold: 65536
+      minSize: 16384
+      avgSize: 65536
+      maxSize: 262144
+
+  storage:
+    type: local
+    local:
+      size: 50Gi
+    s3:
+      bucket: ""
+      region: ""
+      endpoint: ""
+      credentialsSecret: ""
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Kanidm (conditional on capabilities.identity)
+# ============================================================
+kanidm:
+  image:
+    repository: kanidm/server
+    tag: "1.9.0"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  service:
+    port: 8443
+
+  config:
+    domain: kanidm.hearth.local
+    origin: "https://kanidm.hearth.local:8443"
+    logLevel: info
+    trustXForwardFor: true
+
+  tls:
+    # Generate a self-signed cert (for dev/internal)
+    selfSigned: true
+    # Or reference an existing Secret with tls.crt and tls.key
+    existingSecret: ""
+
+  persistence:
+    size: 5Gi
+
+  bootstrap:
+    enabled: true
+    image:
+      repository: bitnami/kubectl
+      tag: latest
+      pullPolicy: IfNotPresent
+    groups:
+      - hearth-users
+      - hearth-admins
+      - hearth-developers
+      - hearth-designers
+    oauth2Clients:
+      - name: hearth-console
+        displayName: "Hearth Admin Console"
+        public: true
+        scopes:
+          - openid
+          - profile
+          - email
+          - groups
+      - name: hearth-enrollment
+        displayName: "Hearth Device Enrollment"
+        public: true
+        scopes:
+          - openid
+          - profile
+          - groups
+
+  ingress:
+    enabled: true
+    className: ""
+    annotations: {}
+    # NOTE: nginx.ingress.kubernetes.io/backend-protocol: "HTTPS" is always
+    # added by the template — no need to duplicate it here.
+    hosts:
+      - host: kanidm.hearth.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Headscale (conditional on capabilities.mesh)
+# ============================================================
+headscale:
+  image:
+    repository: headscale/headscale
+    tag: "0.23"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+  service:
+    port: 8080
+    metricsPort: 9090
+
+  config:
+    serverUrl: "https://headscale.hearth.local"
+    baseDomain: hearth.local
+    magicDns: true
+    prefixes:
+      v4: "100.64.0.0/10"
+      v6: "fd7a:115c:a1e0::/48"
+    derp:
+      serverEnabled: false
+      urls:
+        - https://controlplane.tailscale.com/derpmap/default
+    logLevel: info
+
+  # Headscale API key — used by hearth-api for mesh operations.
+  # Provide via existingSecret or generate manually after install.
+  apiKey:
+    existingSecret: ""
+    existingSecretKey: api-key
+
+  persistence:
+    size: 2Gi
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Build Worker (conditional on capabilities.builds)
+# ============================================================
+buildWorker:
+  image:
+    repository: ghcr.io/your-org/hearth-build-worker
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+  config:
+    pollIntervalSecs: "5"
+    logFormat: json
+    rustLog: "hearth_build_worker=info"
+    atticCache: hearth
+    sbomDir: /var/lib/hearth/sboms
+    flakeRef: "github:myorg/fleet-config"
+
+  scratch:
+    type: emptyDir
+    emptyDir:
+      sizeLimit: 50Gi
+    pvc:
+      size: 100Gi
+      storageClass: ""
+
+  nixStore:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ============================================================
+# Observability subchart overrides
+# (only applied when capabilities.observability=true)
+# ============================================================
+grafana:
+  adminPassword: ""
+  persistence:
+    enabled: true
+    size: 5Gi
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          access: proxy
+
+loki:
+  deploymentMode: SingleBinary
+  singleBinary:
+    replicas: 1
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    storage:
+      type: filesystem
+    schemaConfig:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+  test:
+    enabled: false
+
+prometheus:
+  server:
+    persistentVolume:
+      size: 20Gi

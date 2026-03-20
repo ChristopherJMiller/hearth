@@ -1,0 +1,18 @@
+{{- if .Values.capabilities.identity }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+data:
+  server.toml: |
+    bindaddress = "[::]:8443"
+    tls_chain = "/data/cert.pem"
+    tls_key = "/data/key.pem"
+    origin = "{{ .Values.kanidm.config.origin }}"
+    domain = "{{ .Values.kanidm.config.domain }}"
+    db_path = "/data/db/kanidm.db"
+    trust_x_forward_for = {{ .Values.kanidm.config.trustXForwardFor }}
+    log_level = "{{ .Values.kanidm.config.logLevel }}"
+{{- end }}

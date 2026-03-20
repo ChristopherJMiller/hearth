@@ -1,0 +1,37 @@
+{{- if .Values.capabilities.builds }}
+{{- if .Values.buildWorker.nixStore.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-build-worker-nix
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "build-worker") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.buildWorker.nixStore.size }}
+  {{- if or .Values.buildWorker.nixStore.storageClass .Values.global.storageClass }}
+  storageClassName: {{ .Values.buildWorker.nixStore.storageClass | default .Values.global.storageClass }}
+  {{- end }}
+{{- end }}
+---
+{{- if eq .Values.buildWorker.scratch.type "pvc" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-build-worker-scratch
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "build-worker") | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.buildWorker.scratch.pvc.size }}
+  {{- if or .Values.buildWorker.scratch.pvc.storageClass .Values.global.storageClass }}
+  storageClassName: {{ .Values.buildWorker.scratch.pvc.storageClass | default .Values.global.storageClass }}
+  {{- end }}
+{{- end }}
+{{- end }}
