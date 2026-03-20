@@ -320,20 +320,58 @@ Role templates are initial seeds; each user gets a managed per-user closure that
 - [x] **Agent per-user closure activation:** Agent queries control plane for pre-built closure at login, falls back to role template via home-manager. Heartbeat pre-stages closures from cache.
 - [x] **Systemd socket activation:** Agent IPC socket managed by systemd with correct greeter permissions.
 - [x] **Greeter fixes:** File-based password delivery for headless tests, HEARTH_GREETER_LOG_FILE support, proper Kanidm TLS cert chain.
+- [x] **Agent home directory creation:** Agent creates user home directories (via getent + mkdir + chown) before environment activation, fixing the ordering issue where pam_mkhomedir runs after the agent prepares the environment.
+- [x] **Refactored activation paths:** Extracted shared `run_as_user()` and `ensure_home_dir()` helpers in agent ipc.rs, eliminating duplicated runuser/shutdown logic across pre-built closure and role template branches.
+- [x] **Full login flow VM test:** Fixed dynamic home directory resolution from getent passwd (handles kanidm-unixd UUID-based home_attr), mock home-manager activation marker verification works end-to-end.
+- [x] **homeConfigurations flake output:** CI-verifiable home-manager configurations for all four roles (default, developer, designer, admin). Fixed home-manager deprecation warnings (git.extraConfig → git.settings, git.delta → programs.delta, ssh.extraConfig → ssh.matchBlocks).
 - [ ] **Package allowlist/denylist:** `extra_packages` currently allows any nixpkgs attribute. Add configurable allowlist for enterprise policy enforcement.
 - [ ] **Self-service config UI:** `/api/v1/me/config` endpoint + web UI for users to customize their own environment (restricted fields: git config, editor, shell aliases). Admin-only fields: extra_packages, base_role.
-- [ ] **Full login flow VM test:** Mock home-manager activation marker file verification (greeter auth + agent IPC work end-to-end, mock home-manager invocation needs debugging).
-- [ ] **Refactor duplicated activation paths:** Extract shared `run_as_user` helper in agent ipc.rs to DRY the pre-built closure and role template fallback branches.
 
-### 5E: User Environment Polish
+### 5E: User Environment Polish (Future)
 
 - [ ] **Closure pre-warming:** When a machine enrolls or changes role, the control plane enumerates likely users (from Kanidm group membership for the assigned role) and queues pre-builds of their per-user closures. Reduces first-login latency from "1–3 minute build" to "15–60 second cache pull."
 - [ ] **WiFi/802.1X certificate distribution:** The control plane provisions 802.1X machine certificates as part of enrollment secrets. The NixOS module configures `wpa_supplicant` or `iwd` with the certificate and network profile. Certificates rotate via the control plane's secret management.
 
-### 5F: Scale
+### 5F: Scale (Future)
 
 - [ ] **PXE/iPXE boot service:** Control plane serves boot images based on device identity — unknown devices get the enrollment image, known devices boot from local disk, reprovisioning devices get a fresh installer. Uses iPXE chain-loading from an HTTP endpoint. Enables zero-touch provisioning of 50+ machines simultaneously.
 - [ ] **gRPC/SSE push notifications:** Optional push channel from control plane to agent for latency-sensitive deployments. Agent maintains a long-lived connection over the Headscale mesh (or direct HTTPS). Control plane wakes the agent immediately when a new target closure is set, rather than waiting for the next 60-second poll cycle.
+
+---
+
+## Phase 6: Collaboration Services {#phase-6}
+
+Extend the Hearth platform with collaboration services deployed as Helm capabilities, integrated with Kanidm SSO and accessible over the Headscale mesh via MagicDNS.
+
+### 6A: Matrix/Synapse + Element (Chat)
+
+Office chat with Kanidm SSO. Deployed as a Helm capability (`capabilities.chat`).
+
+- [ ] **Docker-compose:** Synapse container + Element Web container for local dev. Synapse OIDC config points to Kanidm.
+- [ ] **Kanidm OIDC integration:** `hearth-matrix` OAuth2 client (confidential) in `dev/kanidm/bootstrap.sh` and Helm bootstrap configmap. Scopes: `openid`, `profile`, `email`, `groups`.
+- [ ] **Helm capability:** `capabilities.chat: false` (off by default). Templates: Synapse Deployment, ConfigMap (homeserver.yaml with OIDC), PVC, Service. Element Web Deployment with pre-configured `config.json`.
+- [ ] **MagicDNS:** `matrix.hearth.local` (Synapse), `chat.hearth.local` (Element Web).
+- [ ] **NixOS desktop integration:** Element Desktop in home-manager profiles, pre-configured homeserver URL.
+- [ ] **Helm tests:** Unit tests for chat capability templates.
+
+### 6B: Nextcloud (Cloud Storage & Collaboration)
+
+File sync and collaboration with Kanidm SSO and GNOME desktop integration.
+
+- [ ] **Docker-compose:** Nextcloud + Redis containers for local dev.
+- [ ] **Kanidm OIDC integration:** `hearth-nextcloud` OAuth2 client (confidential). Nextcloud `user_oidc` app for login, Kanidm groups → Nextcloud groups.
+- [ ] **Helm capability:** `capabilities.cloud: false`. Templates: Nextcloud Deployment, ConfigMap, PVC. S3-compatible storage backend (Garage) for production.
+- [ ] **MagicDNS:** `cloud.hearth.local`.
+- [ ] **NixOS desktop integration:** Nextcloud sync client auto-configured with server URL, auto-start on login. Nautilus integration via virtual files.
+- [ ] **Helm tests:** Unit tests for cloud capability templates.
+
+### 6C: Shared Service Infrastructure
+
+Common patterns extracted as services multiply.
+
+- [ ] **Service OIDC proxy:** Forward-auth middleware (Traefik/Caddy) for services without native OIDC support.
+- [ ] **Service discovery API:** `GET /api/v1/services` endpoint returning available service URLs. Agent queries at heartbeat, populates desktop bookmarks/shortcuts.
+- [ ] **Service directory page:** `/services` page in the web app listing all enabled collaboration services with links.
 
 ---
 
