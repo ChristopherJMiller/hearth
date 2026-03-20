@@ -442,6 +442,41 @@ Self-hosted video meetings integrated with chat and calendar.
 - [ ] **Calendar integration:** Nextcloud calendar events can embed Jitsi Meet links. Meeting URLs auto-generated on event creation.
 - [ ] **Desktop integration:** `.desktop` launcher for Jitsi via service discovery. GNOME Calendar shows meeting links inline.
 
+#### 6D-5: Document Classification & Labeling (Future)
+
+Sensitivity labeling for documents using the open TSCP/BAILS standards, with enforcement through Nextcloud access control. Interoperable with Microsoft Information Protection (MIP) metadata for orgs that exchange documents with Microsoft shops.
+
+- [ ] **LibreOffice TSCP toolbar:** Enable the built-in TSCP Classification toolbar via home-manager dconf/config across all role profiles. Deploy a custom `classification.xml` policy file defining the org's label taxonomy (e.g., Public, Internal, Confidential, Restricted). Labels stored as custom document properties in both ODF and OOXML formats.
+- [ ] **Nextcloud enforcement pipeline:** Enable `files_confidential` (reads TSCP/BAILS metadata from uploads, auto-applies Nextcloud tags), `files_automatedtagging` (rule-based tagging by folder, user group, file type), and `files_accesscontrol` (denies access based on tag + user group combinations). Restricted tags so users cannot remove classification.
+- [ ] **Visual markings:** LibreOffice macro/extension that applies header/footer text based on classification level on document open/save. Distributable via home-manager as a LibreOffice extension package.
+- [ ] **MIP interoperability (optional):** Write `MSIP_Label_*` custom properties alongside BAILS properties for documents shared with Microsoft ecosystem partners. Read both formats when inspecting incoming documents.
+
+#### 6D-6: Knowledge Base (Future)
+
+Internal documentation and team wiki. BookStack deployed as a Helm capability — purpose-built wiki with draw.io diagrams, granular per-page permissions, WYSIWYG + Markdown editors, and full REST API. Chosen over Nextcloud Collectives for its materially better editor, diagram support, page-level permissions, and project maturity (18.5k GitHub stars, 10 years active).
+
+- [ ] **BookStack deployment:** Helm capability (`capabilities.wiki`). BookStack Deployment (PHP/Laravel) + MariaDB (Bitnami subchart or shared instance). Kanidm SSO via `AUTH_METHOD=oidc` env vars. Auto-registration with configurable default role. Health probes, Ingress, PVC for uploads.
+- [ ] **Kanidm integration:** `hearth-wiki` OAuth2 client in Kanidm bootstrap. BookStack roles mapped to Kanidm groups (hearth-users → Viewer, hearth-operators → Editor, hearth-admins → Admin).
+- [ ] **Default content:** Bootstrap job creates initial shelves (Engineering, Operations, Onboarding) and a welcome page. Draw.io integration pointed at self-hosted instance or public diagrams.net.
+- [ ] **Desktop integration:** Service discovery entry (`wiki` category), `.desktop` launcher via agent service bookmarks. Firefox bookmark in managed browser policy.
+
+#### 6D-7: Password Manager (Future)
+
+Shared team credential management via Vaultwarden (Bitwarden-compatible server).
+
+- [ ] **Vaultwarden deployment:** Helm capability (`capabilities.passwords`). Vaultwarden Deployment (Rust, lightweight) with SQLite or PostgreSQL backend. Kanidm SSO via OpenID Connect. Ingress, PVC for data, health probes.
+- [ ] **Kanidm integration:** `hearth-vault` OAuth2 client in Kanidm bootstrap. SSO login flow — users authenticate via Kanidm, Vaultwarden provisions accounts automatically.
+- [ ] **Desktop integration:** Bitwarden desktop app + Firefox/Chrome extension pre-configured with self-hosted server URL via home-manager. GNOME Keyring integration for master password caching. Service discovery entry.
+- [ ] **Organization vaults:** Bootstrap creates shared collections for team credentials (Infrastructure, Shared Services). Access controlled by Kanidm group membership.
+
+#### 6D-8: Managed Browser & Printing (Future)
+
+Fleet-managed Firefox policies and CUPS printing infrastructure.
+
+- [ ] **Firefox enterprise policy:** Home-manager module deploying `policies.json` — managed bookmarks (intranet links, wiki, cloud, chat), pre-installed extensions (Bitwarden, uBlock Origin), default homepage (Hearth console or intranet portal), disabled telemetry, certificate trust for internal CA. Policy file generated from `mk-fleet-host.nix` parameters.
+- [ ] **CUPS print server:** Helm capability (`capabilities.printing`) or standalone NixOS module. IPP Everywhere + driverless printing. Printer inventory managed via control plane API (name, location, model, driver). Per-location printer assignment via `extra_config` on machines.
+- [ ] **Desktop print integration:** NixOS module configuring `cups-browsed` or static printer list from control plane. Users see location-appropriate printers in GNOME print dialog without manual setup. Print accounting via CUPS quotas (optional).
+
 ---
 
 ## Icebox {#icebox}
