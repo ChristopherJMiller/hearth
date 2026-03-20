@@ -159,17 +159,30 @@ let
       -H "Content-Type: application/json" \
       -d '["testuser"]' > /dev/null 2>&1 || true
 
-    # --- Set testuser password ---
-    # Use recover-account to get a known password. The recovered password is
-    # directly usable for PAM authentication via kanidm-unixd.
-    RECOVER_OUTPUT=$($KANIDMD recover-account -c /etc/kanidm/server.toml testuser 2>&1 || true)
-    TESTUSER_PASS=$(echo "$RECOVER_OUTPUT" | grep -oP 'new_password:\s*"\K[^"]+' || true)
-    if [ -n "$TESTUSER_PASS" ]; then
-      echo "$TESTUSER_PASS" > /tmp/testuser-password
-      echo "[bootstrap] testuser password recovered and written"
-    else
-      echo "[bootstrap] WARNING: failed to recover testuser password"
+    # --- Set testuser POSIX password ---
+    # kanidm-unixd PAM uses unix_auth which requires a POSIX password
+    # (separate from the primary/web password). We set it via the credential
+    # update API using the idm_admin token.
+    POSIX_PASS="hearth-test-password-42"
+    CU_RESP=$($C -X GET "$KANIDM_URL/v1/person/testuser/_credential/_update" \
+      -H "Authorization: Bearer $IDM_TOKEN" 2>/dev/null)
+    CU_TOKEN=$(echo "$CU_RESP" | ${pkgs.jq}/bin/jq -r '.[0].token // empty' 2>/dev/null || true)
+    if [ -n "$CU_TOKEN" ]; then
+      # Set primary password via credential update intent token
+      $C -X PUT "$KANIDM_URL/v1/credential/_update/$CU_TOKEN/primarypassword" \
+        -H "Content-Type: application/json" \
+        -d "\"$POSIX_PASS\"" 2>/dev/null || true
+      $C -X GET "$KANIDM_URL/v1/credential/_update/$CU_TOKEN/commit" 2>/dev/null || true
+      echo "[bootstrap] Set primary password via credential update"
     fi
+
+    # Set the POSIX/unix password (used by kanidm-unixd for PAM auth)
+    $C -X PUT "$KANIDM_URL/v1/person/testuser/_unix/_credential" \
+      -H "Authorization: Bearer $IDM_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "\"$POSIX_PASS\"" 2>/dev/null
+    echo "[bootstrap] Set POSIX password for testuser"
+    echo "$POSIX_PASS" > /tmp/testuser-password
 
     touch /tmp/bootstrap-done
     echo "[bootstrap] Done!"
