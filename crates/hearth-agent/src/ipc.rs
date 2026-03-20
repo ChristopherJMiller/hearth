@@ -57,59 +57,107 @@ fn resolve_role(groups: &[String], config: &AgentConfig) -> String {
 ///
 /// Listens for incoming connections, spawns a task per connection, and
 /// shuts down cleanly when the cancellation token fires.
+/// Try to receive a socket-activated listener from systemd (LISTEN_FDS protocol).
+///
+/// Returns `Some(UnixListener)` if fd 3 is available and LISTEN_FDS=1.
+fn try_socket_activation() -> Option<UnixListener> {
+    use std::os::unix::io::FromRawFd;
+
+    let listen_fds: u32 = std::env::var("LISTEN_FDS")
+        .ok()?
+        .parse()
+        .ok()?;
+    if listen_fds < 1 {
+        return None;
+    }
+
+    // systemd passes fds starting at 3 (SD_LISTEN_FDS_START).
+    let fd = 3;
+
+    // SAFETY: fd 3 is passed by systemd via socket activation and is a
+    // valid, open Unix stream socket. We take ownership of it.
+    let std_listener = unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) };
+    std_listener.set_nonblocking(true).ok()?;
+    let listener = UnixListener::from_std(std_listener).ok()?;
+
+    // Unset LISTEN_FDS so child processes (e.g. home-manager) don't inherit it.
+    // SAFETY: This runs early in startup, before any threads are spawned that
+    // might read these env vars concurrently.
+    unsafe {
+        std::env::remove_var("LISTEN_FDS");
+        std::env::remove_var("LISTEN_PID");
+    }
+
+    info!("using socket-activated listener from systemd (fd 3)");
+    Some(listener)
+}
+
 pub async fn run_ipc_server<C: HearthApiClient + 'static>(
     socket_path: &str,
     client: Arc<C>,
     config: Arc<AgentConfig>,
     machine_id: Uuid,
     shutdown: CancellationToken,
+    ready_tx: Option<tokio::sync::oneshot::Sender<()>>,
 ) {
-    let path = Path::new(socket_path);
+    // Prefer a socket-activated listener from systemd. This is the correct
+    // approach for socket permissions: systemd creates the socket with the
+    // right ownership/group (configured in the .socket unit), avoiding the
+    // need for supplementary groups or ACLs.
+    let listener = if let Some(l) = try_socket_activation() {
+        l
+    } else {
+        // Fallback: bind the socket ourselves (development / non-systemd use).
+        let path = Path::new(socket_path);
 
-    // Clean up stale socket file if it exists.
-    if path.exists()
-        && let Err(e) = std::fs::remove_file(path)
-    {
-        error!(path = %socket_path, error = %e, "failed to remove stale socket file");
-        return;
-    }
-
-    // Ensure the parent directory exists.
-    if let Some(parent) = path.parent()
-        && !parent.exists()
-        && let Err(e) = std::fs::create_dir_all(parent)
-    {
-        error!(
-            path = %parent.display(),
-            error = %e,
-            "failed to create socket parent directory"
-        );
-        return;
-    }
-
-    let listener = match UnixListener::bind(socket_path) {
-        Ok(l) => l,
-        Err(e) => {
-            error!(path = %socket_path, error = %e, "failed to bind Unix socket");
+        if path.exists()
+            && let Err(e) = std::fs::remove_file(path)
+        {
+            error!(path = %socket_path, error = %e, "failed to remove stale socket file");
             return;
+        }
+
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            error!(
+                path = %parent.display(),
+                error = %e,
+                "failed to create socket parent directory"
+            );
+            return;
+        }
+
+        match UnixListener::bind(socket_path) {
+            Ok(l) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let perms = std::fs::Permissions::from_mode(0o660);
+                    if let Err(e) = std::fs::set_permissions(socket_path, perms) {
+                        warn!(
+                            path = %socket_path,
+                            error = %e,
+                            "failed to set socket permissions"
+                        );
+                    }
+                }
+                l
+            }
+            Err(e) => {
+                error!(path = %socket_path, error = %e, "failed to bind Unix socket");
+                return;
+            }
         }
     };
 
-    // Set socket permissions to 0o660 so the greeter group can connect.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o660);
-        if let Err(e) = std::fs::set_permissions(socket_path, perms) {
-            warn!(
-                path = %socket_path,
-                error = %e,
-                "failed to set socket permissions"
-            );
-        }
-    }
-
     info!(path = %socket_path, "IPC server listening");
+
+    // Signal that the socket is ready for connections.
+    if let Some(tx) = ready_tx {
+        let _ = tx.send(());
+    }
 
     let state = Arc::new(Mutex::new(IpcState {
         prepare_status: HashMap::new(),

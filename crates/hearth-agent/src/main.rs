@@ -160,11 +160,13 @@ async fn main() {
         .await;
     });
 
-    // Spawn the IPC server.
+    // Spawn the IPC server. Wait for it to signal readiness before
+    // notifying systemd, so the socket is guaranteed to be listening.
     let ipc_shutdown = shutdown.clone();
     let ipc_client = Arc::clone(&client);
     let ipc_config = Arc::new(cfg.clone());
     let socket_path = cfg.agent.socket_path.clone();
+    let (ipc_ready_tx, ipc_ready_rx) = tokio::sync::oneshot::channel();
     let ipc_handle = tokio::spawn(async move {
         ipc::run_ipc_server(
             &socket_path,
@@ -172,11 +174,13 @@ async fn main() {
             ipc_config,
             machine_id,
             ipc_shutdown,
+            Some(ipc_ready_tx),
         )
         .await;
     });
 
-    // Notify systemd that we're ready (Type=notify service).
+    // Wait for IPC socket to be ready, then notify systemd.
+    let _ = ipc_ready_rx.await;
     notify_ready();
 
     // Spawn the signal handler.

@@ -90,7 +90,12 @@ in
       }
     ];
 
-    # Configure greetd as the display manager
+    # Configure greetd as the display manager.
+    # The agent IPC socket is managed by systemd socket activation
+    # (hearth-agent.socket) with SocketGroup=hearth, so the greeter can
+    # access it as long as the greeter user is in the hearth group.
+    # greetd doesn't call initgroups(), but systemd socket permissions
+    # are set at socket creation time, not checked via supplementary groups.
     services.greetd = {
       enable = true;
       settings = {
@@ -102,6 +107,9 @@ in
         terminal.vt = 1;
       };
     };
+
+    # Ensure greetd starts after the agent socket is available
+    systemd.services.greetd.after = [ "hearth-agent.socket" ];
 
     # Disable GDM since we use greetd
     services.displayManager.gdm.enable = lib.mkForce false;

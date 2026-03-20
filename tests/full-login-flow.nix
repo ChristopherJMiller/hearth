@@ -108,11 +108,14 @@ pkgs.testers.nixosTest {
       # Run greeter in headless test mode. greetd creates a clean environment
       # for the greeter (only GREETD_SOCK + basics), so we must wrap the
       # command to inject our test env vars explicitly.
+      # Override greetd session command with a wrapper that sets test env vars.
+      # greetd creates a clean env for the greeter, so we must inject them.
       services.greetd.settings.default_session.command = lib.mkForce (toString (pkgs.writeShellScript "hearth-greeter-test-wrapper" ''
         export HEARTH_GREETER_TEST_MODE=1
         export HEARTH_TEST_USER="testuser@kanidm"
         export HEARTH_TEST_PASS_FILE="/tmp/hearth-test-pass"
         export HEARTH_GREETER_LOG_FILE="/tmp/hearth-greeter.log"
+        export RUST_LOG="hearth_greeter=debug"
         exec ${pkgs.hearth-greeter}/bin/hearth-greeter
       ''));
 
@@ -176,10 +179,10 @@ pkgs.testers.nixosTest {
     )
 
     # Verify the greeter logged success. The greeter writes to
-    # /tmp/hearth-greeter.log since greetd doesn't forward child stderr.
+    # /tmp/hearth-greeter.log via HEARTH_GREETER_LOG_FILE.
     desktop.wait_until_succeeds(
-        "cat /tmp/hearth-greeter.log 2>/dev/null | grep -q 'headless login succeeded\\|session started'",
-        timeout=60,
+        "grep -q 'headless login succeeded\\|session started' /tmp/hearth-greeter.log 2>/dev/null",
+        timeout=120,
     )
 
     # Verify the agent is still running

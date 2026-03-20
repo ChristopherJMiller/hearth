@@ -186,6 +186,29 @@ in
     # Ensure the nix CLI is available for store operations
     environment.systemPackages = [ pkgs.nix ];
 
+    # Systemd socket unit for the agent IPC socket. Systemd creates the
+    # socket with correct ownership and permissions, solving the problem of
+    # greetd not applying supplementary groups to the greeter process.
+    # The greeter user can access the socket via the hearth group.
+    systemd.sockets.hearth-agent = {
+      description = "Hearth Agent IPC Socket";
+      wantedBy = [ "sockets.target" ];
+
+      socketConfig = {
+        ListenStream = cfg.socketPath;
+        # Group is set to "greeter" so the greeter process can connect.
+        # greetd doesn't call initgroups() for the greeter user, so
+        # supplementary groups aren't available. Using the greeter's
+        # primary group ensures access without workarounds.
+        SocketGroup = "greeter";
+        SocketMode = "0660";
+        DirectoryMode = "0755";
+
+        # Remove stale socket on restart
+        RemoveOnStop = true;
+      };
+    };
+
     # The agent systemd service
     systemd.services.hearth-agent = {
       description = "Hearth Fleet Management Agent";
@@ -193,6 +216,7 @@ in
 
       after = [ "network-online.target" "nss-lookup.target" ];
       wants = [ "network-online.target" ];
+      requires = [ "hearth-agent.socket" ];
       wantedBy = [ "multi-user.target" ];
 
       environment = {
