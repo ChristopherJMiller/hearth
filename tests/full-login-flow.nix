@@ -206,5 +206,22 @@ pkgs.testers.nixosTest {
     assert "path:/etc/hearth/test-flake#" in invocation, (
         f"Expected flake ref in home-manager invocation, got: {invocation}"
     )
+
+    # --- Verify agent queried the per-user closure endpoint ---
+    # The agent should have called GET /api/v1/users/testuser@kanidm/env-closure
+    # before falling back to home-manager switch. Check agent logs for the flow.
+    desktop.succeed(
+        "journalctl -u hearth-agent -o cat | grep -q 'no pre-built closure\\|falling back to role template'"
+    )
+
+    # Verify the mock home-manager wrote the marker file in the user's home
+    desktop.wait_until_succeeds(
+        "test -f /home/testuser@kanidm/.hearth-role",
+        timeout=10,
+    )
+    role = desktop.succeed("cat /home/testuser@kanidm/.hearth-role").strip()
+    assert role == "default", (
+        f"Expected role 'default' in marker file, got '{role}'"
+    )
   '';
 }

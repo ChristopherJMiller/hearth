@@ -30,6 +30,9 @@ heartbeats: list[dict] = []
 target_closure_override: str | None = None
 """When set, GET /api/v1/machines/<id>/target-state returns this closure."""
 
+user_configs: dict[str, dict] = {}
+"""username -> {base_role, overrides, latest_closure} per-user config store."""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,6 +75,12 @@ RE_USER_ENV = re.compile(
 )
 RE_USER_LOGIN = re.compile(
     r"^/api/v1/machines/(?P<id>[0-9a-fA-F-]+)/environments/(?P<username>[^/]+)/login$"
+)
+RE_USER_ENV_CLOSURE = re.compile(
+    r"^/api/v1/users/(?P<username>[^/]+)/env-closure$"
+)
+RE_USER_CONFIG = re.compile(
+    r"^/api/v1/users/(?P<username>[^/]+)/config$"
 )
 RE_TEST_APPROVE = re.compile(
     r"^/api/v1/test/approve/(?P<id>[0-9a-fA-F-]+)$"
@@ -163,6 +172,36 @@ class MockApiHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {"heartbeats": heartbeats})
             return
 
+        # GET /api/v1/users/<username>/env-closure — agent queries for pre-built closure
+        m = RE_USER_ENV_CLOSURE.match(path)
+        if m:
+            username = m.group("username")
+            config = user_configs.get(username)
+            if config:
+                json_response(self, 200, {
+                    "closure": config.get("latest_closure"),
+                    "cache_url": config.get("cache_url"),
+                    "fallback_role": config.get("base_role", "default"),
+                })
+            else:
+                json_response(self, 200, {
+                    "closure": None,
+                    "cache_url": None,
+                    "fallback_role": "default",
+                })
+            return
+
+        # GET /api/v1/users/<username>/config — admin queries user config
+        m = RE_USER_CONFIG.match(path)
+        if m:
+            username = m.group("username")
+            config = user_configs.get(username)
+            if config:
+                json_response(self, 200, config)
+            else:
+                json_response(self, 404, {"error": "not found"})
+            return
+
         # Fallback
         json_response(self, 404, {"error": "not found"})
 
@@ -228,6 +267,14 @@ class MockApiHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {"status": "ok", "target_closure": target_closure_override})
             return
 
+        # POST /api/v1/test/set-user-config (test-only: set a user config)
+        if path == "/api/v1/test/set-user-config":
+            body = read_body(self)
+            username = body.get("username", "")
+            user_configs[username] = body
+            json_response(self, 200, {"status": "ok", "username": username})
+            return
+
         # POST /api/v1/test/reset-heartbeats (test-only: clear heartbeat log)
         if path == "/api/v1/test/reset-heartbeats":
             cleared = len(heartbeats)
@@ -266,6 +313,15 @@ class MockApiHandler(BaseHTTPRequestHandler):
         if m:
             _ = read_body(self)
             json_response(self, 200, {"status": "ok"})
+            return
+
+        # PUT /api/v1/users/<username>/config — admin sets user config
+        m = RE_USER_CONFIG.match(path)
+        if m:
+            username = m.group("username")
+            body = read_body(self)
+            user_configs[username] = {**body, "username": username}
+            json_response(self, 200, user_configs[username])
             return
 
         # Fallback
