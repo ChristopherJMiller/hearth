@@ -457,6 +457,11 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                 let flake_target = format!("{flake_ref}#{role}");
                 info!(%user, %flake_target, "no pre-built closure, falling back to role template");
 
+                // Resolve the home-manager binary from the agent's own PATH.
+                // runuser runs the command in the target user's env which may
+                // not have home-manager, so we pass the absolute path.
+                let hm_bin = which("home-manager").unwrap_or_else(|| "home-manager".into());
+
                 let _ = event_tx
                     .send(AgentEvent::Progress {
                         username: user.clone(),
@@ -467,7 +472,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
                 tokio::select! {
                     output = tokio::process::Command::new("runuser")
-                        .args(["-u", &user, "--", "home-manager", "switch", "--flake", &flake_target])
+                        .args(["-u", &user, "--", hm_bin.to_str().unwrap_or("home-manager"), "switch", "--flake", &flake_target])
                         .output() => {
                         match output {
                             Ok(out) if out.status.success() => Ok(()),
@@ -537,6 +542,16 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             }
         }
     });
+}
+
+/// Find a binary in the current process's PATH.
+fn which(name: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let full = dir.join(name);
+            if full.is_file() { Some(full) } else { None }
+        })
+    })
 }
 
 /// Serialize an [`AgentEvent`] as a single JSON line and write it to the stream.
