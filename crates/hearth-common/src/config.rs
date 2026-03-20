@@ -12,7 +12,7 @@ pub struct AgentConfig {
     pub update: UpdateSettings,
     #[serde(default)]
     pub role_mapping: Option<RoleMapping>,
-    pub home_flake_ref: Option<String>,
+    pub home: Option<HomeConfig>,
     #[serde(default)]
     pub headscale: Option<HeadscaleAgentConfig>,
 }
@@ -116,6 +116,14 @@ pub struct DatabaseConfig {
 pub struct AtticConfig {
     pub server_url: String,
     pub token: Option<String>,
+}
+
+// --- Home-manager configuration ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomeConfig {
+    /// Flake reference for home-manager role profiles.
+    pub flake_ref: String,
 }
 
 // --- Role mapping ---

@@ -301,7 +301,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             let role = resolve_role(&groups, &st.config);
             let client = Arc::clone(&st.client);
             let machine_id = st.machine_id;
-            let flake_ref = st.config.home_flake_ref.clone();
+            let flake_ref = st.config.home.as_ref().map(|h| h.flake_ref.clone());
             (role, client, machine_id, flake_ref)
         };
         info!(%user, %role, "resolved role for user");
