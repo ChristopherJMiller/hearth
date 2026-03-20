@@ -27,17 +27,41 @@
 { pkgs }:
 
 let
-  # Self-signed TLS certificate generated at build time.
+  # TLS certificates: proper CA + server cert chain.
+  # Newer rustls versions reject self-signed certs used directly as server
+  # certs (CaUsedAsEndEntity). We generate a CA, then issue a server cert
+  # signed by it, so the chain validates correctly.
   certs = pkgs.runCommand "kanidm-test-certs" {
     nativeBuildInputs = [ pkgs.openssl ];
   } ''
     mkdir -p $out
+
+    # 1. Generate CA key + cert
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-      -keyout $out/key.pem -out $out/cert.pem \
+      -keyout $out/ca-key.pem -out $out/ca.pem \
       -days 365 -nodes \
-      -subj "/CN=kanidm" \
-      -addext "subjectAltName=DNS:kanidm,IP:127.0.0.1"
-    chmod 644 $out/key.pem
+      -subj "/CN=Hearth Test CA" \
+      -addext "basicConstraints=critical,CA:TRUE" \
+      -addext "keyUsage=critical,keyCertSign,cRLSign"
+
+    # 2. Generate server key + CSR
+    openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+      -keyout $out/key.pem -out $out/server.csr \
+      -nodes \
+      -subj "/CN=kanidm"
+
+    # 3. Sign server cert with CA
+    openssl x509 -req -in $out/server.csr \
+      -CA $out/ca.pem -CAkey $out/ca-key.pem -CAcreateserial \
+      -out $out/server.pem \
+      -days 365 \
+      -extfile <(printf "subjectAltName=DNS:kanidm,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth")
+
+    # 4. Build chain file (server cert + CA cert) for Kanidm's tls_chain
+    cat $out/server.pem $out/ca.pem > $out/cert.pem
+
+    chmod 644 $out/key.pem $out/ca-key.pem
+    rm -f $out/server.csr $out/ca.srl
   '';
 
   # Bootstrap script: provisions Kanidm with test users and groups via REST API.
@@ -161,7 +185,7 @@ let
 in
 {
   # Path to the CA certificate for client configuration.
-  caCertPath = "${certs}/cert.pem";
+  caCertPath = "${certs}/ca.pem";
 
   # The certs derivation (for direct access if needed).
   inherit certs;

@@ -105,13 +105,14 @@ pkgs.testers.nixosTest {
         echo -n "${machineToken}" > /var/lib/hearth/machine-token
       '';
 
-      # Run greeter in headless test mode. The HEARTH_TEST_USER is static
-      # but HEARTH_TEST_PASS must be injected at runtime after Kanidm
-      # bootstrap completes (it may use a recovered random password).
-      # The test script stops greetd, sets the env, and restarts it.
+      # Run greeter in headless test mode. The password is written to a file
+      # at runtime after Kanidm bootstrap completes. The greeter polls for
+      # this file (greetd does not pass parent env vars to child processes).
       systemd.services.greetd.environment = {
         HEARTH_GREETER_TEST_MODE = "1";
         HEARTH_TEST_USER = "testuser@kanidm";
+        HEARTH_TEST_PASS_FILE = "/tmp/hearth-test-pass";
+        HEARTH_GREETER_LOG_FILE = "/tmp/hearth-greeter.log";
       };
 
       virtualisation.memorySize = 2048;
@@ -165,28 +166,19 @@ pkgs.testers.nixosTest {
         timeout=120,
     )
 
-    # --- Inject password and restart greetd for headless login ---
-    # Stop greetd, set the password env var (only visible to services
-    # started after this call), then restart greetd.
-    desktop.succeed("systemctl stop greetd.service")
+    # --- Inject password for headless greeter ---
+    # The greeter polls /tmp/hearth-test-pass (greetd doesn't pass parent
+    # env vars, so we use a file). Once written, the already-running greeter
+    # picks it up and proceeds with the login flow.
     desktop.succeed(
-        f"systemctl set-environment HEARTH_TEST_PASS='{testuser_password}'"
+        f"echo -n '{testuser_password}' > /tmp/hearth-test-pass"
     )
-    desktop.succeed("systemctl start greetd.service")
 
-    # Wait for greetd to start the headless greeter, which will:
-    #   1. Connect to greetd IPC (GREETD_SOCK set by greetd)
-    #   2. Create session for testuser@kanidm
-    #   3. Authenticate via PAM → kanidm-unixd → Kanidm server
-    #   4. Resolve user groups via NSS
-    #   5. Connect to agent IPC → PrepareUserEnv → Ready (instant)
-    #   6. Start desktop session via greetd
-    desktop.wait_for_unit("greetd.service")
-
-    # Verify the greeter logged success (not crash-looping)
+    # Verify the greeter logged success. The greeter writes to
+    # /tmp/hearth-greeter.log since greetd doesn't forward child stderr.
     desktop.wait_until_succeeds(
-        "journalctl -u greetd -o cat | grep -q 'headless login succeeded\\|session started'",
-        timeout=30,
+        "cat /tmp/hearth-greeter.log 2>/dev/null | grep -q 'headless login succeeded\\|session started'",
+        timeout=60,
     )
 
     # Verify the agent is still running

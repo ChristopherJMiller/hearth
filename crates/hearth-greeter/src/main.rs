@@ -55,13 +55,48 @@ enum GreeterError {
 // ---------------------------------------------------------------------------
 
 fn main() -> ExitCode {
-    // Initialise logging.
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "hearth_greeter=info".into()),
-        )
-        .init();
+    // Initialise logging. When HEARTH_GREETER_LOG_FILE is set, also write
+    // logs to that file (useful when greetd doesn't forward child stderr
+    // to journal, e.g. in VM integration tests).
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "hearth_greeter=info".into());
+
+    if let Ok(log_path) = std::env::var("HEARTH_GREETER_LOG_FILE") {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        let file = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("hearth-greeter: failed to open log file {log_path}: {e}");
+                // Fall back to stderr-only logging.
+                tracing_subscriber::fmt()
+                    .with_env_filter(env_filter)
+                    .init();
+                return ExitCode::FAILURE;
+            }
+        };
+
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::sync::Mutex::new(file))
+            .with_ansi(false);
+
+        let stderr_layer = tracing_subscriber::fmt::layer();
+
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(stderr_layer)
+            .with(file_layer)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .init();
+    };
 
     info!("hearth-greeter starting");
 
@@ -139,6 +174,9 @@ fn main() -> ExitCode {
 
 /// Run the login flow without GTK, reading credentials from environment
 /// variables. Used in NixOS VM integration tests.
+///
+/// Waits up to 120 seconds for `HEARTH_TEST_PASS` to be set (it may be
+/// injected after boot once Kanidm bootstrap completes).
 async fn run_headless(config: GreeterConfig) -> ExitCode {
     let username = match std::env::var("HEARTH_TEST_USER") {
         Ok(u) => u,
@@ -147,11 +185,38 @@ async fn run_headless(config: GreeterConfig) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let password = match std::env::var("HEARTH_TEST_PASS") {
-        Ok(p) => p,
-        Err(_) => {
-            error!("HEARTH_TEST_PASS not set in headless test mode");
-            return ExitCode::FAILURE;
+
+    // Read the password from env var or a file. greetd does not pass parent
+    // env vars to the greeter process, so in VM tests the password is written
+    // to a file by the test script after Kanidm bootstrap completes.
+    // We poll the file for up to 120 seconds so the greeter doesn't exit
+    // before the test has a chance to write it.
+    let password = if let Ok(p) = std::env::var("HEARTH_TEST_PASS") {
+        p
+    } else {
+        let pass_file = std::env::var("HEARTH_TEST_PASS_FILE")
+            .unwrap_or_else(|_| "/tmp/hearth-test-pass".to_string());
+        info!(%username, %pass_file, "waiting for test password file");
+        let mut pass = None;
+        for i in 0..120 {
+            if let Ok(contents) = tokio::fs::read_to_string(&pass_file).await {
+                let trimmed = contents.trim().to_string();
+                if !trimmed.is_empty() {
+                    pass = Some(trimmed);
+                    break;
+                }
+            }
+            if i % 10 == 0 {
+                info!(attempt = i, "password file not ready, waiting...");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        match pass {
+            Some(p) => p,
+            None => {
+                error!("test password not available after 120 seconds");
+                return ExitCode::FAILURE;
+            }
         }
     };
 
