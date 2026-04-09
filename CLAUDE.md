@@ -70,7 +70,7 @@ The "Hearth Home Cluster" Helm chart deploys the control plane and all supportin
 - **All chart checks:** `just helm-check`
 - **Update dependencies:** `just helm-deps`
 
-Capabilities are toggled in `values.yaml`: `identity` (Kanidm), `mesh` (Headscale), `builds` (build-worker), `observability` (Grafana/Loki/Prometheus). Chart lint + kubeconform also runs as part of `nix flake check` via the `helmChartLint` check.
+Capabilities are toggled in `values.yaml`: `identity` (Kanidm), `mesh` (Headscale), `builds` (build-worker), `chat` (Synapse/Matrix), `cloud` (Nextcloud), `observability` (Grafana/Loki/Prometheus). Chart lint + kubeconform also runs as part of `nix flake check` via the `helmChartLint` check.
 
 ## Architecture
 
@@ -104,13 +104,15 @@ Deploys the "Hearth Home Cluster" — all control plane services. Uses a capabil
 - **identity:** Kanidm (StatefulSet, bootstrap Job, TLS)
 - **mesh:** Headscale (Deployment, PVC)
 - **builds:** hearth-build-worker (Deployment, Nix store PVC)
+- **chat:** Synapse/Matrix (Element Web frontend)
+- **cloud:** Nextcloud (file storage/collaboration)
 - **observability:** Grafana, Loki, Prometheus (subcharts)
 
 Tests: 12 test suites, 105 unit tests (helm-unittest), kubeconform schema validation, ct smoke test in CI.
 
 ### Database
 
-PostgreSQL with 5 migration files in `migrations/`. Key tables: `machines`, `user_environments`, `deployments`, `audit_events`, `software_catalog` + `software_requests`. Uses custom enums (enrollment_status, deploy_status, etc.).
+PostgreSQL with migration files in `migrations/`. Key tables: `machines`, `user_environments`, `deployments`, `audit_events`, `software_catalog` + `software_requests`. Uses custom enums (enrollment_status, deploy_status, etc.).
 
 ## Key Conventions
 
