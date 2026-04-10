@@ -2,22 +2,36 @@
 # dev/run-enrollment.sh — Boot the enrollment ISO in a QEMU VM for testing
 #
 # Usage:
-#   bash dev/run-enrollment.sh
-#   # or: just enroll
+#   bash dev/run-enrollment.sh <vm-name>
+#   # or: just enroll <vm-name>
 #
 # This script:
 #   1. Builds the enrollment ISO via `nix build`
-#   2. Creates a 20GB qcow2 virtual disk (simulates target hardware)
+#   2. Creates a 20GB qcow2 virtual disk at dev/vms/<name>.qcow2 if missing
 #   3. Boots QEMU with EFI, 4GB RAM, 2 CPUs, and user-mode networking
 #
-# The guest can reach the host API server at http://10.0.2.2:3000
-# (QEMU user-mode networking maps 10.0.2.2 to the host).
+# After enrollment finishes and NixOS installs to the disk, shut the VM down
+# and reboot into the installed system with:
+#   just start-vm <vm-name>
+#
+# The guest can reach the host at 10.0.2.2 (QEMU user-mode gateway). Caddy on
+# the host forwards *.hearth.local on :80/:443 to each backend service.
 
 set -euo pipefail
 
+NAME="${1:?usage: run-enrollment.sh <vm-name>  (e.g. just enroll demo)}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DISK_PATH="$SCRIPT_DIR/enrollment-disk.qcow2"
+VMS_DIR="$SCRIPT_DIR/vms"
+DISK_PATH="$VMS_DIR/${NAME}.qcow2"
+
+mkdir -p "$VMS_DIR"
+
+echo "==> Enrolling VM '$NAME'"
+echo "    Disk: $DISK_PATH"
+echo "    After install, run: just start-vm $NAME"
+echo ""
 
 # --- Build the enrollment ISO ---
 echo "==> Building enrollment ISO..."
@@ -83,4 +97,4 @@ exec qemu-system-x86_64 \
     -device virtio-net-pci,netdev=net0 \
     -vga virtio \
     -display gtk \
-    -name "Hearth Enrollment VM"
+    -name "Hearth Enroll: $NAME"

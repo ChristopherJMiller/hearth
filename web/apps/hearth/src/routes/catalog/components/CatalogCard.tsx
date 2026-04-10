@@ -100,7 +100,7 @@ export function CatalogCard({ entry, status, machineId, username, index, onSelec
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[15px] font-semibold tracking-tight leading-snug text-[var(--color-text-primary)]">
+            <div className="text-sm font-semibold tracking-tight leading-snug text-[var(--color-text-primary)]">
               {entry.name}
             </div>
             {entry.category && (

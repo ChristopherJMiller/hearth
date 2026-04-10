@@ -1,4 +1,11 @@
-import { PageHeader, Card } from '@hearth/ui';
+import {
+  PageContainer,
+  PageHeader,
+  Card,
+  Callout,
+  SkeletonCard,
+  EmptyState,
+} from '@hearth/ui';
 import {
   LuMessageSquare,
   LuCloud,
@@ -17,116 +24,116 @@ const categoryLabels: Record<ServiceCategory, string> = {
   infrastructure: 'Infrastructure',
 };
 
-const categoryOrder: ServiceCategory[] = [
-  'infrastructure',
-  'communication',
-  'storage',
-  'identity',
-];
+const categoryOrder: ServiceCategory[] = ['infrastructure', 'communication', 'storage', 'identity'];
+
+const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  'message-square': LuMessageSquare,
+  cloud: LuCloud,
+  shield: LuShield,
+  flame: LuFlame,
+};
 
 function ServiceIcon({ icon }: { icon: string | null }) {
-  const size = 28;
-  const className = "text-[var(--color-ember)]";
-  switch (icon) {
-    case 'message-square':
-      return <LuMessageSquare size={size} className={className} />;
-    case 'cloud':
-      return <LuCloud size={size} className={className} />;
-    case 'shield':
-      return <LuShield size={size} className={className} />;
-    case 'flame':
-      return <LuFlame size={size} className={className} />;
-    default:
-      return <LuGlobe size={size} className={className} />;
-  }
+  const Icon = (icon && iconMap[icon]) || LuGlobe;
+  return <Icon size={22} className="text-[var(--color-ember)]" />;
 }
 
 export function ServicesPage() {
-  const { data: services, isLoading, error } = useServices();
-
-  if (isLoading) {
-    return (
-      <div className="p-6">
-        <PageHeader title="Services" description="Loading available services..." />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <PageHeader title="Services" description="Failed to load services." />
-        <p className="text-sm text-[var(--color-ember)] mt-4">{error.message}</p>
-      </div>
-    );
-  }
-
-  if (!services || services.length === 0) {
-    return (
-      <div className="p-6">
-        <PageHeader
-          title="Services"
-          description="No services are currently configured. Enable capabilities in your Helm values to add services."
-        />
-      </div>
-    );
-  }
-
-  // Group by category, preserving display order
-  const grouped = categoryOrder
-    .map((cat) => ({
-      category: cat,
-      label: categoryLabels[cat],
-      items: services.filter((s) => s.category === cat),
-    }))
-    .filter((g) => g.items.length > 0);
+  const { data: services, isLoading, isError } = useServices();
 
   return (
-    <div className="p-6 space-y-8">
+    <PageContainer size="wide">
       <PageHeader
+        eyebrow="Observability"
         title="Services"
-        description="Platform services available to your organization."
+        description="Platform services exposed by the Hearth Home cluster — chat, storage, identity, and infrastructure tooling."
       />
 
-      {grouped.map((group) => (
-        <div key={group.category} className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-            {group.label}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {group.items.map((service) => (
-              <a
-                key={service.id}
-                href={service.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block group"
-              >
-                <Card>
-                  <div className="p-5 flex items-start gap-4">
-                    <div className="shrink-0 mt-0.5">
-                      <ServiceIcon icon={service.icon} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-[var(--color-text-primary)] group-hover:text-[var(--color-ember)] transition-colors">
-                          {service.name}
-                        </h3>
-                        <LuExternalLink size={14} className="text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      {service.description && (
-                        <p className="text-xs text-[var(--color-text-secondary)] mt-1 leading-relaxed">
-                          {service.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              </a>
-            ))}
-          </div>
+      {isError ? (
+        <Callout variant="danger" title="Could not load services" />
+      ) : isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
-      ))}
-    </div>
+      ) : !services || services.length === 0 ? (
+        <EmptyState
+          icon={<LuGlobe size={28} />}
+          title="No services configured"
+          description="Enable capabilities in your Helm values (chat, cloud, observability…) to surface services here."
+        />
+      ) : (
+        <div className="flex flex-col gap-[var(--spacing-section)]">
+          {categoryOrder
+            .map((cat) => ({
+              category: cat,
+              label: categoryLabels[cat],
+              items: services.filter((s) => s.category === cat),
+            }))
+            .filter((g) => g.items.length > 0)
+            .map((group) => (
+              <section key={group.category} className="flex flex-col gap-3">
+                <h2
+                  className="uppercase font-semibold text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+                 
+                >
+                  {group.label}
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+                  {group.items.map((service) => (
+                    <a
+                      key={service.id}
+                      href={service.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block group"
+                    >
+                      <Card className="h-full hover:border-[var(--color-border-accent)] transition-colors">
+                        <div className="flex items-start gap-4">
+                          <div
+                            className="shrink-0 w-12 h-12 rounded-[var(--radius-md)] flex items-center justify-center"
+                            style={{ background: 'var(--color-ember-faint)' }}
+                          >
+                            <ServiceIcon icon={service.icon} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h3
+                                className="font-semibold text-[var(--color-text-primary)] group-hover:text-[var(--color-ember)] transition-colors text-base"
+                               
+                              >
+                                {service.name}
+                              </h3>
+                              <LuExternalLink
+                                size={14}
+                                className="text-[var(--color-text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                              />
+                            </div>
+                            {service.description && (
+                              <p
+                                className="text-[var(--color-text-secondary)] mt-1.5 text-sm leading-body"
+                               
+                              >
+                                {service.description}
+                              </p>
+                            )}
+                            <div
+                              className="flex items-center gap-1.5 mt-3 text-[var(--color-text-tertiary)] font-mono truncate text-2xs"
+                             
+                            >
+                              {new URL(service.url).hostname}
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    </a>
+                  ))}
+                </div>
+              </section>
+            ))}
+        </div>
+      )}
+    </PageContainer>
   );
 }

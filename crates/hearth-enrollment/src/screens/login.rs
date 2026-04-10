@@ -66,6 +66,10 @@ pub struct LoginScreen {
     /// Auth URL that needs to be opened in a kiosk browser.
     /// Set by `start_flow`, consumed by the main loop via `take_browser_request`.
     pending_browser_url: Option<String>,
+    /// Signal that fires as soon as the OAuth callback is received. The
+    /// main loop selects on this to close the kiosk browser automatically.
+    /// Taken together with `pending_browser_url` via `take_browser_request`.
+    pending_callback_rx: Option<oneshot::Receiver<()>>,
 }
 
 impl LoginScreen {
@@ -103,6 +107,7 @@ impl LoginScreen {
             client_id,
             started: false,
             pending_browser_url: None,
+            pending_callback_rx: None,
         }
     }
 
@@ -215,9 +220,12 @@ impl LoginScreen {
         }
     }
 
-    /// Take the pending browser URL (if any) for the main loop to launch.
-    pub fn take_browser_request(&mut self) -> Option<String> {
-        self.pending_browser_url.take()
+    /// Take the pending browser URL (if any) for the main loop to launch,
+    /// together with the oneshot that fires when the OAuth callback arrives.
+    pub fn take_browser_request(&mut self) -> Option<(String, oneshot::Receiver<()>)> {
+        let url = self.pending_browser_url.take()?;
+        let rx = self.pending_callback_rx.take()?;
+        Some((url, rx))
     }
 
     /// Notify the login screen that the browser failed to launch.
@@ -294,6 +302,7 @@ impl LoginScreen {
                 // Store the auth URL for the main loop to open in a kiosk browser.
                 // The main loop handles terminal suspension and cage launch.
                 self.pending_browser_url = Some(handle.auth_url);
+                self.pending_callback_rx = Some(handle.callback_rx);
                 info!("OAuth flow started, browser launch requested");
                 self.state = LoginState::WaitingForAuth {
                     token_rx: Some(handle.token_rx),

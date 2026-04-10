@@ -133,7 +133,7 @@ export interface FleetStats {
   pending_requests: number;
 }
 
-// --- Phase 4: Remote Actions ---
+// --- Remote actions ---
 
 export type ActionType = 'lock' | 'restart' | 'rebuild' | 'run_command';
 export type ActionStatus = 'pending' | 'delivered' | 'running' | 'completed' | 'failed';
@@ -156,7 +156,7 @@ export interface CreateActionRequest {
   payload?: Record<string, unknown>;
 }
 
-// --- Phase 4: Reports ---
+// --- Reports ---
 
 export interface ComplianceReport {
   total: number;
@@ -178,7 +178,7 @@ export interface EnrollmentTimelineEntry {
   pending: number;
 }
 
-// --- Phase 5D: Per-User Environment ---
+// --- Per-user environment ---
 
 export type UserEnvBuildStatus = 'pending' | 'building' | 'built' | 'failed';
 
@@ -203,7 +203,7 @@ export interface UpdateMyConfigRequest {
   session_variables?: Record<string, string>;
 }
 
-// --- Phase 5B: Compliance Engine ---
+// --- Compliance engine ---
 
 export type DriftStatus = 'compliant' | 'drifted' | 'no_target';
 
@@ -256,7 +256,7 @@ export interface DeploymentComplianceSummary {
   failed: number;
 }
 
-// --- Phase 6C: Service Discovery ---
+// --- Service discovery ---
 
 export type ServiceCategory = 'communication' | 'storage' | 'identity' | 'infrastructure';
 
@@ -289,4 +289,36 @@ export interface DeploymentSbom {
   sbom_path: string;
   format: string;
   generated_at: string;
+}
+
+// --- Build jobs ---
+
+export type BuildJobStatus =
+  | 'pending'
+  | 'claimed'
+  | 'evaluating'
+  | 'building'
+  | 'pushing'
+  | 'deploying'
+  | 'completed'
+  | 'failed';
+
+export interface BuildJob {
+  id: string;
+  status: BuildJobStatus;
+  flake_ref: string;
+  target_filter: Record<string, unknown> | null;
+  canary_size: number;
+  batch_size: number;
+  failure_threshold: number;
+  worker_id: string | null;
+  claimed_at: string | null;
+  deployment_id: string | null;
+  closure: string | null;
+  closures_built: number | null;
+  closures_pushed: number | null;
+  total_machines: number | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 }

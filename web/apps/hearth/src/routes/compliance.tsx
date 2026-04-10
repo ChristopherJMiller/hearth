@@ -1,65 +1,55 @@
 import { useState, useMemo } from 'react';
-import { PageHeader, FilterPills, DataTable, StatCard } from '@hearth/ui';
+import {
+  PageContainer,
+  PageHeader,
+  DataTable,
+  MetricTile,
+  Tabs,
+  StatusChip,
+  SegmentedControl,
+  Card,
+  ConfirmDialog,
+  Tooltip,
+  Callout,
+  SkeletonTable,
+} from '@hearth/ui';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useComplianceReport } from '../api/reports';
-import { useDriftedMachines, useCompliancePolicies, useDeletePolicy } from '../api/compliance';
+import {
+  useDriftedMachines,
+  useCompliancePolicies,
+  useDeletePolicy,
+} from '../api/compliance';
 import type { DriftedMachine, DriftStatus, CompliancePolicy } from '../api/types';
 import { useRouter } from '@tanstack/react-router';
 import { formatRelativeTime, truncateStorePath } from '../lib/time';
-import {
-  LuShield,
-  LuShieldCheck,
-  LuShieldAlert,
-  LuShieldQuestion,
-  LuTrash2,
-} from 'react-icons/lu';
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-} from 'recharts';
+import { chartTooltipContent } from '../components/charts/ChartTooltip';
+import { LuShieldCheck, LuShieldAlert, LuShieldQuestion, LuTrash2 } from 'react-icons/lu';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip } from 'recharts';
 
-type FilterValue = 'All' | 'Drifted' | 'Compliant' | 'No Target';
-
-const filterToStatus: Record<FilterValue, DriftStatus | 'all'> = {
-  All: 'all',
-  Drifted: 'drifted',
-  Compliant: 'compliant',
-  'No Target': 'no_target',
-};
+type DriftFilter = 'all' | 'drifted' | 'compliant' | 'no_target';
 
 const driftColumns: ColumnDef<DriftedMachine, unknown>[] = [
   {
     accessorKey: 'hostname',
     header: 'Hostname',
     cell: ({ getValue }) => (
-      <span className="font-mono text-xs">{getValue<string>()}</span>
+      <span className="font-semibold text-[var(--color-text-primary)]">{getValue<string>()}</span>
     ),
   },
   {
     accessorKey: 'role',
     header: 'Role',
-    cell: ({ getValue }) => getValue<string>() ?? '—',
+    cell: ({ getValue }) => (
+      <span className="text-[var(--color-text-secondary)] capitalize text-sm">
+        {getValue<string>() ?? '—'}
+      </span>
+    ),
   },
   {
     accessorKey: 'drift_status',
     header: 'Status',
-    cell: ({ getValue }) => {
-      const status = getValue<DriftStatus>();
-      const colors: Record<DriftStatus, string> = {
-        compliant: 'text-[var(--color-success)]',
-        drifted: 'text-[var(--color-error)]',
-        no_target: 'text-[var(--color-text-tertiary)]',
-      };
-      const labels: Record<DriftStatus, string> = {
-        compliant: 'Compliant',
-        drifted: 'Drifted',
-        no_target: 'No Target',
-      };
-      return <span className={`text-xs font-medium ${colors[status]}`}>{labels[status]}</span>;
-    },
+    cell: ({ getValue }) => <StatusChip status={getValue<DriftStatus>()} />,
   },
   {
     accessorKey: 'current_closure',
@@ -67,9 +57,14 @@ const driftColumns: ColumnDef<DriftedMachine, unknown>[] = [
     cell: ({ getValue }) => {
       const v = getValue<string>();
       return (
-        <span className="font-mono text-xs text-[var(--color-text-secondary)]" title={v ?? ''}>
-          {v ? truncateStorePath(v) : '—'}
-        </span>
+        <Tooltip content={v ?? 'none'}>
+          <span
+            className="font-mono text-[var(--color-text-secondary)] text-xs"
+           
+          >
+            {v ? truncateStorePath(v) : '—'}
+          </span>
+        </Tooltip>
       );
     },
   },
@@ -79,258 +74,278 @@ const driftColumns: ColumnDef<DriftedMachine, unknown>[] = [
     cell: ({ getValue }) => {
       const v = getValue<string>();
       return (
-        <span className="font-mono text-xs text-[var(--color-text-secondary)]" title={v ?? ''}>
-          {v ? truncateStorePath(v) : '—'}
-        </span>
+        <Tooltip content={v ?? 'none'}>
+          <span
+            className="font-mono text-[var(--color-text-secondary)] text-xs"
+           
+          >
+            {v ? truncateStorePath(v) : '—'}
+          </span>
+        </Tooltip>
       );
     },
   },
   {
     accessorKey: 'last_heartbeat',
-    header: 'Last Seen',
-    cell: ({ getValue }) => {
-      const v = getValue<string>();
-      return (
-        <span className="text-xs text-[var(--color-text-tertiary)]">
-          {v ? formatRelativeTime(v) : 'never'}
-        </span>
-      );
-    },
+    header: 'Last seen',
+    cell: ({ getValue }) => (
+      <span className="text-[var(--color-text-tertiary)] text-xs">
+        {getValue<string>() ? formatRelativeTime(getValue<string>()!) : 'never'}
+      </span>
+    ),
   },
 ];
 
-const severityColors: Record<string, string> = {
-  critical: 'text-[var(--color-error)]',
-  high: 'text-[var(--color-warning)]',
-  medium: 'text-[var(--color-text-primary)]',
-  low: 'text-[var(--color-text-tertiary)]',
-};
-
-const CHART_COLORS = [
-  'var(--color-success)',
-  'var(--color-error)',
-  'var(--color-text-tertiary)',
-];
+const CHART_TONES = ['var(--chart-3)', 'var(--chart-1)', 'var(--chart-axis)'];
 
 export function CompliancePage() {
-  const [filter, setFilter] = useState<FilterValue>('All');
-  const [activeTab, setActiveTab] = useState<'drift' | 'policies'>('drift');
+  const [driftFilter, setDriftFilter] = useState<DriftFilter>('all');
+  const [activeTab, setActiveTab] = useState('drift');
+  const [pendingDelete, setPendingDelete] = useState<CompliancePolicy | null>(null);
   const router = useRouter();
 
   const { data: compliance } = useComplianceReport();
-  const { data: machines, isLoading: machinesLoading } = useDriftedMachines(filterToStatus[filter]);
+  const { data: machines, isLoading: machinesLoading } = useDriftedMachines(
+    driftFilter === 'all' ? undefined : driftFilter,
+  );
   const { data: policies, isLoading: policiesLoading } = useCompliancePolicies();
   const deletePolicy = useDeletePolicy();
 
-  const compliancePercent = compliance && compliance.total > 0
-    ? Math.round((compliance.compliant / compliance.total) * 100)
-    : 0;
+  const compliancePercent =
+    compliance && compliance.total > 0
+      ? Math.round((compliance.compliant / compliance.total) * 100)
+      : 0;
 
-  const pieData = compliance
-    ? [
-        { name: 'Compliant', value: compliance.compliant },
-        { name: 'Drifted', value: compliance.drifted },
-        { name: 'No Target', value: compliance.no_target },
-      ].filter((d) => d.value > 0)
-    : [];
+  const pieData = useMemo(
+    () =>
+      compliance
+        ? [
+            { name: 'Compliant', value: compliance.compliant },
+            { name: 'Drifted', value: compliance.drifted },
+            { name: 'No target', value: compliance.no_target },
+          ].filter((d) => d.value > 0)
+        : [],
+    [compliance],
+  );
 
-  const policyColumns: ColumnDef<CompliancePolicy, unknown>[] = useMemo(() => [
-    {
-      accessorKey: 'name',
-      header: 'Policy Name',
-      cell: ({ getValue }) => (
-        <span className="font-medium text-sm">{getValue<string>()}</span>
-      ),
-    },
-    {
-      accessorKey: 'severity',
-      header: 'Severity',
-      cell: ({ getValue }) => {
-        const sev = getValue<string>();
-        return (
-          <span className={`text-xs font-medium uppercase ${severityColors[sev] ?? ''}`}>
-            {sev}
+  const policyColumns: ColumnDef<CompliancePolicy, unknown>[] = useMemo(
+    () => [
+      {
+        accessorKey: 'name',
+        header: 'Policy',
+        cell: ({ getValue }) => (
+          <span className="font-semibold text-[var(--color-text-primary)]">
+            {getValue<string>()}
           </span>
-        );
+        ),
       },
-    },
-    {
-      accessorKey: 'control_id',
-      header: 'Control ID',
-      cell: ({ getValue }) => (
-        <span className="font-mono text-xs">{getValue<string>() ?? '—'}</span>
-      ),
-    },
-    {
-      accessorKey: 'enabled',
-      header: 'Enabled',
-      cell: ({ getValue }) => (
-        <span className={`text-xs ${getValue<boolean>() ? 'text-[var(--color-success)]' : 'text-[var(--color-text-tertiary)]'}`}>
-          {getValue<boolean>() ? 'Yes' : 'No'}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'nix_expression',
-      header: 'Expression',
-      cell: ({ getValue }) => (
-        <span className="font-mono text-xs text-[var(--color-text-secondary)] truncate max-w-[300px] inline-block">
-          {getValue<string>()}
-        </span>
-      ),
-    },
-    {
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => (
-        <button
-          type="button"
-          className="text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (confirm(`Delete policy "${row.original.name}"?`)) {
-              deletePolicy.mutate(row.original.id);
-            }
-          }}
-        >
-          <LuTrash2 size={14} />
-        </button>
-      ),
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [deletePolicy.mutate]);
+      {
+        accessorKey: 'severity',
+        header: 'Severity',
+        cell: ({ getValue }) => <StatusChip status={getValue<string>()} />,
+      },
+      {
+        accessorKey: 'control_id',
+        header: 'Control',
+        cell: ({ getValue }) => (
+          <span
+            className="font-mono text-[var(--color-text-secondary)] text-xs"
+           
+          >
+            {getValue<string>() ?? '—'}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'enabled',
+        header: 'Enabled',
+        cell: ({ getValue }) =>
+          getValue<boolean>() ? (
+            <StatusChip status="success" tone="success" label="Enabled" withDot={false} />
+          ) : (
+            <StatusChip status="idle" tone="neutral" label="Disabled" withDot={false} />
+          ),
+      },
+      {
+        accessorKey: 'nix_expression',
+        header: 'Expression',
+        cell: ({ getValue }) => (
+          <Tooltip content={getValue<string>()} side="top">
+            <span
+              className="font-mono text-[var(--color-text-secondary)] truncate max-w-[320px] inline-block text-xs"
+             
+            >
+              {getValue<string>()}
+            </span>
+          </Tooltip>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <button
+            type="button"
+            className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-faint)] cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setPendingDelete(row.original);
+            }}
+            aria-label="Delete policy"
+          >
+            <LuTrash2 size={14} />
+          </button>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const tabs = [
+    { id: 'drift', label: 'Drift status', count: machines?.length },
+    { id: 'policies', label: 'Policies', count: policies?.length },
+  ];
 
   return (
-    <div>
-      <PageHeader title="Compliance" description="Fleet drift status, compliance policies, and SBOMs" />
+    <PageContainer size="wide">
+      <PageHeader
+        eyebrow="Observability"
+        title="Compliance"
+        description="Drift detection, compliance policies, and SBOMs across the fleet."
+      />
 
-      {/* Summary Cards + Chart */}
-      <section className="mb-8">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_200px] gap-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard
-              icon={<LuShieldCheck size={20} />}
-              value={compliance?.compliant ?? 0}
-              label="Compliant"
-              trend={compliance && compliance.total > 0
-                ? { value: `${compliancePercent}%`, positive: true }
-                : undefined
-              }
-            />
-            <StatCard
-              icon={<LuShieldAlert size={20} />}
-              value={compliance?.drifted ?? 0}
-              label="Drifted"
-              trend={compliance && compliance.drifted > 0
-                ? { value: `${compliance.drifted}`, positive: false }
-                : undefined
-              }
-            />
-            <StatCard
-              icon={<LuShieldQuestion size={20} />}
-              value={compliance?.no_target ?? 0}
-              label="No Target"
-            />
-          </div>
-          {pieData.length > 0 && (
-            <div className="flex items-center justify-center">
-              <ResponsiveContainer width={160} height={160}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={70}
-                    paddingAngle={2}
-                    strokeWidth={0}
-                  >
-                    {pieData.map((_entry, index) => (
-                      <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--color-surface)',
-                      border: '1px solid var(--color-border-subtle)',
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: 12,
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]">
+        <div
+          className="grid gap-[var(--spacing-card-gap)]"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}
+        >
+          <MetricTile
+            label="Compliant"
+            value={compliance?.compliant ?? 0}
+            sublabel={compliance && compliance.total > 0 ? `${compliancePercent}% of fleet` : undefined}
+            icon={<LuShieldCheck size={18} />}
+            tone="success"
+          />
+          <MetricTile
+            label="Drifted"
+            value={compliance?.drifted ?? 0}
+            icon={<LuShieldAlert size={18} />}
+            tone={compliance && compliance.drifted > 0 ? 'danger' : 'default'}
+          />
+          <MetricTile
+            label="No target"
+            value={compliance?.no_target ?? 0}
+            icon={<LuShieldQuestion size={18} />}
+            tone="default"
+          />
         </div>
-      </section>
-
-      {/* Tab Switch */}
-      <div className="flex gap-4 mb-6 border-b border-[var(--color-border-subtle)]">
-        <button
-          type="button"
-          className={`pb-2 text-sm font-medium cursor-pointer transition-colors ${
-            activeTab === 'drift'
-              ? 'text-[var(--color-ember)] border-b-2 border-[var(--color-ember)]'
-              : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'
-          }`}
-          onClick={() => setActiveTab('drift')}
-        >
-          <LuShield size={14} className="inline mr-1.5" />
-          Drift Status
-        </button>
-        <button
-          type="button"
-          className={`pb-2 text-sm font-medium cursor-pointer transition-colors ${
-            activeTab === 'policies'
-              ? 'text-[var(--color-ember)] border-b-2 border-[var(--color-ember)]'
-              : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'
-          }`}
-          onClick={() => setActiveTab('policies')}
-        >
-          <LuShieldCheck size={14} className="inline mr-1.5" />
-          Policies ({policies?.length ?? 0})
-        </button>
+        {pieData.length > 0 && (
+          <Card>
+            <div
+              className="uppercase font-semibold text-[var(--color-text-tertiary)] mb-2 text-2xs tracking-wide"
+             
+            >
+              Posture
+            </div>
+            <ResponsiveContainer width="100%" height={150}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={42}
+                  outerRadius={62}
+                  paddingAngle={2}
+                  strokeWidth={0}
+                >
+                  {pieData.map((_entry, index) => (
+                    <Cell key={index} fill={CHART_TONES[index % CHART_TONES.length]} />
+                  ))}
+                </Pie>
+                <RTooltip contentStyle={chartTooltipContent} />
+              </PieChart>
+            </ResponsiveContainer>
+          </Card>
+        )}
       </div>
 
-      {/* Drift Tab */}
-      {activeTab === 'drift' && (
-        <section>
-          <div className="mb-4">
-            <FilterPills
-              options={['Drifted', 'Compliant', 'No Target']}
-              active={filter}
-              onSelect={(v) => setFilter(v as FilterValue)}
-            />
-          </div>
+      <Tabs tabs={tabs} activeId={activeTab} onChange={setActiveTab} />
 
-          {machinesLoading ? (
-            <p className="text-sm text-[var(--color-text-tertiary)]">Loading drift data...</p>
-          ) : (
-            <DataTable
-              data={machines ?? []}
-              columns={driftColumns}
-              onRowClick={(row) => router.navigate({ to: `/machines/${row.id}` })}
-              emptyMessage="No machines match the selected filter."
-            />
-          )}
-        </section>
-      )}
+      <div className="mt-6">
+        {activeTab === 'drift' && (
+          <>
+            <div className="mb-4">
+              <SegmentedControl
+                value={driftFilter}
+                onChange={setDriftFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'drifted', label: 'Drifted' },
+                  { value: 'compliant', label: 'Compliant' },
+                  { value: 'no_target', label: 'No target' },
+                ]}
+              />
+            </div>
+            {machinesLoading ? (
+              <SkeletonTable rows={5} cols={6} />
+            ) : (
+              <DataTable
+                data={machines ?? []}
+                columns={driftColumns}
+                onRowClick={(row) =>
+                  router.navigate({
+                    to: '/machines/$machineId',
+                    params: { machineId: row.id },
+                  })
+                }
+                emptyMessage="No machines match the filter"
+                density="comfortable"
+                pageSize={25}
+              />
+            )}
+          </>
+        )}
 
-      {/* Policies Tab */}
-      {activeTab === 'policies' && (
-        <section>
-          {policiesLoading ? (
-            <p className="text-sm text-[var(--color-text-tertiary)]">Loading policies...</p>
-          ) : (
-            <DataTable
-              data={policies ?? []}
-              columns={policyColumns}
-              emptyMessage="No compliance policies defined yet."
-            />
-          )}
-        </section>
-      )}
-    </div>
+        {activeTab === 'policies' && (
+          <>
+            {policiesLoading ? (
+              <SkeletonTable rows={5} cols={6} />
+            ) : !policies || policies.length === 0 ? (
+              <Callout variant="info" title="No policies defined">
+                Compliance policies live in your control plane. Add some via the API to start
+                evaluating fleet posture.
+              </Callout>
+            ) : (
+              <DataTable
+                data={policies}
+                columns={policyColumns}
+                density="comfortable"
+                pageSize={25}
+                emptyMessage="No policies"
+              />
+            )}
+          </>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(o) => !o && setPendingDelete(null)}
+        title="Delete policy"
+        description={
+          pendingDelete
+            ? `Are you sure you want to delete "${pendingDelete.name}"? This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete policy"
+        variant="danger"
+        onConfirm={() => {
+          if (pendingDelete) deletePolicy.mutate(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+      />
+    </PageContainer>
   );
 }

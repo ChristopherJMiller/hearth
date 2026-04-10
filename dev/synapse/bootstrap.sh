@@ -22,14 +22,30 @@ echo "==> Synapse bootstrap for Hearth Chat"
 echo "    URL: $SYNAPSE_URL"
 
 # ---------------------------------------------------------------------------
-# Write OIDC client secret file into the Synapse container
+# Write OIDC client secret into the host-mounted file Synapse reads at boot,
+# then restart Synapse so it picks up the new value.
 # ---------------------------------------------------------------------------
+SECRET_FILE="$SCRIPT_DIR/oidc_client_secret"
 if [ -f "$SCRIPT_DIR/../kanidm/.env" ]; then
     MATRIX_SECRET=$(grep '^MATRIX_OIDC_CLIENT_SECRET=' "$SCRIPT_DIR/../kanidm/.env" 2>/dev/null | cut -d= -f2 || true)
     if [ -n "$MATRIX_SECRET" ]; then
-        SYNAPSE_CONTAINER="${SYNAPSE_CONTAINER:-hearth-synapse-1}"
-        printf '%s' "$MATRIX_SECRET" | docker exec -i "$SYNAPSE_CONTAINER" sh -c 'cat > /data/oidc_client_secret' 2>/dev/null || true
-        echo "    Wrote OIDC client secret to Synapse container"
+        CURRENT=$(cat "$SECRET_FILE" 2>/dev/null || echo "")
+        if [ "$CURRENT" != "$MATRIX_SECRET" ]; then
+            printf '%s' "$MATRIX_SECRET" > "$SECRET_FILE"
+            echo "    Wrote OIDC client secret to $SECRET_FILE"
+            echo "==> Restarting Synapse to load new secret..."
+            (cd "$SCRIPT_DIR/../.." && docker compose restart synapse >/dev/null)
+            # Wait for Synapse to come back up
+            for _ in $(seq 1 30); do
+                if curl -sf http://localhost:8008/health >/dev/null 2>&1; then
+                    echo "    Synapse back up"
+                    break
+                fi
+                sleep 1
+            done
+        else
+            echo "    OIDC client secret already current"
+        fi
     fi
 fi
 

@@ -1,61 +1,65 @@
 import React, { useState, useMemo } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { PageHeader, DataTable, FilterPills, Button } from '@hearth/ui';
+import {
+  PageContainer,
+  PageHeader,
+  DataTable,
+  SegmentedControl,
+  Button,
+  StatusChip,
+  Tooltip,
+  Callout,
+  SkeletonTable,
+  MetricTile,
+} from '@hearth/ui';
 import {
   useSoftwareRequests,
   useApproveRequest,
   useDenyRequest,
 } from '../../api/requests';
 import type { SoftwareRequest } from '../../api/types';
+import { useActor } from '../../hooks/useActor';
 import { formatRelativeTime, truncateId } from '../../lib/time';
-import { LuCheck, LuX } from 'react-icons/lu';
+import { LuCheck, LuX, LuInbox, LuClock, LuCheckCircle, LuXCircle } from 'react-icons/lu';
 
-type RequestStatus = SoftwareRequest['status'];
-
-const statusColors: Record<RequestStatus, string> = {
-  pending: 'bg-[var(--color-warning-faint)] text-[var(--color-warning)]',
-  approved: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  denied: 'bg-[var(--color-error-faint)] text-[var(--color-error)]',
-  installing: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  installed: 'bg-[var(--color-success-faint)] text-[var(--color-success)]',
-  failed: 'bg-[var(--color-error-faint)] text-[var(--color-error)]',
-};
-
-const filterOptions = ['Pending', 'Approved', 'Denied', 'Installing', 'Installed', 'Failed'];
+type Filter = 'all' | 'pending' | 'approved' | 'denied' | 'installed' | 'failed';
 
 function ActionsCell({ request }: { request: SoftwareRequest }) {
   const approve = useApproveRequest();
   const deny = useDenyRequest();
+  const actor = useActor();
 
   if (request.status !== 'pending') {
-    return <span className="text-xs text-[var(--color-text-tertiary)]">—</span>;
+    return <span className="text-[var(--color-text-tertiary)] text-xs">—</span>;
   }
 
+  const busy = approve.isPending || deny.isPending;
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <Button
         variant="primary"
         size="sm"
+        loading={approve.isPending}
+        leadingIcon={<LuCheck size={13} />}
         onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
           e.stopPropagation();
-          approve.mutate({ id: request.id, admin: 'console-admin' });
+          approve.mutate({ id: request.id, admin: actor });
         }}
-        disabled={approve.isPending || deny.isPending}
+        disabled={busy}
       >
-        <LuCheck size={14} />
         Approve
       </Button>
       <Button
         variant="ghost"
         size="sm"
-        className="text-[var(--color-error)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-faint)]"
+        leadingIcon={<LuX size={13} />}
         onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
           e.stopPropagation();
-          deny.mutate({ id: request.id, admin: 'console-admin' });
+          deny.mutate({ id: request.id, admin: actor });
         }}
-        disabled={approve.isPending || deny.isPending}
+        disabled={busy}
       >
-        <LuX size={14} />
         Deny
       </Button>
     </div>
@@ -64,61 +68,50 @@ function ActionsCell({ request }: { request: SoftwareRequest }) {
 
 const columns: ColumnDef<SoftwareRequest, unknown>[] = [
   {
-    accessorKey: 'id',
-    header: 'ID',
-    cell: ({ row }) => (
-      <span className="font-mono text-xs" title={row.original.id}>
-        {truncateId(row.original.id)}
-      </span>
-    ),
-  },
-  {
     accessorKey: 'username',
-    header: 'Username',
+    header: 'User',
     cell: ({ row }) => (
-      <span className="font-medium">{row.original.username}</span>
+      <span className="font-semibold text-[var(--color-text-primary)]">{row.original.username}</span>
     ),
   },
   {
     accessorKey: 'machine_id',
     header: 'Machine',
     cell: ({ row }) => (
-      <span className="font-mono text-xs" title={row.original.machine_id}>
-        {truncateId(row.original.machine_id)}
-      </span>
+      <Tooltip content={row.original.machine_id}>
+        <span
+          className="font-mono text-[var(--color-text-secondary)] text-xs"
+         
+        >
+          {truncateId(row.original.machine_id)}
+        </span>
+      </Tooltip>
+    ),
+  },
+  {
+    accessorKey: 'catalog_entry_id',
+    header: 'Software',
+    cell: ({ row }) => (
+      <Tooltip content={row.original.catalog_entry_id}>
+        <span
+          className="font-mono text-[var(--color-text-secondary)] text-xs"
+         
+        >
+          {truncateId(row.original.catalog_entry_id)}
+        </span>
+      </Tooltip>
     ),
   },
   {
     accessorKey: 'status',
     header: 'Status',
-    cell: ({ row }) => {
-      const status = row.original.status;
-      const isPulsing = status === 'pending' || status === 'installing';
-      return (
-        <span
-          className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap ${statusColors[status]}`}
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-              status === 'installed'
-                ? 'bg-[var(--color-success)]'
-                : status === 'denied' || status === 'failed'
-                  ? 'bg-[var(--color-error)]'
-                  : status === 'pending'
-                    ? 'bg-[var(--color-warning)]'
-                    : 'bg-[var(--color-info)]'
-            } ${isPulsing ? 'animate-[pulse-dot_1.8s_ease-in-out_infinite]' : ''}`}
-          />
-          {status}
-        </span>
-      );
-    },
+    cell: ({ row }) => <StatusChip status={row.original.status} />,
   },
   {
     accessorKey: 'requested_at',
     header: 'Requested',
     cell: ({ row }) => (
-      <span className="text-sm text-[var(--color-text-secondary)]">
+      <span className="text-[var(--color-text-secondary)] text-xs">
         {formatRelativeTime(row.original.requested_at)}
       </span>
     ),
@@ -132,42 +125,81 @@ const columns: ColumnDef<SoftwareRequest, unknown>[] = [
 ];
 
 export function RequestsPage() {
-  const { data: requests, isLoading } = useSoftwareRequests();
-  const [activeFilter, setActiveFilter] = useState('All');
+  const { data: requests, isLoading, isError } = useSoftwareRequests();
+  const [filter, setFilter] = useState<Filter>('all');
+
+  const counts = useMemo(() => {
+    const list = requests ?? [];
+    return {
+      total: list.length,
+      pending: list.filter((r) => r.status === 'pending').length,
+      installed: list.filter((r) => r.status === 'installed').length,
+      failed: list.filter((r) => r.status === 'failed' || r.status === 'denied').length,
+    };
+  }, [requests]);
 
   const filtered = useMemo(() => {
-    if (!requests) return [];
-    if (activeFilter === 'All') return requests;
-    const filterValue = activeFilter.toLowerCase();
-    return requests.filter((r) => r.status === filterValue);
-  }, [requests, activeFilter]);
+    const list = requests ?? [];
+    if (filter === 'all') return list;
+    return list.filter((r) => r.status === filter);
+  }, [requests, filter]);
 
   return (
-    <div>
+    <PageContainer size="wide">
       <PageHeader
-        title="Software Requests"
-        description="Review and manage user software installation requests"
+        eyebrow="Software"
+        title="Requests"
+        description="User-initiated installs from the catalog. Approve, deny, and watch them flow through to the agent."
       />
 
-      <div className="mb-4">
-        <FilterPills
-          options={filterOptions}
-          active={activeFilter}
-          onSelect={setActiveFilter}
+      <div
+        className="grid gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+      >
+        <MetricTile label="Total" value={counts.total} icon={<LuInbox size={18} />} tone="ember" />
+        <MetricTile
+          label="Pending"
+          value={counts.pending}
+          icon={<LuClock size={18} />}
+          tone={counts.pending > 0 ? 'warning' : 'default'}
+        />
+        <MetricTile label="Installed" value={counts.installed} icon={<LuCheckCircle size={18} />} tone="success" />
+        <MetricTile
+          label="Failed / denied"
+          value={counts.failed}
+          icon={<LuXCircle size={18} />}
+          tone={counts.failed > 0 ? 'danger' : 'default'}
         />
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-[var(--color-text-tertiary)] py-12 text-center">
-          Loading requests...
-        </p>
+      <div className="mb-4">
+        <SegmentedControl
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: `All · ${counts.total}` },
+            { value: 'pending', label: `Pending · ${counts.pending}` },
+            { value: 'approved', label: 'Approved' },
+            { value: 'installed', label: 'Installed' },
+            { value: 'denied', label: 'Denied' },
+            { value: 'failed', label: 'Failed' },
+          ]}
+        />
+      </div>
+
+      {isError ? (
+        <Callout variant="danger" title="Could not load requests" />
+      ) : isLoading ? (
+        <SkeletonTable rows={6} cols={6} />
       ) : (
         <DataTable
           data={filtered}
           columns={columns}
-          emptyMessage="No software requests found"
+          emptyMessage="No software requests match your filter"
+          density="comfortable"
+          pageSize={25}
         />
       )}
-    </div>
+    </PageContainer>
   );
 }

@@ -1,8 +1,29 @@
 import { useState } from 'react';
-import { PageHeader, Card, Select, Button, EmptyState } from '@hearth/ui';
+import {
+  PageContainer,
+  PageHeader,
+  Card,
+  Select,
+  Button,
+  EmptyState,
+  StatusChip,
+  Sheet,
+  TextInput,
+  Callout,
+  SkeletonCard,
+  Tooltip,
+} from '@hearth/ui';
 import { usePendingEnrollments, useApproveEnrollment } from '../../api/enrollment';
+import { useActor } from '../../hooks/useActor';
 import { formatRelativeTime } from '../../lib/time';
-import { LuUserPlus, LuFingerprint, LuClock, LuCheckCircle, LuChevronDown } from 'react-icons/lu';
+import {
+  LuUserPlus,
+  LuFingerprint,
+  LuClock,
+  LuCheckCircle,
+  LuSettings2,
+  LuCopy,
+} from 'react-icons/lu';
 
 const roleOptions = [
   { value: 'default', label: 'Default' },
@@ -11,146 +32,222 @@ const roleOptions = [
   { value: 'admin', label: 'Admin' },
 ];
 
-function EnrollmentCard({ machine }: { machine: { id: string; hostname: string; hardware_fingerprint: string | null; created_at: string } }) {
+interface PendingMachine {
+  id: string;
+  hostname: string;
+  hardware_fingerprint: string | null;
+  created_at: string;
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Tooltip content={copied ? 'Copied!' : 'Copy'}>
+      <button
+        type="button"
+        onClick={() => {
+          navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className="inline-flex items-center justify-center w-7 h-7 rounded-[6px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)] cursor-pointer"
+        aria-label="Copy"
+      >
+        <LuCopy size={13} />
+      </button>
+    </Tooltip>
+  );
+}
+
+function EnrollmentCard({ machine }: { machine: PendingMachine }) {
   const [role, setRole] = useState('default');
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [targetClosure, setTargetClosure] = useState('');
   const [cacheUrl, setCacheUrl] = useState('');
   const approve = useApproveEnrollment();
+  const actor = useActor();
 
-  const handleApprove = () => {
-    approve.mutate({
-      id: machine.id,
-      role,
-      admin: 'console-admin',
-      target_closure: targetClosure || undefined,
-      cache_url: cacheUrl || undefined,
-    });
+  const handleApprove = (extra?: { target_closure?: string; cache_url?: string }) => {
+    approve.mutate(
+      {
+        id: machine.id,
+        role,
+        admin: actor,
+        target_closure: extra?.target_closure || undefined,
+        cache_url: extra?.cache_url || undefined,
+      },
+      {
+        onSuccess: () => setAdvancedOpen(false),
+      },
+    );
   };
 
   return (
-    <Card>
-      <div className="flex flex-col gap-4">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-[var(--radius-sm)] bg-[var(--color-warning-faint)] flex items-center justify-center text-[var(--color-warning)]">
-              <LuUserPlus size={20} />
+    <>
+      <Card>
+        <div className="flex flex-col gap-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="shrink-0 w-12 h-12 rounded-[var(--radius-md)] flex items-center justify-center text-[var(--color-warning)]"
+                style={{ background: 'var(--color-warning-faint)' }}
+              >
+                <LuUserPlus size={22} />
+              </div>
+              <div className="flex flex-col gap-1 min-w-0">
+                <h3
+                  className="font-semibold text-[var(--color-text-primary)] truncate text-lg"
+                 
+                >
+                  {machine.hostname}
+                </h3>
+                <StatusChip status="pending" />
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
-                {machine.hostname}
-              </h3>
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--color-warning-faint)] text-[var(--color-warning)] mt-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)] animate-[pulse-dot_1.8s_ease-in-out_infinite]" />
-                Pending
+          </div>
+
+          <div className="flex flex-col gap-3 p-4 rounded-[var(--radius-sm)] bg-[var(--color-surface-sunken)] border border-[var(--color-border-subtle)]">
+            <div className="flex items-center gap-2">
+              <LuFingerprint size={14} className="text-[var(--color-text-tertiary)] shrink-0" />
+              <span
+                className="uppercase font-semibold text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+               
+              >
+                Hardware fingerprint
               </span>
             </div>
+            <div className="flex items-center justify-between gap-2">
+              <code
+                className="font-mono text-[var(--color-text-primary)] break-all flex-1 text-xs"
+               
+              >
+                {machine.hardware_fingerprint ?? 'unknown'}
+              </code>
+              {machine.hardware_fingerprint && <CopyButton value={machine.hardware_fingerprint} />}
+            </div>
+            <div
+              className="flex items-center gap-1.5 text-[var(--color-text-tertiary)] text-2xs"
+             
+            >
+              <LuClock size={12} />
+              Requested {formatRelativeTime(machine.created_at)}
+            </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-          <div className="flex items-center gap-2 text-[var(--color-text-secondary)]">
-            <LuFingerprint size={14} className="text-[var(--color-text-tertiary)] shrink-0" />
-            <span className="font-mono text-xs truncate">
-              {machine.hardware_fingerprint ?? 'Unknown'}
-            </span>
+          <div className="flex items-end gap-3">
+            <Select
+              options={roleOptions}
+              value={role}
+              onChange={setRole}
+              label="Assign role"
+              className="flex-1"
+            />
+            <Button
+              variant="primary"
+              loading={approve.isPending}
+              leadingIcon={<LuCheckCircle size={14} />}
+              onClick={() => handleApprove()}
+            >
+              Approve
+            </Button>
           </div>
-          <div className="flex items-center gap-2 text-[var(--color-text-secondary)]">
-            <LuClock size={14} className="text-[var(--color-text-tertiary)] shrink-0" />
-            <span>{formatRelativeTime(machine.created_at)}</span>
-          </div>
-        </div>
 
-        <div className="flex items-end gap-3 pt-2 border-t border-[var(--color-border-subtle)]">
-          <Select
-            options={roleOptions}
-            value={role}
-            onChange={setRole}
-            label="Assign Role"
-            className="flex-1"
-          />
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleApprove}
-            disabled={approve.isPending}
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen(true)}
+            className="self-start inline-flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] cursor-pointer text-xs"
+           
           >
-            <LuCheckCircle size={14} />
-            {approve.isPending ? 'Approving...' : 'Approve'}
-          </Button>
+            <LuSettings2 size={12} />
+            Advanced options…
+          </button>
+
+          {approve.isError && (
+            <Callout variant="danger" title="Approval failed">
+              The control plane returned an error. Please try again.
+            </Callout>
+          )}
         </div>
+      </Card>
 
-        <button
-          type="button"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
-        >
-          <LuChevronDown size={12} className={showAdvanced ? 'rotate-180' : ''} style={{ transition: 'transform 0.2s' }} />
-          Advanced options
-        </button>
-
-        {showAdvanced && (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--color-text-secondary)]">Target Closure</label>
-              <input
-                type="text"
-                value={targetClosure}
-                onChange={(e) => setTargetClosure(e.target.value)}
-                placeholder="e.g. /nix/store/...-nixos-system-hearth"
-                className="w-full px-3 py-1.5 text-sm rounded-[var(--radius-sm)] bg-[var(--color-surface-base)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-ember)]"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--color-text-secondary)]">Cache URL</label>
-              <input
-                type="text"
-                value={cacheUrl}
-                onChange={(e) => setCacheUrl(e.target.value)}
-                placeholder="e.g. http://localhost:8080/hearth"
-                className="w-full px-3 py-1.5 text-sm rounded-[var(--radius-sm)] bg-[var(--color-surface-base)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-ember)]"
-              />
-            </div>
+      <Sheet
+        open={advancedOpen}
+        onOpenChange={setAdvancedOpen}
+        title="Advanced enrollment"
+        description={`${machine.hostname} · ${role}`}
+        size="md"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={() => setAdvancedOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              loading={approve.isPending}
+              leadingIcon={<LuCheckCircle size={14} />}
+              onClick={() =>
+                handleApprove({
+                  target_closure: targetClosure || undefined,
+                  cache_url: cacheUrl || undefined,
+                })
+              }
+            >
+              Approve with overrides
+            </Button>
           </div>
-        )}
-
-        {approve.isError && (
-          <p className="text-xs text-[var(--color-error)]">
-            Failed to approve enrollment. Please try again.
-          </p>
-        )}
-      </div>
-    </Card>
+        }
+      >
+        <div className="flex flex-col gap-5">
+          <TextInput
+            label="Target closure"
+            value={targetClosure}
+            onChange={setTargetClosure}
+            placeholder="/nix/store/...-nixos-system-hearth"
+          />
+          <TextInput
+            label="Cache URL"
+            value={cacheUrl}
+            onChange={setCacheUrl}
+            placeholder="http://localhost:8080/hearth"
+          />
+        </div>
+      </Sheet>
+    </>
   );
 }
 
 export function EnrollmentPage() {
-  const { data: pending, isLoading } = usePendingEnrollments();
+  const { data: pending, isLoading, isError } = usePendingEnrollments();
 
   return (
-    <div>
+    <PageContainer size="wide">
       <PageHeader
+        eyebrow="Fleet"
         title="Enrollment"
-        description="Review and approve pending device enrollments"
+        description="Devices that have requested to join the fleet. Approve to issue an enrollment token and start provisioning."
       />
 
-      {isLoading ? (
-        <p className="text-sm text-[var(--color-text-tertiary)] py-12 text-center">
-          Loading pending enrollments...
-        </p>
+      {isError ? (
+        <Callout variant="danger" title="Could not load enrollments" />
+      ) : isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--spacing-card-gap)]">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       ) : !pending || pending.length === 0 ? (
         <EmptyState
-          icon={<LuUserPlus size={24} />}
+          icon={<LuUserPlus size={28} />}
           title="No pending enrollments"
           description="All devices have been reviewed. New devices will appear here when they request enrollment."
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--spacing-card-gap)]">
           {pending.map((machine) => (
             <EnrollmentCard key={machine.id} machine={machine} />
           ))}
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

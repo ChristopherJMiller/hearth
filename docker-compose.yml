@@ -1,3 +1,17 @@
+# Pin the default network to a known subnet so we can give Kanidm a stable
+# IP. Needed as a workaround for Synapse (Twisted) + Docker embedded DNS:
+# Twisted's resolver sends DNS queries of type ANY, which Docker's embedded
+# DNS answers with NXDOMAIN per RFC 8482. So Synapse can't resolve service
+# names via Docker DNS; we have to put Kanidm in Synapse's /etc/hosts via
+# `extra_hosts`, which requires a stable IP. This bug doesn't affect the
+# Helm chart — CoreDNS in Kubernetes handles ANY queries correctly.
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
 services:
   postgres:
     image: postgres:16
@@ -32,6 +46,12 @@ services:
   kanidm:
     image: kanidm/server:1.9.0
     ports: ["8443:8443"]
+    # Pinned IP on the default network so other services can put
+    # `kanidm.hearth.local` in their /etc/hosts via extra_hosts. See the
+    # network block at the top of this file for the reason.
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
     volumes:
       - ./dev/kanidm/server.toml:/data/server.toml:ro
       - ./dev/kanidm/cert.pem:/data/cert.pem:ro
@@ -72,11 +92,13 @@ services:
     volumes:
       - ./dev/headscale/config.yaml:/etc/headscale/config.yaml:ro
       - headscale-data:/var/lib/headscale
+    # Headscale 0.23 ships as a distroless image (no shell, no curl/wget)
+    # and the `headscale health` subcommand doesn't exist. The HTTP /health
+    # endpoint works (curl from host), but we have no way to probe it from
+    # inside the container. Disable the compose healthcheck; probe from the
+    # host in `just setup` instead.
     healthcheck:
-      test: ["CMD", "headscale", "health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      disable: true
 
   synapse:
     image: matrixdotorg/synapse:v1.122.0
@@ -84,9 +106,45 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Retry on failure: Synapse does a blocking OIDC-metadata fetch against
+    # Kanidm at startup, and Kanidm isn't healthy for ~15-20s after boot.
+    # Without this, Synapse crashes once and stays down.
+    restart: on-failure
+    # Static /etc/hosts entry for kanidm.hearth.local — required because
+    # Kanidm advertises that hostname in its OIDC discovery metadata and
+    # Synapse must reach it by that exact name. We bypass DNS here: see
+    # the networks block at the top of this file for the Twisted/Docker
+    # DNS ANY-query issue. The IP is kanidm's pinned address.
+    extra_hosts:
+      - "kanidm.hearth.local:172.28.0.10"
+    # Run as root inside the container so Synapse can write to the named
+    # volumes. In rootless docker, container root maps to the host user, so
+    # this is equivalent to running as $(id -u) on the host. Without this,
+    # Synapse's start.py drops privileges to uid 991 which can't write to
+    # volumes created by rootless docker.
+    user: "0:0"
+    environment:
+      UID: "0"
+      GID: "0"
+    # Wrap the entrypoint to install Kanidm's self-signed cert into the
+    # system CA trust store before Synapse starts. Synapse's OIDC client
+    # does TLS verification regardless of the `skip_verification` config
+    # option (which only skips OIDC *issuer* validation, not TLS). Without
+    # this, Twisted's Agent fails the TLS handshake on Kanidm's self-signed
+    # cert and misreports it as RequestTimedOutError.
+    entrypoint:
+      - sh
+      - -c
+      - 'cp /certs/kanidm.crt /usr/local/share/ca-certificates/kanidm.crt && update-ca-certificates >/dev/null 2>&1 && exec /start.py'
     volumes:
       - ./dev/synapse/homeserver.yaml:/data/homeserver.yaml:ro
       - ./dev/synapse/log.config:/data/log.config:ro
+      - ./dev/kanidm/cert.pem:/certs/kanidm.crt:ro
+      # Bind-mounted so the Kanidm bootstrap can update the secret from the
+      # host (synapse reads this file on startup). Pre-created empty by
+      # `just setup`; real secret is written by dev/synapse/bootstrap.sh and
+      # picked up via a synapse restart.
+      - ./dev/synapse/oidc_client_secret:/data/oidc_client_secret
       - synapse-data:/data/media_store
       - synapse-signing:/data/keys
     healthcheck:
@@ -133,6 +191,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  caddy:
+    # Reverse-proxies *.hearth.local (kanidm, chat, cloud, grafana, api, cache)
+    # on host :80/:443 so enrolled VMs can reach services via clean URLs.
+    # Uses host networking so it can reach the Hearth API (cargo run on host)
+    # and other containers via localhost:<published-port>.
+    image: caddy:2.8-alpine
+    network_mode: host
+    volumes:
+      - ./dev/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./dev/caddy/data:/data
+      - ./dev/caddy/config:/config
+    restart: unless-stopped
 
 volumes:
   pgdata:

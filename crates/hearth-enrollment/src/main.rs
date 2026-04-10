@@ -68,8 +68,8 @@ async fn run_app(
 
         // The login screen may request a kiosk browser launch. This requires
         // suspending the TUI so cage can take over the VT.
-        if let Some(auth_url) = app.take_browser_request() {
-            launch_kiosk_browser(terminal, app, &auth_url).await?;
+        if let Some((auth_url, callback_rx)) = app.take_browser_request() {
+            launch_kiosk_browser(terminal, app, &auth_url, callback_rx).await?;
         }
 
         if app.should_exit() {
@@ -82,12 +82,15 @@ async fn run_app(
 ///
 /// cage is a minimal Wayland kiosk compositor that needs DRM/VT access. The TUI
 /// must release raw mode and the alternate screen so cage can take over the
-/// display. After cage exits (user closes Firefox or auth completes), the TUI
-/// is restored and the next tick picks up the auth result from the callback.
+/// display. The browser is auto-closed as soon as the OAuth callback arrives
+/// (signaled via `callback_rx`) — the user doesn't have to manually close
+/// the window. If the user closes Firefox first, `child.wait()` wins the
+/// select and we restore the TUI anyway.
 async fn launch_kiosk_browser(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     auth_url: &str,
+    callback_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> AppResult<()> {
     // Suspend TUI — release the VT so cage can take over
     terminal::disable_raw_mode()?;
@@ -129,6 +132,7 @@ user_pref("security.enterprise_roots.enabled", true);
     cmd.env("MOZ_ENABLE_WAYLAND", "1");
     cmd.arg("--")
         .arg("firefox")
+        .arg("--kiosk")
         .arg("--no-remote")
         .arg("--profile")
         .arg(&profile_dir)
@@ -136,12 +140,28 @@ user_pref("security.enterprise_roots.enabled", true);
 
     match cmd.spawn() {
         Ok(mut child) => {
-            // Wait for cage to exit. The OAuth callback server continues
-            // running in its spawned tokio task, processing the redirect
-            // while Firefox is open.
-            match child.wait().await {
-                Ok(status) => info!(?status, "kiosk browser exited"),
-                Err(e) => tracing::error!(error = %e, "failed to wait on kiosk browser"),
+            // Wait until EITHER:
+            //   (a) the OAuth callback fires — then we kill cage (and
+            //       firefox with it) so the user doesn't have to manually
+            //       close the kiosk; the token exchange continues in the
+            //       background and is picked up on the next TUI tick, OR
+            //   (b) Firefox exits on its own (user closed it / crashed) —
+            //       whichever happens first.
+            tokio::select! {
+                _ = callback_rx => {
+                    info!("OAuth callback received, closing kiosk browser");
+                    // Graceful kill: cage cleans up firefox as its child.
+                    if let Err(e) = child.kill().await {
+                        tracing::warn!(error = %e, "failed to kill cage cleanly");
+                    }
+                    let _ = child.wait().await;
+                }
+                wait_result = child.wait() => {
+                    match wait_result {
+                        Ok(status) => info!(?status, "kiosk browser exited"),
+                        Err(e) => tracing::error!(error = %e, "failed to wait on kiosk browser"),
+                    }
+                }
             }
         }
         Err(e) => {

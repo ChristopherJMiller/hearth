@@ -1,5 +1,9 @@
-import { PageHeader, StatCard } from '@hearth/ui';
-import { useComplianceReport, useDeploymentTimeline, useEnrollmentTimeline } from '../api/reports';
+import { PageContainer, PageHeader, MetricTile, Card, Callout, SkeletonCard } from '@hearth/ui';
+import {
+  useComplianceReport,
+  useDeploymentTimeline,
+  useEnrollmentTimeline,
+} from '../api/reports';
 import {
   BarChart,
   Bar,
@@ -12,168 +16,177 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { LuMonitor, LuShieldCheck, LuShieldAlert, LuShieldQuestion } from 'react-icons/lu';
 import {
-  LuMonitor,
-  LuCheckCircle,
-  LuAlertTriangle,
-  LuHelpCircle,
-} from 'react-icons/lu';
+  chartTooltipContent,
+  chartAxisTick,
+  chartGridStroke,
+} from '../components/charts/ChartTooltip';
+
+const formatDateTick = (v: string): string => {
+  const d = new Date(v);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
 
 export function ReportsPage() {
-  const { data: compliance, isLoading: complianceLoading, error: complianceError } = useComplianceReport();
-  const { data: deploymentTimeline, isLoading: deployLoading, error: deployError } = useDeploymentTimeline();
-  const { data: enrollmentTimeline, isLoading: enrollLoading, error: enrollError } = useEnrollmentTimeline();
+  const compliance = useComplianceReport();
+  const deploymentTimeline = useDeploymentTimeline();
+  const enrollmentTimeline = useEnrollmentTimeline();
+
+  const compliancePct =
+    compliance.data && compliance.data.total > 0
+      ? Math.round((compliance.data.compliant / compliance.data.total) * 100)
+      : 0;
 
   return (
-    <div>
-      <PageHeader title="Reports" description="Fleet compliance and activity metrics" />
+    <PageContainer size="wide">
+      <PageHeader
+        eyebrow="Observability"
+        title="Reports"
+        description="Long-running fleet metrics — compliance posture, deployment cadence, and enrollment flow over time."
+      />
 
-      {/* Compliance Section */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-[var(--color-text-primary)] mb-4">Compliance Overview</h2>
-        {complianceError ? (
-          <p className="text-sm text-[var(--color-error)]">Failed to load compliance data.</p>
-        ) : complianceLoading ? (
-          <p className="text-sm text-[var(--color-text-tertiary)]">Loading compliance data...</p>
+      <section className="mb-[var(--spacing-section)]">
+        <h2
+          className="uppercase font-semibold text-[var(--color-text-tertiary)] mb-3 text-2xs tracking-wide"
+         
+        >
+          Compliance posture
+        </h2>
+        {compliance.isError ? (
+          <Callout variant="danger" title="Could not load compliance data" />
+        ) : compliance.isLoading ? (
+          <SkeletonCard />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              icon={<LuMonitor size={20} />}
-              value={compliance?.total ?? 0}
-              label="Total Machines"
+          <div
+            className="grid gap-[var(--spacing-card-gap)]"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+          >
+            <MetricTile
+              label="Total machines"
+              value={compliance.data?.total ?? 0}
+              icon={<LuMonitor size={18} />}
+              tone="ember"
             />
-            <StatCard
-              icon={<LuCheckCircle size={20} />}
-              value={compliance?.compliant ?? 0}
+            <MetricTile
               label="Compliant"
-              trend={
-                compliance && compliance.total > 0
-                  ? {
-                      value: `${Math.round((compliance.compliant / compliance.total) * 100)}%`,
-                      positive: true,
-                    }
-                  : undefined
-              }
+              value={compliance.data?.compliant ?? 0}
+              sublabel={compliance.data && compliance.data.total > 0 ? `${compliancePct}%` : undefined}
+              icon={<LuShieldCheck size={18} />}
+              tone="success"
             />
-            <StatCard
-              icon={<LuAlertTriangle size={20} />}
-              value={compliance?.drifted ?? 0}
+            <MetricTile
               label="Drifted"
-              trend={
-                compliance && compliance.drifted > 0
-                  ? { value: `${compliance.drifted}`, positive: false }
-                  : undefined
-              }
+              value={compliance.data?.drifted ?? 0}
+              icon={<LuShieldAlert size={18} />}
+              tone={compliance.data && compliance.data.drifted > 0 ? 'danger' : 'default'}
             />
-            <StatCard
-              icon={<LuHelpCircle size={20} />}
-              value={compliance?.no_target ?? 0}
-              label="No Target Set"
+            <MetricTile
+              label="No target"
+              value={compliance.data?.no_target ?? 0}
+              icon={<LuShieldQuestion size={18} />}
+              tone="default"
             />
           </div>
         )}
       </section>
 
-      {/* Deployment Timeline */}
-      <section className="mb-8">
-        <div className="bg-[var(--color-surface)] border border-[var(--color-border-subtle)] rounded-[var(--radius-md)] shadow-[var(--shadow-card)] p-5">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)] mb-4">Deployment Activity (30 days)</h2>
-          {deployError ? (
-            <p className="text-sm text-[var(--color-error)]">Failed to load deployment timeline.</p>
-          ) : deployLoading ? (
-            <p className="text-sm text-[var(--color-text-tertiary)]">Loading deployment timeline...</p>
-          ) : !deploymentTimeline || deploymentTimeline.length === 0 ? (
-            <p className="text-sm text-[var(--color-text-tertiary)] py-8 text-center">No deployment data available.</p>
+      <section className="mb-[var(--spacing-section)]">
+        <Card>
+          <h2
+            className="font-semibold text-[var(--color-text-primary)] mb-1 text-lg"
+           
+          >
+            Deployment activity
+          </h2>
+          <p
+            className="text-[var(--color-text-tertiary)] mb-5 text-xs"
+           
+          >
+            Last 30 days
+          </p>
+          {deploymentTimeline.isError ? (
+            <Callout variant="danger" title="Could not load deployment timeline" />
+          ) : deploymentTimeline.isLoading ? (
+            <div className="h-[280px]" />
+          ) : !deploymentTimeline.data || deploymentTimeline.data.length === 0 ? (
+            <p
+              className="text-[var(--color-text-tertiary)] py-12 text-center text-sm"
+             
+            >
+              No deployment data yet.
+            </p>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={deploymentTimeline} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11, fill: 'var(--color-text-tertiary)' }}
-                  tickFormatter={(v: string) => {
-                    const d = new Date(v);
-                    return `${d.getMonth() + 1}/${d.getDate()}`;
-                  }}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: 'var(--color-text-tertiary)' }}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-surface)',
-                    border: '1px solid var(--color-border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: 12,
-                  }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="completed" name="Completed" fill="var(--color-success)" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="failed" name="Failed" fill="var(--color-error)" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="rolled_back" name="Rolled Back" fill="var(--color-warning)" radius={[2, 2, 0, 0]} />
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={deploymentTimeline.data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                <XAxis dataKey="date" tick={chartAxisTick} tickFormatter={formatDateTick} />
+                <YAxis tick={chartAxisTick} allowDecimals={false} />
+                <Tooltip contentStyle={chartTooltipContent} cursor={{ fill: 'var(--color-surface-raised)' }} />
+                <Legend wrapperStyle={{ fontSize: 12, color: 'var(--color-text-secondary)' }} />
+                <Bar dataKey="completed" name="Completed" fill="var(--chart-3)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="failed" name="Failed" fill="var(--chart-1)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="rolled_back" name="Rolled back" fill="var(--chart-4)" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
-        </div>
+        </Card>
       </section>
 
-      {/* Enrollment Timeline */}
       <section>
-        <div className="bg-[var(--color-surface)] border border-[var(--color-border-subtle)] rounded-[var(--radius-md)] shadow-[var(--shadow-card)] p-5">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)] mb-4">Enrollment Activity (30 days)</h2>
-          {enrollError ? (
-            <p className="text-sm text-[var(--color-error)]">Failed to load enrollment timeline.</p>
-          ) : enrollLoading ? (
-            <p className="text-sm text-[var(--color-text-tertiary)]">Loading enrollment timeline...</p>
-          ) : !enrollmentTimeline || enrollmentTimeline.length === 0 ? (
-            <p className="text-sm text-[var(--color-text-tertiary)] py-8 text-center">No enrollment data available.</p>
+        <Card>
+          <h2
+            className="font-semibold text-[var(--color-text-primary)] mb-1 text-lg"
+           
+          >
+            Enrollment activity
+          </h2>
+          <p
+            className="text-[var(--color-text-tertiary)] mb-5 text-xs"
+           
+          >
+            Last 30 days
+          </p>
+          {enrollmentTimeline.isError ? (
+            <Callout variant="danger" title="Could not load enrollment timeline" />
+          ) : enrollmentTimeline.isLoading ? (
+            <div className="h-[280px]" />
+          ) : !enrollmentTimeline.data || enrollmentTimeline.data.length === 0 ? (
+            <p
+              className="text-[var(--color-text-tertiary)] py-12 text-center text-sm"
+             
+            >
+              No enrollment data yet.
+            </p>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={enrollmentTimeline} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11, fill: 'var(--color-text-tertiary)' }}
-                  tickFormatter={(v: string) => {
-                    const d = new Date(v);
-                    return `${d.getMonth() + 1}/${d.getDate()}`;
-                  }}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: 'var(--color-text-tertiary)' }}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-surface)',
-                    border: '1px solid var(--color-border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: 12,
-                  }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={enrollmentTimeline.data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                <XAxis dataKey="date" tick={chartAxisTick} tickFormatter={formatDateTick} />
+                <YAxis tick={chartAxisTick} allowDecimals={false} />
+                <Tooltip contentStyle={chartTooltipContent} />
+                <Legend wrapperStyle={{ fontSize: 12, color: 'var(--color-text-secondary)' }} />
                 <Line
                   type="monotone"
                   dataKey="enrolled"
                   name="Enrolled"
-                  stroke="var(--color-success)"
+                  stroke="var(--chart-3)"
                   strokeWidth={2}
-                  dot={{ r: 3 }}
+                  dot={{ r: 3, fill: 'var(--chart-3)' }}
                 />
                 <Line
                   type="monotone"
                   dataKey="pending"
                   name="Pending"
-                  stroke="var(--color-warning)"
+                  stroke="var(--chart-4)"
                   strokeWidth={2}
-                  dot={{ r: 3 }}
+                  dot={{ r: 3, fill: 'var(--chart-4)' }}
                 />
               </LineChart>
             </ResponsiveContainer>
           )}
-        </div>
+        </Card>
       </section>
-    </div>
+    </PageContainer>
   );
 }

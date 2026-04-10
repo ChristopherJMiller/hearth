@@ -281,6 +281,8 @@ echo "==> Creating groups..."
 
 create_group "hearth-users"
 create_group "hearth-admins"
+create_group "hearth-operators"
+create_group "hearth-viewers"
 create_group "hearth-developers"
 create_group "hearth-designers"
 
@@ -297,6 +299,16 @@ create_person "testadmin" "Test Admin"
 add_group_member "hearth-admins" "testadmin"
 add_group_member "hearth-users" "testadmin"
 set_person_password "testadmin" "$DEV_PASSWORD"
+
+create_person "testoperator" "Test Operator"
+add_group_member "hearth-operators" "testoperator"
+add_group_member "hearth-users" "testoperator"
+set_person_password "testoperator" "$DEV_PASSWORD"
+
+create_person "testviewer" "Test Viewer"
+add_group_member "hearth-viewers" "testviewer"
+add_group_member "hearth-users" "testviewer"
+set_person_password "testviewer" "$DEV_PASSWORD"
 
 create_person "testdev" "Test Developer"
 add_group_member "hearth-developers" "testdev"
@@ -387,7 +399,7 @@ checked_post "scopemap hearth-matrix" "/v1/oauth2/hearth-matrix/_scopemap/hearth
     '["openid","profile","email"]'
 
 checked_patch "configure hearth-matrix" "/v1/oauth2/hearth-matrix" \
-    '{"attrs":{"oauth2_prefer_short_username":["true"],"oauth2_allow_localhost_redirect":["true"]}}'
+    '{"attrs":{"oauth2_prefer_short_username":["true"]}}'
 
 # Retrieve the client secret for Synapse
 MATRIX_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-matrix" \
@@ -407,7 +419,7 @@ checked_post "scopemap hearth-nextcloud" "/v1/oauth2/hearth-nextcloud/_scopemap/
     '["openid","profile","email"]'
 
 checked_patch "configure hearth-nextcloud" "/v1/oauth2/hearth-nextcloud" \
-    '{"attrs":{"oauth2_prefer_short_username":["true"],"oauth2_allow_localhost_redirect":["true"]}}'
+    '{"attrs":{"oauth2_prefer_short_username":["true"]}}'
 
 # Retrieve the client secret for Nextcloud
 NEXTCLOUD_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-nextcloud" \

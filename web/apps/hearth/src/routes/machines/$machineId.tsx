@@ -1,11 +1,25 @@
 import { useState } from 'react';
 import { useRouter, useParams } from '@tanstack/react-router';
 import { type ColumnDef } from '@tanstack/react-table';
-import { PageHeader, DataTable, Tabs } from '@hearth/ui';
+import {
+  PageContainer,
+  PageHeader,
+  Tabs,
+  Card,
+  StatusChip,
+  DescriptionList,
+  DataTable,
+  Callout,
+  Button,
+  SkeletonCard,
+  Tooltip,
+} from '@hearth/ui';
 import { useMachine } from '../../api/machines';
 import { useMachineEnvironments } from '../../api/environments';
-import type { UserEnvironment } from '../../api/types';
-import { formatRelativeTime, formatDateTime } from '../../lib/time';
+import { useAuditLog } from '../../api/audit';
+import type { UserEnvironment, AuditEvent } from '../../api/types';
+import { formatRelativeTime, formatDateTime, truncateId } from '../../lib/time';
+import { MachineActions } from '../../components/MachineActions';
 import {
   LuMonitor,
   LuShield,
@@ -15,29 +29,15 @@ import {
   LuBox,
   LuTarget,
   LuNetwork,
+  LuCpu,
+  LuCopy,
+  LuArrowLeft,
 } from 'react-icons/lu';
-
-const enrollmentColors: Record<string, string> = {
-  active: 'bg-[var(--color-success-faint)] text-[var(--color-success)]',
-  enrolled: 'bg-[var(--color-success-faint)] text-[var(--color-success)]',
-  pending: 'bg-[var(--color-warning-faint)] text-[var(--color-warning)]',
-  approved: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  provisioning: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  decommissioned: 'bg-[var(--color-error-faint)] text-[var(--color-error)]',
-};
-
-const envStatusColors: Record<string, string> = {
-  active: 'bg-[var(--color-success-faint)] text-[var(--color-success)]',
-  ready: 'bg-[var(--color-success-faint)] text-[var(--color-success)]',
-  pending: 'bg-[var(--color-warning-faint)] text-[var(--color-warning)]',
-  building: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  activating: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  failed: 'bg-[var(--color-error-faint)] text-[var(--color-error)]',
-};
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'environments', label: 'Environments' },
+  { id: 'actions', label: 'Actions' },
   { id: 'audit', label: 'Audit' },
 ];
 
@@ -46,231 +46,298 @@ const envColumns: ColumnDef<UserEnvironment, unknown>[] = [
     accessorKey: 'username',
     header: 'Username',
     cell: ({ row }) => (
-      <span className="font-medium">{row.original.username}</span>
+      <span className="font-semibold text-[var(--color-text-primary)]">{row.original.username}</span>
     ),
   },
   {
     accessorKey: 'role',
     header: 'Role',
     cell: ({ row }) => (
-      <span className="text-sm text-[var(--color-text-secondary)]">
-        {row.original.role}
-      </span>
+      <span className="text-[var(--color-text-secondary)] capitalize">{row.original.role}</span>
     ),
   },
   {
     accessorKey: 'status',
     header: 'Status',
-    cell: ({ row }) => {
-      const status = row.original.status;
-      return (
-        <span
-          className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap ${envStatusColors[status] ?? ''}`}
-        >
-          {status}
-        </span>
-      );
-    },
+    cell: ({ row }) => <StatusChip status={row.original.status} />,
   },
   {
     accessorKey: 'updated_at',
     header: 'Updated',
     cell: ({ row }) => (
-      <span className="text-sm text-[var(--color-text-secondary)]">
+      <span className="text-[var(--color-text-secondary)] text-xs">
         {formatRelativeTime(row.original.updated_at)}
       </span>
     ),
   },
 ];
 
-function InfoField({
-  icon,
-  label,
-  value,
-  mono,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-}) {
+const auditColumns: ColumnDef<AuditEvent, unknown>[] = [
+  {
+    accessorKey: 'event_type',
+    header: 'Event',
+    cell: ({ row }) => (
+      <span className="font-medium text-[var(--color-text-primary)]">
+        {row.original.event_type}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'actor',
+    header: 'Actor',
+    cell: ({ row }) => (
+      <span className="text-[var(--color-text-secondary)] text-sm">
+        {row.original.actor ?? <span className="italic text-[var(--color-text-tertiary)]">system</span>}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'created_at',
+    header: 'When',
+    cell: ({ row }) => (
+      <span className="text-[var(--color-text-secondary)] text-xs">
+        {formatRelativeTime(row.original.created_at)}
+      </span>
+    ),
+  },
+];
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <div className="flex items-start gap-3 p-4 bg-[var(--color-surface)] border border-[var(--color-border-subtle)] rounded-[var(--radius-md)]">
-      <div className="w-8 h-8 rounded-[var(--radius-sm)] bg-[var(--color-surface-raised)] flex items-center justify-center text-[var(--color-text-tertiary)] shrink-0">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-[var(--color-text-tertiary)] mb-0.5">{label}</p>
-        <div className={`text-sm text-[var(--color-text-primary)] break-all ${mono ? 'font-mono text-xs' : ''}`}>
-          {value}
-        </div>
-      </div>
-    </div>
+    <Tooltip content={copied ? 'Copied!' : 'Copy'}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className="inline-flex items-center justify-center w-6 h-6 rounded-[6px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)] cursor-pointer"
+        aria-label="Copy"
+      >
+        <LuCopy size={12} />
+      </button>
+    </Tooltip>
+  );
+}
+
+function MonoValue({ value }: { value: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 max-w-full">
+      <span
+        className="font-mono break-all text-[var(--color-text-primary)] text-xs"
+       
+      >
+        {value}
+      </span>
+      <CopyButton value={value} />
+    </span>
   );
 }
 
 export function MachineDetailPage() {
   const router = useRouter();
   const { machineId } = useParams({ strict: false }) as { machineId: string };
-  const { data: machine, isLoading } = useMachine(machineId);
+  const { data: machine, isLoading, isError } = useMachine(machineId);
   const { data: environments } = useMachineEnvironments(machineId);
+  const { data: auditEvents } = useAuditLog({ machine_id: machineId, limit: 100 });
   const [activeTab, setActiveTab] = useState('overview');
 
-  if (isLoading || !machine) {
+  if (isError) {
     return (
-      <div>
-        <PageHeader
-          title="Loading..."
-          breadcrumbs={[
-            { label: 'Machines', onClick: () => router.navigate({ to: '/machines' }) },
-            { label: '...' },
-          ]}
-        />
-        <p className="text-sm text-[var(--color-text-tertiary)] py-12 text-center">
-          Loading machine details...
-        </p>
-      </div>
+      <PageContainer>
+        <Callout variant="danger" title="Machine not found">
+          We couldn't load this machine. It may have been decommissioned.
+          <div className="mt-3">
+            <Button variant="subtle" leadingIcon={<LuArrowLeft size={14} />} onClick={() => router.navigate({ to: '/machines' })}>
+              Back to machines
+            </Button>
+          </div>
+        </Callout>
+      </PageContainer>
     );
   }
 
-  const status = machine.enrollment_status;
+  if (isLoading || !machine) {
+    return (
+      <PageContainer>
+        <PageHeader
+          title="Loading machine…"
+          breadcrumbs={[
+            { label: 'Machines', onClick: () => router.navigate({ to: '/machines' }) },
+            { label: '—' },
+          ]}
+        />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-[var(--spacing-card-gap)] items-start">
+          <div className="lg:col-span-2"><SkeletonCard /></div>
+          <SkeletonCard />
+        </div>
+      </PageContainer>
+    );
+  }
+
+  const overviewItems = [
+    {
+      label: 'Hostname',
+      icon: <LuMonitor size={12} />,
+      value: machine.hostname,
+    },
+    {
+      label: 'Role',
+      icon: <LuShield size={12} />,
+      value: <span className="capitalize">{machine.role ?? <span className="italic text-[var(--color-text-tertiary)]">unassigned</span>}</span>,
+    },
+    {
+      label: 'Last heartbeat',
+      icon: <LuClock size={12} />,
+      value: machine.last_heartbeat
+        ? formatRelativeTime(machine.last_heartbeat)
+        : <span className="italic text-[var(--color-text-tertiary)]">never</span>,
+    },
+    {
+      label: 'Mesh address',
+      icon: <LuNetwork size={12} />,
+      value: machine.headscale_ip
+        ? <MonoValue value={machine.headscale_ip} />
+        : <span className="italic text-[var(--color-text-tertiary)]">not connected</span>,
+    },
+    {
+      label: 'Hardware fingerprint',
+      icon: <LuFingerprint size={12} />,
+      value: machine.hardware_fingerprint
+        ? <MonoValue value={machine.hardware_fingerprint} />
+        : <span className="italic text-[var(--color-text-tertiary)]">unknown</span>,
+      span: 2 as const,
+    },
+    {
+      label: 'Current closure',
+      icon: <LuBox size={12} />,
+      value: machine.current_closure
+        ? <MonoValue value={machine.current_closure} />
+        : <span className="italic text-[var(--color-text-tertiary)]">none</span>,
+      span: 2 as const,
+    },
+    {
+      label: 'Target closure',
+      icon: <LuTarget size={12} />,
+      value: machine.target_closure
+        ? <MonoValue value={machine.target_closure} />
+        : <span className="italic text-[var(--color-text-tertiary)]">none</span>,
+      span: 2 as const,
+    },
+    {
+      label: 'Tags',
+      icon: <LuTag size={12} />,
+      value:
+        machine.tags.length === 0 ? (
+          <span className="italic text-[var(--color-text-tertiary)]">none</span>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {machine.tags.map((tag) => (
+              <span
+                key={tag}
+                className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] text-2xs"
+               
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        ),
+      span: 2 as const,
+    },
+    {
+      label: 'Created',
+      icon: <LuClock size={12} />,
+      value: formatDateTime(machine.created_at),
+    },
+    {
+      label: 'Updated',
+      icon: <LuClock size={12} />,
+      value: formatDateTime(machine.updated_at),
+    },
+  ];
 
   return (
-    <div>
+    <PageContainer size="wide">
       <PageHeader
+        eyebrow={truncateId(machine.id)}
         title={machine.hostname}
-        description={`Machine ID: ${machine.id}`}
+        description={machine.role ? `Role · ${machine.role}` : 'No role assigned'}
         breadcrumbs={[
+          { label: 'Fleet' },
           { label: 'Machines', onClick: () => router.navigate({ to: '/machines' }) },
           { label: machine.hostname },
         ]}
-        actions={
-          <span
-            className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap ${enrollmentColors[status] ?? ''}`}
-          >
-            {status}
-          </span>
-        }
+        actions={<StatusChip status={machine.enrollment_status} size="md" />}
       />
 
       <Tabs tabs={tabs} activeId={activeTab} onChange={setActiveTab} />
 
       <div className="mt-6">
         {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            <InfoField
-              icon={<LuMonitor size={16} />}
-              label="Hostname"
-              value={machine.hostname}
-            />
-            <InfoField
-              icon={<LuShield size={16} />}
-              label="Role"
-              value={machine.role ?? 'Not assigned'}
-            />
-            <InfoField
-              icon={<LuClock size={16} />}
-              label="Last Heartbeat"
-              value={
-                machine.last_heartbeat
-                  ? formatRelativeTime(machine.last_heartbeat)
-                  : 'Never'
-              }
-            />
-            <InfoField
-              icon={<LuBox size={16} />}
-              label="Current Closure"
-              value={machine.current_closure ?? 'None'}
-              mono
-            />
-            <InfoField
-              icon={<LuTarget size={16} />}
-              label="Target Closure"
-              value={machine.target_closure ?? 'None'}
-              mono
-            />
-            <InfoField
-              icon={<LuNetwork size={16} />}
-              label="Mesh VPN Address"
-              value={
-                machine.headscale_ip ? (
-                  <span className="flex items-center gap-2">
-                    <span>{machine.headscale_ip}</span>
-                    <button
-                      type="button"
-                      className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] hover:text-[var(--color-text-primary)] cursor-pointer"
-                      onClick={() => navigator.clipboard.writeText(`ssh root@${machine.headscale_ip}`)}
-                    >
-                      Copy SSH
-                    </button>
-                  </span>
-                ) : (
-                  'Not connected'
-                )
-              }
-              mono
-            />
-            <InfoField
-              icon={<LuFingerprint size={16} />}
-              label="Hardware Fingerprint"
-              value={machine.hardware_fingerprint ?? 'Unknown'}
-              mono
-            />
-            <InfoField
-              icon={<LuTag size={16} />}
-              label="Tags"
-              value={
-                machine.tags.length === 0 ? (
-                  'None'
-                ) : (
-                  <div className="flex flex-wrap gap-1 mt-0.5">
-                    {machine.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)]"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )
-              }
-            />
-            <InfoField
-              icon={<LuClock size={16} />}
-              label="Created"
-              value={formatDateTime(machine.created_at)}
-            />
-            <InfoField
-              icon={<LuClock size={16} />}
-              label="Updated"
-              value={formatDateTime(machine.updated_at)}
-            />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-[var(--spacing-card-gap)] items-start">
+            <Card className="lg:col-span-2">
+              <div className="flex items-center gap-2 mb-5">
+                <LuCpu size={16} className="text-[var(--color-text-tertiary)]" />
+                <h2
+                  className="font-semibold text-[var(--color-text-primary)] text-lg"
+                 
+                >
+                  Identity & state
+                </h2>
+              </div>
+              <DescriptionList items={overviewItems} columns={2} />
+            </Card>
+
+            <Card>
+              <div className="mb-4">
+                <h2
+                  className="font-semibold text-[var(--color-text-primary)] text-lg"
+                 
+                >
+                  Remote actions
+                </h2>
+                <p className="text-[var(--color-text-tertiary)] text-xs">
+                  Dispatch commands to this machine
+                </p>
+              </div>
+              <MachineActions machineId={machineId} />
+            </Card>
           </div>
         )}
 
         {activeTab === 'environments' && (
-          <DataTable
-            data={environments ?? []}
-            columns={envColumns}
-            emptyMessage="No user environments found for this machine"
-          />
+          <Card>
+            <DataTable
+              data={environments ?? []}
+              columns={envColumns}
+              emptyMessage="No user environments on this machine yet"
+              density="comfortable"
+            />
+          </Card>
+        )}
+
+        {activeTab === 'actions' && (
+          <Card>
+            <MachineActions machineId={machineId} />
+          </Card>
         )}
 
         {activeTab === 'audit' && (
-          <p className="text-sm text-[var(--color-text-tertiary)] py-12 text-center">
-            View the{' '}
-            <button
-              type="button"
-              onClick={() => router.navigate({ to: '/audit' })}
-              className="text-[var(--color-ember)] hover:underline cursor-pointer"
-            >
-              audit log
-            </button>{' '}
-            filtered for this machine.
-          </p>
+          <Card>
+            <DataTable
+              data={auditEvents ?? []}
+              columns={auditColumns}
+              emptyMessage="No audit events for this machine"
+              density="comfortable"
+              pageSize={25}
+            />
+          </Card>
         )}
       </div>
-    </div>
+    </PageContainer>
   );
 }

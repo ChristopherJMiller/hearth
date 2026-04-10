@@ -280,6 +280,28 @@ struct OidcClaims {
     scoped_groups: Vec<String>,
 }
 
+/// Normalize Kanidm's OIDC `groups` claim into clean short names.
+///
+/// Kanidm emits each group membership **twice** — once as a UUID and once as
+/// an SPN (`name@domain`). We drop the UUID form (unreadable, redundant) and
+/// strip the `@domain` suffix so downstream code can match on plain short
+/// names like `hearth-admins`. Duplicates are removed while preserving order.
+///
+/// Note: this assumes a single Kanidm realm per deployment. Federating
+/// multiple realms with overlapping group names would need to revisit this.
+fn normalize_groups(raw: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    raw.into_iter()
+        .filter(|g| Uuid::parse_str(g).is_err())
+        .map(|g| {
+            g.split_once('@')
+                .map(|(name, _)| name.to_string())
+                .unwrap_or(g)
+        })
+        .filter(|g| seen.insert(g.clone()))
+        .collect()
+}
+
 fn validate_user_token(
     token: &str,
     keyset: &JwkSet,
@@ -326,6 +348,7 @@ fn validate_user_token(
 
     let mut groups = data.claims.groups;
     groups.extend(data.claims.scoped_groups);
+    let groups = normalize_groups(groups);
 
     info!(
         sub = %data.claims.sub,
@@ -557,5 +580,55 @@ impl FromRequestParts<AppState> for AdminIdentity {
                 "requires hearth-admins group membership".into(),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_groups_strips_uuid_and_domain() {
+        let raw = vec![
+            "00000000-0000-0000-0000-000000000035".to_string(),
+            "idm_all_persons@kanidm.hearth.local".to_string(),
+            "47cab1f8-fe2e-47f5-b993-f41bb31dfaab".to_string(),
+            "hearth-users@kanidm.hearth.local".to_string(),
+            "dd76cf22-5d62-46fe-b8d1-3a1ca9048c82".to_string(),
+            "hearth-admins@kanidm.hearth.local".to_string(),
+        ];
+        assert_eq!(
+            normalize_groups(raw),
+            vec!["idm_all_persons", "hearth-users", "hearth-admins"],
+        );
+    }
+
+    #[test]
+    fn normalize_groups_all_uuid_yields_empty() {
+        let raw = vec![
+            "00000000-0000-0000-0000-000000000035".to_string(),
+            "47cab1f8-fe2e-47f5-b993-f41bb31dfaab".to_string(),
+        ];
+        assert!(normalize_groups(raw).is_empty());
+    }
+
+    #[test]
+    fn normalize_groups_short_names_pass_through() {
+        // Test fixtures and dev-mode bypass use short names directly — must
+        // remain unchanged so existing tests and dev flows keep working.
+        let raw = vec!["hearth-admins".to_string(), "hearth-users".to_string()];
+        assert_eq!(normalize_groups(raw), vec!["hearth-admins", "hearth-users"]);
+    }
+
+    #[test]
+    fn normalize_groups_dedupes_across_forms() {
+        let raw = vec![
+            "hearth-admins".to_string(),
+            "hearth-admins@kanidm.hearth.local".to_string(),
+            "47cab1f8-fe2e-47f5-b993-f41bb31dfaab".to_string(),
+            "hearth-users@kanidm.hearth.local".to_string(),
+            "hearth-users".to_string(),
+        ];
+        assert_eq!(normalize_groups(raw), vec!["hearth-admins", "hearth-users"]);
     }
 }

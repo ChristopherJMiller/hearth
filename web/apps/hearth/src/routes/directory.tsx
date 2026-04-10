@@ -1,41 +1,44 @@
 import { useState, useMemo } from 'react';
-import { PageHeader, Card, SearchInput } from '@hearth/ui';
-import { LuMail, LuMessageSquare, LuCloud, LuClock } from 'react-icons/lu';
+import {
+  PageContainer,
+  PageHeader,
+  Card,
+  SearchInput,
+  Avatar,
+  Tooltip,
+  Callout,
+  SkeletonCard,
+  EmptyState,
+} from '@hearth/ui';
+import { LuMail, LuMessageSquare, LuCloud, LuClock, LuUsers } from 'react-icons/lu';
 import { useDirectory } from '../api/directory';
 import { formatRelativeTime } from '../lib/time';
 import type { DirectoryPerson } from '../api/types';
-
-function Initials({ name, username }: { name: string | null; username: string }) {
-  const text = name ?? username;
-  const initials = text
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
-
-  return (
-    <div className="w-10 h-10 rounded-full bg-[var(--color-ember)] flex items-center justify-center text-white text-sm font-semibold shrink-0">
-      {initials || '?'}
-    </div>
-  );
-}
 
 function PersonCard({ person }: { person: DirectoryPerson }) {
   const displayName = person.display_name ?? person.username;
 
   return (
-    <Card>
-      <div className="p-5 space-y-3">
+    <Card className="h-full">
+      <div className="flex flex-col gap-4">
         <div className="flex items-start gap-3">
-          <Initials name={person.display_name} username={person.username} />
+          <Avatar name={displayName} size="md" />
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
+            <h3
+              className="font-semibold text-[var(--color-text-primary)] truncate text-base"
+             
+            >
               {displayName}
             </h3>
-            <p className="text-xs text-[var(--color-text-secondary)] truncate">
+            <p className="text-[var(--color-text-tertiary)] truncate text-xs">
               @{person.username}
             </p>
           </div>
+          {person.last_seen && (
+            <Tooltip content={`Last seen ${formatRelativeTime(person.last_seen)}`}>
+              <span className="w-2 h-2 rounded-full bg-[var(--color-success)] mt-2 shrink-0" />
+            </Tooltip>
+          )}
         </div>
 
         {person.groups.length > 0 && (
@@ -43,7 +46,8 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
             {person.groups.map((group) => (
               <span
                 key={group}
-                className="inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-md bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)]"
+                className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] text-2xs"
+               
               >
                 {group.replace(/^hearth-/, '')}
               </span>
@@ -51,41 +55,47 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
           </div>
         )}
 
-        <div className="flex items-center gap-3 text-[var(--color-text-muted)]">
+        <div className="flex items-center gap-2 pt-3 border-t border-[var(--color-border-subtle)]">
           {person.email && (
-            <a
-              href={`mailto:${person.email}`}
-              title={person.email}
-              className="hover:text-[var(--color-ember)] transition-colors"
-            >
-              <LuMail size={15} />
-            </a>
+            <Tooltip content={person.email}>
+              <a
+                href={`mailto:${person.email}`}
+                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-ember)] hover:bg-[var(--color-ember-faint)] transition-colors"
+              >
+                <LuMail size={15} />
+              </a>
+            </Tooltip>
           )}
           {person.matrix_id && (
-            <a
-              href={`https://matrix.to/#/${person.matrix_id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={person.matrix_id}
-              className="hover:text-[var(--color-ember)] transition-colors"
-            >
-              <LuMessageSquare size={15} />
-            </a>
+            <Tooltip content={person.matrix_id}>
+              <a
+                href={`https://matrix.to/#/${person.matrix_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-ember)] hover:bg-[var(--color-ember-faint)] transition-colors"
+              >
+                <LuMessageSquare size={15} />
+              </a>
+            </Tooltip>
           )}
           {person.nextcloud_url && (
-            <a
-              href={person.nextcloud_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Nextcloud profile"
-              className="hover:text-[var(--color-ember)] transition-colors"
-            >
-              <LuCloud size={15} />
-            </a>
+            <Tooltip content="Nextcloud profile">
+              <a
+                href={person.nextcloud_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-ember)] hover:bg-[var(--color-ember-faint)] transition-colors"
+              >
+                <LuCloud size={15} />
+              </a>
+            </Tooltip>
           )}
           {person.last_seen && (
-            <span className="ml-auto flex items-center gap-1 text-xs text-[var(--color-text-muted)]" title={`Last seen: ${person.last_seen}`}>
-              <LuClock size={12} />
+            <span
+              className="ml-auto flex items-center gap-1 text-[var(--color-text-tertiary)] text-2xs"
+             
+            >
+              <LuClock size={11} />
               {formatRelativeTime(person.last_seen)}
             </span>
           )}
@@ -96,7 +106,7 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
 }
 
 export function DirectoryPage() {
-  const { data: people, isLoading, error } = useDirectory();
+  const { data: people, isLoading, isError } = useDirectory();
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
@@ -112,49 +122,47 @@ export function DirectoryPage() {
     );
   }, [people, search]);
 
-  if (isLoading) {
-    return (
-      <div className="p-6">
-        <PageHeader title="People" description="Loading directory..." />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <PageHeader title="People" description="Failed to load directory." />
-        <p className="text-sm text-[var(--color-ember)] mt-4">{error.message}</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6 space-y-6">
+    <PageContainer size="wide">
       <PageHeader
-        title="People"
-        description={`${people?.length ?? 0} people in your organization`}
+        eyebrow="Identity & access"
+        title="Directory"
+        description={
+          people
+            ? `${people.length} ${people.length === 1 ? 'person' : 'people'} across the org`
+            : 'Everyone in your organization'
+        }
       />
 
-      <div className="max-w-sm">
+      <div className="max-w-md mb-[var(--spacing-section)]">
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search by name, username, email, or group..."
+          placeholder="Search by name, username, email, or group…"
         />
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="text-sm text-[var(--color-text-muted)]">
-          {search ? 'No people match your search.' : 'No people in the directory yet.'}
-        </p>
+      {isError ? (
+        <Callout variant="danger" title="Could not load directory" />
+      ) : isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={<LuUsers size={28} />}
+          title={search ? 'No matches' : 'Empty directory'}
+          description={search ? 'Try a different search term.' : 'People will appear here once they sign in.'}
+        />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
           {filtered.map((person) => (
             <PersonCard key={person.username} person={person} />
           ))}
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

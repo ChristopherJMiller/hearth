@@ -1,44 +1,54 @@
 import type { ReactNode } from "react";
+import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 
 export interface PageHeaderProps {
-  title: string;
-  description?: string;
-  breadcrumbs?: { label: string; onClick?: () => void }[];
+  title: ReactNode;
+  description?: ReactNode;
+  eyebrow?: ReactNode;
+  breadcrumbs?: BreadcrumbItem[];
   actions?: ReactNode;
+  children?: ReactNode;
 }
 
-export function PageHeader({ title, description, breadcrumbs, actions }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  description,
+  eyebrow,
+  breadcrumbs,
+  actions,
+  children,
+}: PageHeaderProps) {
   return (
-    <div className="flex flex-col gap-1 mb-8">
-      {breadcrumbs && breadcrumbs.length > 0 && (
-        <nav className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
-          {breadcrumbs.map((crumb, i) => (
-            <span key={i} className="flex items-center gap-1.5">
-              {i > 0 && <span>/</span>}
-              {crumb.onClick ? (
-                <button
-                  type="button"
-                  onClick={crumb.onClick}
-                  className="hover:text-[var(--color-text-secondary)] transition-colors cursor-pointer"
-                >
-                  {crumb.label}
-                </button>
-              ) : (
-                <span>{crumb.label}</span>
-              )}
-            </span>
-          ))}
-        </nav>
-      )}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{title}</h1>
+    <div className="flex flex-col gap-3 mb-[var(--density-section-gap)]">
+      {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
+      <div className="flex items-center justify-between gap-6 flex-wrap">
+        <div className="flex flex-col gap-2 min-w-0 flex-1">
+          {eyebrow && (
+            <div
+              className="uppercase font-semibold text-[var(--color-ember)] text-2xs tracking-wide"
+             
+            >
+              {eyebrow}
+            </div>
+          )}
+          <h1
+            className="font-semibold text-[var(--color-text-primary)] text-2xl tracking-tight leading-tight"
+           
+          >
+            {title}
+          </h1>
           {description && (
-            <p className="text-sm text-[var(--color-text-secondary)] mt-1">{description}</p>
+            <p
+              className="text-[var(--color-text-secondary)] max-w-[72ch] text-sm leading-body"
+             
+            >
+              {description}
+            </p>
           )}
         </div>
         {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
       </div>
+      {children}
     </div>
   );
 }

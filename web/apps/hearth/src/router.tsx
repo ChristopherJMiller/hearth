@@ -21,6 +21,13 @@ import { CompliancePage } from './routes/compliance';
 import { ServicesPage } from './routes/services';
 import { DirectoryPage } from './routes/directory';
 import { SettingsPage } from './routes/settings';
+import { BuildsPage } from './routes/builds/index';
+import { BuildJobDetailPage } from './routes/builds/$jobId';
+import { PeoplePage } from './routes/people/index';
+import { PersonDetailPage } from './routes/people/$username';
+import { MyEnvironmentPage } from './routes/me/environment';
+import { HealthPage } from './routes/health';
+import { MeshPage } from './routes/mesh';
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -30,10 +37,11 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
-    throw redirect({ to: '/catalog' });
+    throw redirect({ to: '/dashboard' });
   },
 });
 
+// ── Fleet ───────────────────────────────────────────────────────────────────
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dashboard',
@@ -58,6 +66,13 @@ const enrollmentRoute = createRoute({
   component: EnrollmentPage,
 });
 
+const meshRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/mesh',
+  component: MeshPage,
+});
+
+// ── Software ────────────────────────────────────────────────────────────────
 const deploymentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/deployments',
@@ -74,6 +89,18 @@ const newDeploymentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/deployments/new',
   component: NewDeploymentPage,
+});
+
+const buildsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/builds',
+  component: BuildsPage,
+});
+
+const buildDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/builds/$jobId',
+  component: BuildJobDetailPage,
 });
 
 const catalogBrowseRoute = createRoute({
@@ -94,16 +121,36 @@ const requestsRoute = createRoute({
   component: RequestsPage,
 });
 
+// ── Identity & access ───────────────────────────────────────────────────────
+const peopleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/people',
+  component: PeoplePage,
+});
+
+const personDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/people/$username',
+  component: PersonDetailPage,
+});
+
+const directoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/directory',
+  component: DirectoryPage,
+});
+
 const auditRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit',
   component: AuditPage,
 });
 
-const reportsRoute = createRoute({
+// ── Observability ───────────────────────────────────────────────────────────
+const healthRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/reports',
-  component: ReportsPage,
+  path: '/health',
+  component: HealthPage,
 });
 
 const complianceRoute = createRoute({
@@ -112,16 +159,23 @@ const complianceRoute = createRoute({
   component: CompliancePage,
 });
 
+const reportsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reports',
+  component: ReportsPage,
+});
+
 const servicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/services',
   component: ServicesPage,
 });
 
-const directoryRoute = createRoute({
+// ── Personal ────────────────────────────────────────────────────────────────
+const myEnvironmentRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/directory',
-  component: DirectoryPage,
+  path: '/me/environment',
+  component: MyEnvironmentPage,
 });
 
 const settingsRoute = createRoute({
@@ -136,17 +190,24 @@ const routeTree = rootRoute.addChildren([
   machinesRoute,
   machineDetailRoute,
   enrollmentRoute,
+  meshRoute,
   deploymentsRoute,
   newDeploymentRoute,
   deploymentDetailRoute,
+  buildsRoute,
+  buildDetailRoute,
   catalogBrowseRoute,
   catalogManageRoute,
   requestsRoute,
-  auditRoute,
-  reportsRoute,
-  complianceRoute,
-  servicesRoute,
+  peopleRoute,
+  personDetailRoute,
   directoryRoute,
+  auditRoute,
+  healthRoute,
+  complianceRoute,
+  reportsRoute,
+  servicesRoute,
+  myEnvironmentRoute,
   settingsRoute,
 ]);
 

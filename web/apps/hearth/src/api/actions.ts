@@ -9,15 +9,18 @@ export function useMachineActions(machineId: string) {
   });
 }
 
+/** One-shot POST for use outside React components (command palette, etc.). */
+export function createMachineAction(machineId: string, req: CreateActionRequest) {
+  return apiFetch<PendingAction>(`/machines/${machineId}/actions`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  });
+}
+
 export function useCreateAction(machineId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (req: CreateActionRequest) =>
-      apiFetch<PendingAction>(`/machines/${machineId}/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
-      }),
+    mutationFn: (req: CreateActionRequest) => createMachineAction(machineId, req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['machines', machineId, 'actions'] });
     },

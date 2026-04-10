@@ -1,0 +1,34 @@
+{
+	# Use Caddy's internal CA for all sites (no public ACME)
+	local_certs
+	# Bind admin API to loopback only; we're sharing the host network namespace
+	admin localhost:2019
+}
+
+api.hearth.local {
+	reverse_proxy localhost:3000
+}
+
+cache.hearth.local {
+	reverse_proxy localhost:8080
+}
+
+kanidm.hearth.local {
+	reverse_proxy https://localhost:8443 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+chat.hearth.local {
+	reverse_proxy localhost:8088
+}
+
+cloud.hearth.local {
+	reverse_proxy localhost:8089
+}
+
+grafana.hearth.local {
+	reverse_proxy localhost:3001
+}

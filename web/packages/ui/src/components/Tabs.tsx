@@ -1,35 +1,89 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode, type KeyboardEvent } from "react";
 
 export interface Tab {
   id: string;
-  label: string;
+  label: ReactNode;
   icon?: ReactNode;
+  count?: number;
 }
 
 export interface TabsProps {
   tabs: Tab[];
   activeId: string;
   onChange: (id: string) => void;
+  orientation?: "horizontal" | "vertical";
+  ariaLabel?: string;
 }
 
-export function Tabs({ tabs, activeId, onChange }: TabsProps) {
+export function Tabs({
+  tabs,
+  activeId,
+  onChange,
+  orientation = "horizontal",
+  ariaLabel,
+}: TabsProps) {
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const handleKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const keys = orientation === "horizontal"
+      ? { next: "ArrowRight", prev: "ArrowLeft" }
+      : { next: "ArrowDown", prev: "ArrowUp" };
+    const currentIdx = tabs.findIndex((t) => t.id === activeId);
+    if (currentIdx === -1) return;
+    let nextIdx = currentIdx;
+    if (e.key === keys.next) nextIdx = (currentIdx + 1) % tabs.length;
+    else if (e.key === keys.prev) nextIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    const nextId = tabs[nextIdx].id;
+    onChange(nextId);
+    refs.current[nextId]?.focus();
+  };
+
+  const wrapperClass = orientation === "horizontal"
+    ? "flex items-center gap-1 border-b border-[var(--color-border-subtle)] overflow-x-auto"
+    : "flex flex-col gap-1 border-r border-[var(--color-border-subtle)]";
+
   return (
-    <div className="flex items-center gap-1 border-b border-[var(--color-border-subtle)]">
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      aria-orientation={orientation}
+      onKeyDown={handleKey}
+      className={wrapperClass}
+    >
       {tabs.map((tab) => {
         const isActive = tab.id === activeId;
+        const activeBorder = orientation === "horizontal"
+          ? (isActive ? "border-b-2 border-[var(--color-ember)] -mb-px" : "border-b-2 border-transparent -mb-px")
+          : (isActive ? "border-r-2 border-[var(--color-ember)] -mr-px" : "border-r-2 border-transparent -mr-px");
         return (
           <button
             key={tab.id}
+            ref={(el) => { refs.current[tab.id] = el; }}
+            role="tab"
             type="button"
+            aria-selected={isActive}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium cursor-pointer transition-colors duration-100 border-b-2 -mb-px ${
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium cursor-pointer transition-colors duration-100 ${activeBorder} ${
               isActive
-                ? "border-[var(--color-ember)] text-[var(--color-ember)]"
-                : "border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                ? "text-[var(--color-ember)]"
+                : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
             }`}
           >
-            {tab.icon && <span className="w-4 h-4">{tab.icon}</span>}
+            {tab.icon && <span className="w-4 h-4 shrink-0 flex items-center justify-center">{tab.icon}</span>}
             {tab.label}
+            {tab.count != null && (
+              <span
+                className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)] text-2xs"
+               
+              >
+                {tab.count}
+              </span>
+            )}
           </button>
         );
       })}

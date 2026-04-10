@@ -1,10 +1,18 @@
 import { useState, useMemo } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
-import { PageHeader, DataTable, SearchInput, Badge } from '@hearth/ui';
+import {
+  PageContainer,
+  PageHeader,
+  DataTable,
+  SearchInput,
+  Badge,
+  StatusChip,
+  SkeletonTable,
+  Callout,
+} from '@hearth/ui';
 import type { BadgeVariant } from '@hearth/ui';
 import { useCatalog } from '../../api/catalog';
 import type { CatalogEntry } from '../../api/types';
-import { LuShield, LuShieldOff } from 'react-icons/lu';
 
 const installMethodBadge: Record<string, BadgeVariant> = {
   flatpak: 'flatpak',
@@ -25,12 +33,20 @@ const columns: ColumnDef<CatalogEntry, unknown>[] = [
     accessorKey: 'name',
     header: 'Name',
     cell: ({ row }) => (
-      <div>
-        <p className="font-medium text-[var(--color-text-primary)]">{row.original.name}</p>
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <span
+          className="font-semibold text-[var(--color-text-primary)] text-sm"
+         
+        >
+          {row.original.name}
+        </span>
         {row.original.description && (
-          <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5 max-w-[300px] truncate">
+          <span
+            className="text-[var(--color-text-tertiary)] truncate max-w-[420px] text-xs"
+           
+          >
             {row.original.description}
-          </p>
+          </span>
         )}
       </div>
     ),
@@ -39,62 +55,46 @@ const columns: ColumnDef<CatalogEntry, unknown>[] = [
     accessorKey: 'category',
     header: 'Category',
     cell: ({ row }) => (
-      <span className="text-sm text-[var(--color-text-secondary)]">
+      <span className="text-[var(--color-text-secondary)] text-sm">
         {row.original.category ?? '—'}
       </span>
     ),
   },
   {
     accessorKey: 'install_method',
-    header: 'Install Method',
+    header: 'Method',
     cell: ({ row }) => {
       const method = row.original.install_method;
       const variant = installMethodBadge[method];
       const label = installMethodLabel[method] ?? method;
-      return variant ? (
-        <Badge variant={variant}>{label}</Badge>
-      ) : (
-        <span className="text-xs text-[var(--color-text-secondary)]">{label}</span>
-      );
+      return variant ? <Badge variant={variant}>{label}</Badge> : <span>{label}</span>;
     },
   },
   {
     accessorKey: 'approval_required',
-    header: 'Approval Required',
-    cell: ({ row }) => {
-      const required = row.original.approval_required;
-      return (
-        <div className="flex items-center gap-1.5">
-          {required ? (
-            <>
-              <LuShield size={14} className="text-[var(--color-warning)]" />
-              <span className="text-xs text-[var(--color-warning)] font-medium">Required</span>
-            </>
-          ) : (
-            <>
-              <LuShieldOff size={14} className="text-[var(--color-text-tertiary)]" />
-              <span className="text-xs text-[var(--color-text-tertiary)]">Auto-approve</span>
-            </>
-          )}
-        </div>
-      );
-    },
+    header: 'Approval',
+    cell: ({ row }) =>
+      row.original.approval_required ? (
+        <StatusChip status="warning" tone="warning" label="Required" withDot={false} />
+      ) : (
+        <StatusChip status="success" tone="success" label="Auto" withDot={false} />
+      ),
   },
   {
     id: 'auto_approve_roles',
-    header: 'Auto-Approve Roles',
+    header: 'Auto-approve roles',
     enableSorting: false,
     cell: ({ row }) => {
       const roles = row.original.auto_approve_roles;
-      if (roles.length === 0) {
-        return <span className="text-sm text-[var(--color-text-tertiary)]">—</span>;
-      }
+      if (roles.length === 0)
+        return <span className="text-[var(--color-text-tertiary)] text-xs">—</span>;
       return (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1.5">
           {roles.map((role) => (
             <span
               key={role}
-              className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)]"
+              className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] text-2xs"
+             
             >
               {role}
             </span>
@@ -106,7 +106,7 @@ const columns: ColumnDef<CatalogEntry, unknown>[] = [
 ];
 
 export function CatalogManagePage() {
-  const { data: catalog, isLoading } = useCatalog();
+  const { data: catalog, isLoading, isError } = useCatalog();
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
@@ -123,31 +123,34 @@ export function CatalogManagePage() {
   }, [catalog, search]);
 
   return (
-    <div>
+    <PageContainer size="wide">
       <PageHeader
-        title="Software Catalog"
-        description="Browse and manage the fleet software catalog"
+        eyebrow="Software"
+        title="Manage catalog"
+        description="The software your users can request. Approval rules, auto-approve by role, install method per entry."
       />
 
-      <div className="mb-4 max-w-sm">
+      <div className="max-w-md mb-4">
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search by name, category, or install method..."
+          placeholder="Search by name, category, or install method…"
         />
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-[var(--color-text-tertiary)] py-12 text-center">
-          Loading catalog...
-        </p>
+      {isError ? (
+        <Callout variant="danger" title="Could not load catalog" />
+      ) : isLoading ? (
+        <SkeletonTable rows={6} cols={5} />
       ) : (
         <DataTable
           data={filtered}
           columns={columns}
           emptyMessage="No catalog entries found"
+          density="comfortable"
+          pageSize={25}
         />
       )}
-    </div>
+    </PageContainer>
   );
 }

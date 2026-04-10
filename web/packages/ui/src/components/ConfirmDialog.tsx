@@ -44,9 +44,8 @@ export function ConfirmDialog({
               </Button>
             </Dialog.Close>
             <Button
-              variant="primary"
+              variant={variant === "danger" ? "danger" : "primary"}
               size="sm"
-              className={variant === "danger" ? "bg-[var(--color-error)] hover:bg-[#c73040]" : ""}
               onClick={() => {
                 onConfirm();
                 onOpenChange(false);

@@ -118,7 +118,7 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
             <div className="mt-4 grid grid-cols-2 gap-3">
               {entry.flatpak_ref && (
                 <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                  <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
                     Flatpak Ref
                   </div>
                   <div className="text-sm font-mono text-[var(--color-text-primary)] truncate">
@@ -128,7 +128,7 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
               )}
               {entry.nix_attr && (
                 <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                  <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
                     Nix Attribute
                   </div>
                   <div className="text-sm font-mono text-[var(--color-text-primary)] truncate">
@@ -137,7 +137,7 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
                 </div>
               )}
               <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                <div className="text-[11px] font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
                   Approval
                 </div>
                 <div className="text-sm text-[var(--color-text-primary)]">
@@ -146,7 +146,7 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
               </div>
               {entry.auto_approve_roles.length > 0 && (
                 <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                  <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
                     Auto-approve Roles
                   </div>
                   <div className="text-sm font-mono text-[var(--color-text-primary)]">

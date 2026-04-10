@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+/** @deprecated Use `MetricTile` instead — bigger numbers, sparkline + delta support, optional drill-in. */
 export interface StatCardProps {
   icon: ReactNode;
   value: string | number;

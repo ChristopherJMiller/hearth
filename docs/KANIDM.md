@@ -42,11 +42,13 @@ Passwords are recovered via `kanidmd recover-account <name>` inside the containe
 
 ### Test Users
 
-The bootstrap creates four test users covering all role groups. Passwords are randomly generated on each bootstrap run — check `dev/kanidm/.env` for current values.
+The bootstrap creates six test users covering all role groups. Passwords are randomly generated on each bootstrap run — check `dev/kanidm/.env` for current values.
 
 | User | Groups |
 |------|--------|
 | `testadmin` | hearth-admins, hearth-users |
+| `testoperator` | hearth-operators, hearth-users |
+| `testviewer` | hearth-viewers, hearth-users |
 | `testdev` | hearth-developers, hearth-users |
 | `testdesigner` | hearth-designers, hearth-users |
 | `testuser` | hearth-users |

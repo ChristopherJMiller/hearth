@@ -21,6 +21,41 @@ capabilities:
   observability: false  # Grafana + Loki + Prometheus subcharts
 
 # ============================================================
+# cert-manager integration (optional)
+# ============================================================
+# When enabled, Hearth uses cert-manager to issue and renew TLS certificates
+# instead of Helm's built-in genSelfSignedCert. Requires cert-manager to be
+# installed in the cluster: https://cert-manager.io/docs/installation/
+#
+# Leave disabled to use the built-in self-signed path (good for local dev
+# and air-gapped clusters). For BYO certs, use the per-component
+# `*.tls.existingSecret` fields and leave certManager disabled.
+#
+# See docs/DEPLOYMENT.md for the full deployment playbook.
+certManager:
+  enabled: false
+
+  # Issuer configuration. One of: selfSigned, acme, existing
+  issuer:
+    type: selfSigned
+
+    # For type=acme — creates an ACME ClusterIssuer (Let's Encrypt by default)
+    acme:
+      server: https://acme-v02.api.letsencrypt.org/directory
+      email: admin@example.com
+      # Solver: http01 or dns01
+      solver: http01
+      # For http01: the ingress class that will serve the challenge
+      ingressClass: nginx
+      # For dns01: the cert-manager dns01 solver config (verbatim)
+      dns01: {}
+
+    # For type=existing — reference an Issuer/ClusterIssuer already in the cluster
+    existing:
+      name: ""
+      kind: ClusterIssuer  # or Issuer
+
+# ============================================================
 # hearth-api (always deployed)
 # ============================================================
 api:

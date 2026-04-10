@@ -38,6 +38,58 @@ spec:
           volumeMounts:
             - name: data-shared
               mountPath: /data-shared
+        # Resolve the Kanidm service to its pod IP and write an /etc/hosts
+        # entry for the origin hostname. Kanidm advertises its origin
+        # (kanidm.hearth.local by default) in OIDC discovery metadata, and
+        # Synapse must reach it by that exact name. We can't use pod-spec
+        # hostAliases because the Service ClusterIP isn't known at template
+        # time. This runs at pod start and writes into a shared emptyDir
+        # that overlays /etc/hosts in the main container via subPath.
+        - name: write-kanidm-hosts
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /etc/hosts /etc-hosts-shared/hosts
+              set -e
+              for _ in $(seq 1 30); do
+                IP=$(nslookup {{ include "hearth-home.fullname" . }}-kanidm 2>/dev/null | awk '/^Address: / {print $2; exit}')
+                [ -n "$IP" ] && break
+                sleep 1
+              done
+              if [ -z "$IP" ]; then
+                echo "ERROR: could not resolve {{ include "hearth-home.fullname" . }}-kanidm" >&2
+                exit 1
+              fi
+              ORIGIN_HOST=$(echo "{{ .Values.kanidm.config.origin }}" | sed -E 's|^https?://||; s|:.*$||; s|/.*$||')
+              echo "$IP $ORIGIN_HOST" >> /etc-hosts-shared/hosts
+              echo "Mapped $ORIGIN_HOST -> $IP"
+          volumeMounts:
+            - name: etc-hosts-shared
+              mountPath: /etc-hosts-shared
+        # Install Kanidm's TLS cert into the system CA trust store so
+        # Synapse's Twisted Agent accepts the self-signed / internal cert.
+        # Note: Synapse's `skip_verification` config option only skips OIDC
+        # issuer validation, NOT TLS verification — they are different
+        # layers. Without this init step, Synapse silently fails the TLS
+        # handshake and reports it as RequestTimedOutError.
+        - name: trust-kanidm-ca
+          image: debian:12-slim
+          command:
+            - sh
+            - -c
+            - |
+              apt-get update >/dev/null 2>&1
+              apt-get install -y --no-install-recommends ca-certificates >/dev/null 2>&1
+              cp /ca-in/kanidm.crt /usr/local/share/ca-certificates/kanidm.crt
+              update-ca-certificates >/dev/null 2>&1
+              cp /etc/ssl/certs/ca-certificates.crt /ca-out/ca-certificates.crt
+          volumeMounts:
+            - name: kanidm-ca-in
+              mountPath: /ca-in
+            - name: ca-bundle-shared
+              mountPath: /ca-out
         {{- end }}
       containers:
         - name: synapse
@@ -90,6 +142,17 @@ spec:
               mountPath: /data/oidc_client_secret
               subPath: oidc_client_secret
               readOnly: true
+            # /etc/hosts with the kanidm.hearth.local alias appended (see
+            # the write-kanidm-hosts init container).
+            - name: etc-hosts-shared
+              mountPath: /etc/hosts
+              subPath: hosts
+            # System CA bundle with Kanidm's cert included (see
+            # trust-kanidm-ca init container).
+            - name: ca-bundle-shared
+              mountPath: /etc/ssl/certs/ca-certificates.crt
+              subPath: ca-certificates.crt
+              readOnly: true
             {{- end }}
       volumes:
         - name: config
@@ -104,6 +167,16 @@ spec:
         {{- if and .Values.capabilities.identity .Values.synapse.oidc.enabled }}
         - name: data-shared
           emptyDir: {}
+        - name: etc-hosts-shared
+          emptyDir: {}
+        - name: ca-bundle-shared
+          emptyDir: {}
+        - name: kanidm-ca-in
+          secret:
+            secretName: {{ include "hearth-home.fullname" . }}-kanidm-tls
+            items:
+              - key: tls.crt
+                path: kanidm.crt
         {{- end }}
       {{- with .Values.synapse.nodeSelector }}
       nodeSelector:

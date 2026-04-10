@@ -26,9 +26,17 @@ result-*
 # Dev artifacts (VM disks, ephemeral state)
 dev/*.qcow2
 dev/*.img
+dev/vms/
 dev/kanidm/.env
 # Only ignore the private key — the cert is public and needed by the enrollment ISO
 dev/kanidm/key.pem
+# Synapse OIDC client secret (written by dev/synapse/bootstrap.sh from Kanidm)
+dev/synapse/oidc_client_secret
+
+# Caddy dev reverse proxy: runtime data + auto-copied dev CA cert
+dev/caddy/data/
+dev/caddy/config/
+dev/caddy/root.crt
 
 # Helm subchart tarballs (fetched via `helm dep update`)
 chart/hearth-home/charts/*.tgz

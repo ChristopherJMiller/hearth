@@ -8,6 +8,10 @@ default:
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
+    echo "==> Pre-seeding runtime files..."
+    # Synapse reads /data/oidc_client_secret at startup — the real value is
+    # written later by dev/synapse/bootstrap.sh after Kanidm is ready.
+    [ -f dev/synapse/oidc_client_secret ] || echo -n "placeholder-will-be-replaced" > dev/synapse/oidc_client_secret
     echo "==> Starting infrastructure..."
     docker compose up -d
     echo "==> Waiting for services..."
@@ -43,6 +47,8 @@ setup:
     echo "    Nextcloud ready"
     echo "==> Bootstrapping Nextcloud cloud storage..."
     bash dev/nextcloud/bootstrap.sh
+    echo "==> Exporting Caddy Dev CA..."
+    bash dev/caddy/bootstrap.sh
     echo "==> Running database migrations..."
     sqlx migrate run
     echo "==> Building web frontends..."
@@ -69,19 +75,33 @@ demo:
     echo ""
     echo "=== Demo ready! ==="
     echo ""
-    echo "  Web UI:        http://localhost:3000"
-    echo "  Element Chat:  http://localhost:8088"
-    echo "  Nextcloud:     http://localhost:8089"
-    echo "  Grafana:       http://localhost:3001"
-    echo "  Kanidm:        https://localhost:8443"
+    echo "  From host (direct ports):"
+    echo "    Web UI (HMR):  http://localhost:5174  ← use this for dev"
+    echo "    Web UI (API):  http://localhost:3000  (serves pre-built dist)"
+    echo "    Element Chat:  http://localhost:8088"
+    echo "    Nextcloud:     http://localhost:8089"
+    echo "    Grafana:       http://localhost:3001"
+    echo "    Kanidm:        https://localhost:8443"
+    echo ""
+    echo "  From enrolled VM (via Caddy + Dev CA):"
+    echo "    Catalog:   https://api.hearth.local/"
+    echo "    Kanidm:    https://kanidm.hearth.local/"
+    echo "    Chat:      https://chat.hearth.local/"
+    echo "    Cloud:     https://cloud.hearth.local/"
+    echo "    Grafana:   https://grafana.hearth.local/"
     echo ""
     echo "  Login:  testadmin / test-demo-enrollment  (admin)"
     echo "          testuser  / test-demo-enrollment  (user)"
     echo ""
-    echo "  See docs/DEMO.md for walkthrough scenarios."
+    echo "  IMPORTANT — to log in from your host browser, run ONCE:"
+    echo "    just host-aliases   (adds *.hearth.local to /etc/hosts, sudo)"
+    echo "  Then accept the Kanidm self-signed cert warning on first visit."
     echo ""
-    echo "  Starting API server..."
-    just dev
+    echo "  Next:   just enroll <vm-name>    (e.g. just enroll demo)"
+    echo "  See docs/DEMO.md for the full walkthrough."
+    echo ""
+    echo "  Starting API + Vite dev server (HMR)..."
+    just dev-full
 
 # Seed the database with demo data (requires infrastructure running)
 seed:
@@ -103,7 +123,37 @@ dev:
     export HEARTH_CLOUD_URL=http://localhost:8089
     export HEARTH_IDENTITY_URL=https://localhost:8443
     export HEARTH_MATRIX_SERVER_NAME=hearth.local
+    echo ""
+    echo "NOTE: 'just dev' only runs the API server (serves pre-built web/dist)."
+    echo "  For live frontend HMR, run 'just dev-full' instead, or 'just web-dev' in a second terminal."
+    echo ""
     exec cargo run -p hearth-api
+
+# Start API + Vite dev server (frontend HMR) together.
+# API on :3000, web on :5174 (proxies /api to :3000). Open http://localhost:5174.
+dev-full:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f dev/kanidm/.env ]; then
+        set -a; source dev/kanidm/.env; set +a
+        echo "Loaded auth config from dev/kanidm/.env (auth enabled)"
+    else
+        echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
+    fi
+    export HEARTH_SERVER_URL=http://localhost:3000
+    export HEARTH_CHAT_URL=http://localhost:8088
+    export HEARTH_CLOUD_URL=http://localhost:8089
+    export HEARTH_IDENTITY_URL=https://localhost:8443
+    export HEARTH_MATRIX_SERVER_NAME=hearth.local
+    (cd web && pnpm dev) &
+    WEB_PID=$!
+    trap "kill $WEB_PID 2>/dev/null || true" EXIT INT TERM
+    echo ""
+    echo "=== Hearth dev ==="
+    echo "  API:       http://localhost:3000"
+    echo "  Web (HMR): http://localhost:5174  ← open this one"
+    echo ""
+    cargo run -p hearth-api
 
 # Start API server with file watching
 dev-watch:
@@ -143,9 +193,36 @@ infra-down:
 migrate:
     sqlx migrate run
 
-# Boot enrollment ISO in QEMU for testing
-enroll:
-    bash dev/run-enrollment.sh
+# Add *.hearth.local -> 127.0.0.1 entries to the host /etc/hosts (sudo).
+# Idempotent: skips the line if it's already present.
+host-aliases:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    MARKER="# hearth demo aliases"
+    if grep -qF "$MARKER" /etc/hosts 2>/dev/null; then
+        echo "host aliases already present in /etc/hosts"
+        exit 0
+    fi
+    echo "==> Adding *.hearth.local aliases to /etc/hosts (sudo required)..."
+    sudo sh -c "printf '\n%s\n127.0.0.1 api.hearth.local kanidm.hearth.local chat.hearth.local cloud.hearth.local grafana.hearth.local cache.hearth.local\n' '$MARKER' >> /etc/hosts"
+    echo "    Added. Remove later with: sudo sed -i '/$MARKER/,+1d' /etc/hosts"
+
+# Boot enrollment ISO in QEMU for testing (persists to dev/vms/<name>.qcow2)
+enroll name:
+    bash dev/run-enrollment.sh {{name}}
+
+# Boot a previously-enrolled VM from its installed disk
+start-vm name:
+    bash dev/run-vm.sh {{name}}
+
+# List enrolled VMs (disks under dev/vms/)
+list-vms:
+    @ls -1 dev/vms/ 2>/dev/null | sed 's/\.qcow2$//' || echo "(no VMs yet)"
+
+# Delete an enrolled VM's disk
+destroy-vm name:
+    rm -f dev/vms/{{name}}.qcow2
+    @echo "Removed dev/vms/{{name}}.qcow2"
 
 # Run the pre-built fleet VM
 fleet-vm:

@@ -139,3 +139,20 @@ imagePullSecrets:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- end }}
+
+{{/*
+cert-manager issuer reference. Resolves to the right ClusterIssuer or Issuer
+depending on the certManager.issuer.type setting. Only valid when
+.Values.certManager.enabled is true.
+*/}}
+{{- define "hearth-home.certIssuerRef" -}}
+{{- if eq .Values.certManager.issuer.type "existing" -}}
+name: {{ required "certManager.issuer.existing.name is required when issuer.type=existing" .Values.certManager.issuer.existing.name }}
+kind: {{ .Values.certManager.issuer.existing.kind }}
+group: cert-manager.io
+{{- else -}}
+name: {{ include "hearth-home.fullname" . }}-issuer
+kind: ClusterIssuer
+group: cert-manager.io
+{{- end -}}
+{{- end }}

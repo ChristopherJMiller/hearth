@@ -2,13 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from './client';
 import type { Machine } from './types';
 
+/**
+ * Shares the `/machines` cache with `useMachines` (same `queryKey`) so
+ * mounting both hooks on one page doesn't fetch `/machines` twice.
+ * The `select` filter runs client-side and is memoized by React Query.
+ */
 export function usePendingEnrollments() {
   return useQuery({
-    queryKey: ['machines', 'pending'],
-    queryFn: async () => {
-      const machines = await apiFetch<Machine[]>('/machines');
-      return machines.filter((m) => m.enrollment_status === 'pending');
-    },
+    queryKey: ['machines'],
+    queryFn: () => apiFetch<Machine[]>('/machines'),
+    select: (machines) => machines.filter((m) => m.enrollment_status === 'pending'),
     refetchInterval: 10000,
   });
 }

@@ -1,79 +1,96 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { type ColumnDef } from '@tanstack/react-table';
-import { PageHeader, DataTable, FilterPills, Button } from '@hearth/ui';
+import {
+  PageContainer,
+  PageHeader,
+  DataTable,
+  Button,
+  StatusChip,
+  SegmentedControl,
+  Tooltip,
+  ProgressBar,
+  Callout,
+  SkeletonTable,
+  MetricTile,
+} from '@hearth/ui';
 import { useDeployments } from '../../api/deployments';
-import type { Deployment, DeploymentStatus } from '../../api/types';
+import type { Deployment } from '../../api/types';
 import { formatRelativeTime, truncateStorePath } from '../../lib/time';
-import { LuPlus } from 'react-icons/lu';
+import { LuPlus, LuLayers, LuCheckCircle, LuXCircle, LuRefreshCw } from 'react-icons/lu';
 
-const statusColors: Record<DeploymentStatus, string> = {
-  pending: 'bg-[var(--color-warning-faint)] text-[var(--color-warning)]',
-  canary: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  rolling: 'bg-[var(--color-info-faint)] text-[var(--color-info)]',
-  completed: 'bg-[var(--color-success-faint)] text-[var(--color-success)]',
-  failed: 'bg-[var(--color-error-faint)] text-[var(--color-error)]',
-  rolled_back: 'bg-[var(--color-error-faint)] text-[var(--color-error)]',
-};
+type StatusFilter = 'all' | 'active' | 'completed' | 'failed';
 
-const filterOptions = ['Pending', 'Canary', 'Rolling', 'Completed', 'Failed', 'Rolled Back'];
+const inFlight = (s: Deployment['status']) =>
+  s === 'pending' || s === 'canary' || s === 'rolling';
 
 const columns: ColumnDef<Deployment, unknown>[] = [
   {
     accessorKey: 'closure',
     header: 'Closure',
     cell: ({ row }) => (
-      <span className="font-mono text-xs text-[var(--color-text-primary)] truncate max-w-[260px] inline-block">
-        {truncateStorePath(row.original.closure)}
-      </span>
+      <Tooltip content={row.original.closure} side="top">
+        <span
+          className="font-mono text-[var(--color-text-primary)] text-xs"
+         
+        >
+          {truncateStorePath(row.original.closure)}
+        </span>
+      </Tooltip>
     ),
   },
   {
     accessorKey: 'status',
     header: 'Status',
-    cell: ({ row }) => {
-      const status = row.original.status;
-      const isPulsing = status === 'canary' || status === 'rolling' || status === 'pending';
-      return (
-        <span
-          className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap ${statusColors[status]}`}
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-              status === 'completed'
-                ? 'bg-[var(--color-success)]'
-                : status === 'failed' || status === 'rolled_back'
-                  ? 'bg-[var(--color-error)]'
-                  : status === 'pending'
-                    ? 'bg-[var(--color-warning)]'
-                    : 'bg-[var(--color-info)]'
-            } ${isPulsing ? 'animate-[pulse-dot_1.8s_ease-in-out_infinite]' : ''}`}
-          />
-          {status.replace('_', ' ')}
-        </span>
-      );
-    },
+    cell: ({ row }) => <StatusChip status={row.original.status} />,
   },
   {
     id: 'progress',
     header: 'Progress',
     cell: ({ row }) => {
       const d = row.original;
+      const pct = d.total_machines ? (d.succeeded / d.total_machines) * 100 : 0;
       return (
-        <span className="text-sm text-[var(--color-text-secondary)]">
-          {d.succeeded}/{d.total_machines}
-          {d.failed > 0 && (
-            <span className="text-[var(--color-error)] ml-1">({d.failed} failed)</span>
-          )}
-        </span>
+        <div className="flex flex-col gap-1.5 min-w-[160px]">
+          <div className="flex items-baseline justify-between gap-2">
+            <span
+              className="text-[var(--color-text-secondary)] tabular-nums text-xs"
+             
+            >
+              {d.succeeded}/{d.total_machines}
+            </span>
+            {d.failed > 0 && (
+              <span
+                className="text-[var(--color-error)] text-2xs"
+               
+              >
+                {d.failed} failed
+              </span>
+            )}
+          </div>
+          <ProgressBar
+            value={pct}
+            variant={d.failed > 0 ? 'error' : d.status === 'completed' ? 'success' : 'default'}
+            size="sm"
+          />
+        </div>
       );
     },
+  },
+  {
+    id: 'fleet',
+    header: 'Fleet',
+    cell: ({ row }) => (
+      <span className="text-[var(--color-text-secondary)] text-xs">
+        canary {row.original.canary_size} · batch {row.original.batch_size}
+      </span>
+    ),
   },
   {
     accessorKey: 'created_at',
     header: 'Created',
     cell: ({ row }) => (
-      <span className="text-sm text-[var(--color-text-secondary)]">
+      <span className="text-[var(--color-text-secondary)] text-xs">
         {formatRelativeTime(row.original.created_at)}
       </span>
     ),
@@ -82,58 +99,89 @@ const columns: ColumnDef<Deployment, unknown>[] = [
 
 export function DeploymentsPage() {
   const router = useRouter();
-  const { data: deployments, isLoading } = useDeployments();
-  const [activeFilter, setActiveFilter] = useState('All');
+  const { data: deployments, isLoading, isError } = useDeployments();
+  const [filter, setFilter] = useState<StatusFilter>('all');
+
+  const counts = useMemo(() => {
+    const list = deployments ?? [];
+    return {
+      total: list.length,
+      active: list.filter((d) => inFlight(d.status)).length,
+      completed: list.filter((d) => d.status === 'completed').length,
+      failed: list.filter((d) => d.status === 'failed' || d.status === 'rolled_back').length,
+    };
+  }, [deployments]);
 
   const filtered = useMemo(() => {
-    if (!deployments) return [];
-    if (activeFilter === 'All') return deployments;
-    const filterValue = activeFilter.toLowerCase().replace(' ', '_');
-    return deployments.filter((d) => d.status === filterValue);
-  }, [deployments, activeFilter]);
+    const list = deployments ?? [];
+    if (filter === 'all') return list;
+    if (filter === 'active') return list.filter((d) => inFlight(d.status));
+    if (filter === 'completed') return list.filter((d) => d.status === 'completed');
+    if (filter === 'failed') return list.filter((d) => d.status === 'failed' || d.status === 'rolled_back');
+    return list;
+  }, [deployments, filter]);
 
   return (
-    <div>
+    <PageContainer size="wide">
       <PageHeader
+        eyebrow="Software"
         title="Deployments"
-        description="Manage NixOS closure deployments across the fleet"
+        description="Roll out NixOS closures across the fleet — canary, batch, observe, and recover."
         actions={
           <Button
             variant="primary"
-            size="sm"
+            leadingIcon={<LuPlus size={15} />}
             onClick={() => router.navigate({ to: '/deployments/new' })}
           >
-            <LuPlus size={14} />
-            New Deployment
+            New deployment
           </Button>
         }
       />
 
+      <div
+        className="grid gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+      >
+        <MetricTile label="Total" value={counts.total} icon={<LuLayers size={18} />} tone="ember" />
+        <MetricTile label="In flight" value={counts.active} icon={<LuRefreshCw size={18} />} tone={counts.active > 0 ? 'info' : 'default'} />
+        <MetricTile label="Completed" value={counts.completed} icon={<LuCheckCircle size={18} />} tone="success" />
+        <MetricTile label="Failed / rolled back" value={counts.failed} icon={<LuXCircle size={18} />} tone={counts.failed > 0 ? 'danger' : 'default'} />
+      </div>
+
       <div className="mb-4">
-        <FilterPills
-          options={filterOptions}
-          active={activeFilter}
-          onSelect={setActiveFilter}
+        <SegmentedControl
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: `All · ${counts.total}` },
+            { value: 'active', label: `Active · ${counts.active}` },
+            { value: 'completed', label: `Completed · ${counts.completed}` },
+            { value: 'failed', label: `Failed · ${counts.failed}` },
+          ]}
         />
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-[var(--color-text-tertiary)] py-12 text-center">
-          Loading deployments...
-        </p>
+      {isError ? (
+        <Callout variant="danger" title="Could not load deployments">
+          Verify the control plane is reachable.
+        </Callout>
+      ) : isLoading ? (
+        <SkeletonTable rows={6} cols={5} />
       ) : (
         <DataTable
           data={filtered}
           columns={columns}
-          onRowClick={(deployment: Deployment) =>
+          onRowClick={(d: Deployment) =>
             router.navigate({
               to: '/deployments/$deploymentId',
-              params: { deploymentId: deployment.id },
+              params: { deploymentId: d.id },
             })
           }
-          emptyMessage="No deployments found"
+          emptyMessage="No deployments match your filter"
+          density="comfortable"
+          pageSize={20}
         />
       )}
-    </div>
+    </PageContainer>
   );
 }

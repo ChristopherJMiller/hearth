@@ -31,6 +31,20 @@ dns:
   nameservers:
     global:
       - 1.1.1.1
+  # Split-DNS records that enrolled nodes (on the tailnet) resolve to reach
+  # Hearth services by friendly name. Values are placeholders for local dev —
+  # in a real Helm-based deployment these IPs would be rewritten to the actual
+  # in-cluster service IPs (or a reverse-proxy ingress). For the QEMU-based
+  # dev demo, the VM hits these names via /etc/hosts (10.0.2.2 → host Caddy),
+  # not via headscale, so these records are primarily documentation of the
+  # pattern.
+  extra_records:
+    - { name: "api.hearth.local",     type: "A", value: "100.64.0.1" }
+    - { name: "cache.hearth.local",   type: "A", value: "100.64.0.1" }
+    - { name: "kanidm.hearth.local",  type: "A", value: "100.64.0.1" }
+    - { name: "chat.hearth.local",    type: "A", value: "100.64.0.1" }
+    - { name: "cloud.hearth.local",   type: "A", value: "100.64.0.1" }
+    - { name: "grafana.hearth.local", type: "A", value: "100.64.0.1" }
 
 log:
   level: info

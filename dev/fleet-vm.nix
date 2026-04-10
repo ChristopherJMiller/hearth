@@ -53,9 +53,24 @@ nixpkgs.lib.nixosSystem {
         hostName = "hearth-fleet-vm";
         useDHCP = true;
         firewall.enable = false;
-        # Resolve *.hearth.local to the QEMU host gateway
-        hosts."10.0.2.2" = [ "api.hearth.local" "cache.hearth.local" "kanidm.hearth.local" ];
+        # Resolve *.hearth.local to the QEMU host gateway. Caddy on the host
+        # forwards each name (by Host header) to the backing service.
+        hosts."10.0.2.2" = [
+          "api.hearth.local"
+          "cache.hearth.local"
+          "kanidm.hearth.local"
+          "chat.hearth.local"
+          "cloud.hearth.local"
+          "grafana.hearth.local"
+        ];
       };
+
+      # --- Trust the Hearth Dev CA (Caddy's internal root) ---
+      # Generated on first `just setup`; allows the VM to trust the
+      # self-issued certs for *.hearth.local with no warnings. Optional —
+      # skipped on fresh checkouts that haven't run setup yet.
+      security.pki.certificateFiles =
+        lib.optional (builtins.pathExists ./caddy/root.crt) ./caddy/root.crt;
 
       # --- Hearth agent (pre-enrolled) ---
       services.hearth.agent = {

@@ -25,12 +25,17 @@ pub struct AuthToken {
 }
 
 /// Handle returned from `start_auth_code_flow` — holds the authorization URL
-/// and a channel to receive the token when the callback completes.
+/// and channels for signaling auth completion.
 pub struct AuthFlowHandle {
     /// URL to open in the kiosk browser for user authentication.
     pub auth_url: String,
     /// Receives the token result once the user completes (or fails) auth.
     pub token_rx: oneshot::Receiver<Result<AuthToken, String>>,
+    /// Fires as soon as the OAuth callback is received (before the token
+    /// exchange completes). The main loop uses this to close the kiosk
+    /// browser automatically — the token exchange continues in the
+    /// background and delivers to `token_rx` shortly after.
+    pub callback_rx: oneshot::Receiver<()>,
 }
 
 fn http_client() -> reqwest::Client {
@@ -131,13 +136,22 @@ pub async fn start_auth_code_flow(
     debug!(port, auth_url = %auth_url_str, "starting auth code + PKCE flow");
 
     let (tx, rx) = oneshot::channel();
+    let (callback_tx, callback_rx) = oneshot::channel::<()>();
 
     // Spawn the callback handler. The client is moved into the closure so its
     // concrete endpoint typestate type is inferred — avoids spelling out the
     // 17-parameter generic signature.
     tokio::spawn(async move {
+        let mut callback_tx = Some(callback_tx);
         let result = async {
             let (code, state) = accept_callback(listener).await?;
+
+            // Signal the main loop that the callback arrived — the kiosk
+            // browser can close now. The token exchange below continues
+            // while the TUI regains control.
+            if let Some(tx) = callback_tx.take() {
+                let _ = tx.send(());
+            }
 
             // Verify state (CSRF protection)
             if state.as_deref() != Some(csrf_token.secret().as_str()) {
@@ -157,17 +171,32 @@ pub async fn start_auth_code_flow(
                 .await
                 .map_err(|e| format!("token exchange failed: {e}"))?;
 
+            // Prefer the id_token (which carries preferred_username, groups,
+            // email) over the access_token for downstream API calls. Kanidm's
+            // access tokens only have sub+scopes.
+            let token = token_response
+                .extra_fields()
+                .id_token()
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| token_response.access_token().secret().to_string());
+
             Ok(AuthToken {
-                access_token: token_response.access_token().secret().to_string(),
+                access_token: token,
             })
         }
         .await;
+        // If we never got to the callback (error path), still release the
+        // main loop so it can close the browser instead of hanging.
+        if let Some(tx) = callback_tx.take() {
+            let _ = tx.send(());
+        }
         let _ = tx.send(result);
     });
 
     Ok(AuthFlowHandle {
         auth_url: auth_url_str,
         token_rx: rx,
+        callback_rx,
     })
 }
 

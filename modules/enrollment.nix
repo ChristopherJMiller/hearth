@@ -77,10 +77,19 @@ in
       # Basic firewall: enrollment only makes outbound connections
       firewall.enable = true;
       # Resolve *.hearth.local hostnames to the QEMU host gateway so the
-      # enrollment VM can reach dev services running on the host.
+      # enrollment VM can reach dev services running on the host. Caddy on
+      # the host listens on :80/:443 and forwards by Host header to the
+      # underlying backends (hearth-api, attic, kanidm, synapse/element,
+      # nextcloud, grafana).
       hosts = {
-        "10.0.2.2" = [ "api.hearth.local" "cache.hearth.local" ]
-          ++ lib.optionals (cfg.kanidmUrl != null) [ "kanidm.hearth.local" ];
+        "10.0.2.2" = [
+          "api.hearth.local"
+          "cache.hearth.local"
+          "kanidm.hearth.local"
+          "chat.hearth.local"
+          "cloud.hearth.local"
+          "grafana.hearth.local"
+        ];
       };
     };
 
@@ -187,10 +196,14 @@ in
       networkmanager
     ];
 
-    # --- Trust custom CA cert for Kanidm (e.g. self-signed dev certs) ---
-    security.pki.certificateFiles = lib.mkIf (cfg.kanidmCaCert != null) [
-      cfg.kanidmCaCert
-    ];
+    # --- Trust custom CA certs ---
+    # Kanidm's self-signed cert (if provided), plus the Hearth Dev CA generated
+    # by Caddy on first `just setup` so enrolled VMs see valid HTTPS for all
+    # *.hearth.local services. The Dev CA is optional — if the file doesn't
+    # exist yet (fresh checkout, haven't run setup), we just skip it.
+    security.pki.certificateFiles =
+      lib.optional (cfg.kanidmCaCert != null) cfg.kanidmCaCert
+      ++ lib.optional (builtins.pathExists ../dev/caddy/root.crt) ../dev/caddy/root.crt;
 
     # --- Disable unnecessary services for a minimal enrollment image ---
     services.xserver.enable = false;

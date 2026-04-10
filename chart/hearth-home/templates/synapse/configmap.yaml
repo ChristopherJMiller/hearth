@@ -42,7 +42,11 @@ data:
     oidc_providers:
       - idp_id: kanidm
         idp_name: {{ .Values.synapse.oidc.idpName | quote }}
-        issuer: "https://{{ include "hearth-home.fullname" . }}-kanidm:{{ .Values.kanidm.service.port }}/oauth2/openid/hearth-matrix"
+        # Must match Kanidm's configured `origin` (kanidm.config.origin) so
+        # Synapse's issuer-validation accepts the OIDC discovery metadata.
+        # The Synapse deployment includes a hostAliases entry + an init
+        # container that installs Kanidm's TLS cert — see deployment.yaml.
+        issuer: "{{ .Values.kanidm.config.origin }}/oauth2/openid/hearth-matrix"
         client_id: "hearth-matrix"
         client_secret_path: /data/oidc_client_secret
         scopes: ["openid", "profile", "email"]

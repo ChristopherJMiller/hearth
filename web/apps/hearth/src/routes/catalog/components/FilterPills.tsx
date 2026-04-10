@@ -17,7 +17,7 @@ function Pill({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center px-4 py-1.5 rounded-full border text-[13px] font-medium cursor-pointer transition-all duration-150 select-none whitespace-nowrap ${
+      className={`inline-flex items-center px-4 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-all duration-150 select-none whitespace-nowrap ${
         isActive
           ? "bg-[var(--color-ember)] border-[var(--color-ember)] text-white"
           : "bg-transparent border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"

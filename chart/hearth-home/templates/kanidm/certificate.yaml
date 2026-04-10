@@ -1,0 +1,28 @@
+{{- if and .Values.capabilities.identity .Values.certManager.enabled (not .Values.kanidm.tls.existingSecret) }}
+# When cert-manager is enabled, Hearth requests a Certificate resource for
+# Kanidm's TLS cert instead of generating a self-signed one via Helm. The
+# resulting Secret has the same name the Kanidm StatefulSet and the Synapse
+# init container already mount — drop-in replacement for the old secret.yaml.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm-tls
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+spec:
+  secretName: {{ include "hearth-home.fullname" . }}-kanidm-tls
+  duration: 8760h    # 1 year
+  renewBefore: 720h  # 30 days
+  commonName: {{ .Values.kanidm.config.domain }}
+  dnsNames:
+    - {{ .Values.kanidm.config.domain }}
+    - {{ include "hearth-home.fullname" . }}-kanidm
+    - {{ include "hearth-home.fullname" . }}-kanidm.{{ .Release.Namespace }}
+    - {{ include "hearth-home.fullname" . }}-kanidm.{{ .Release.Namespace }}.svc
+    - {{ include "hearth-home.fullname" . }}-kanidm.{{ .Release.Namespace }}.svc.cluster.local
+  usages:
+    - server auth
+    - client auth
+  issuerRef:
+    {{- include "hearth-home.certIssuerRef" . | nindent 4 }}
+{{- end }}

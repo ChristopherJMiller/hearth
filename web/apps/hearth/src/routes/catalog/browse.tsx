@@ -1,30 +1,29 @@
 import { useState, useMemo } from 'react';
-import { SearchInput, PageHeader } from '@hearth/ui';
+import { SearchInput, PageContainer, PageHeader, SegmentedControl } from '@hearth/ui';
 import { useCatalog, useRequests, getRequestStatus } from '../../api/catalog';
-import { useAuth } from '../../useAuth';
+import { useActor } from '../../hooks/useActor';
 import { FilterPills } from './components/FilterPills';
 import { CatalogGrid } from './components/CatalogGrid';
 import { SoftwareDetail } from './components/SoftwareDetail';
 import type { CatalogEntry } from '../../api/types';
 
+type SortMode = 'name' | 'recent' | 'category';
+
 export function CatalogBrowsePage() {
   const params = new URLSearchParams(window.location.search);
-  const { user } = useAuth();
+  const actor = useActor();
 
-  // Use URL params if provided, otherwise derive from auth context
   const machineId = params.get('machine_id') || '';
-  const username = params.get('username')
-    || user?.profile?.preferred_username as string
-    || '';
+  const username = params.get('username') || actor;
 
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
+  const [sort, setSort] = useState<SortMode>('name');
   const [selectedEntry, setSelectedEntry] = useState<CatalogEntry | null>(null);
 
   const { data: catalog, isLoading: catalogLoading } = useCatalog();
   const { data: requests } = useRequests();
 
-  // Extract sorted unique categories
   const categories = useMemo(() => {
     if (!catalog) return [];
     const cats = new Set<string>();
@@ -34,13 +33,10 @@ export function CatalogBrowsePage() {
     return [...cats].sort();
   }, [catalog]);
 
-  // Filter entries by category + search
   const filtered = useMemo(() => {
     if (!catalog) return undefined;
-
-    return catalog.filter((entry) => {
+    const result = catalog.filter((entry) => {
       if (activeCategory !== 'all' && entry.category !== activeCategory) return false;
-
       if (search) {
         const q = search.toLowerCase();
         const name = (entry.name || '').toLowerCase();
@@ -48,36 +44,53 @@ export function CatalogBrowsePage() {
         const cat = (entry.category || '').toLowerCase();
         if (!name.includes(q) && !desc.includes(q) && !cat.includes(q)) return false;
       }
-
       return true;
     });
-  }, [catalog, activeCategory, search]);
+    if (sort === 'name') {
+      result.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+    } else if (sort === 'recent') {
+      result.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+    } else if (sort === 'category') {
+      result.sort((a, b) => (a.category ?? '').localeCompare(b.category ?? ''));
+    }
+    return result;
+  }, [catalog, activeCategory, search, sort]);
 
   const selectedStatus = selectedEntry
     ? getRequestStatus(requests, selectedEntry.id, machineId, username)
     : null;
 
   return (
-    <div>
+    <PageContainer size="wide">
       <PageHeader
-        title="Software Catalog"
-        description="Browse and request software for your workstation"
+        eyebrow="Software"
+        title="Catalog"
+        description="Browse and request software for your workstation. Approved installs are deployed automatically."
       />
 
-      <div className="max-w-sm">
-        <SearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder="Search software..."
-          autoComplete="off"
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+        <div className="min-w-[280px] flex-1 max-w-md">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search software…"
+            autoComplete="off"
+          />
+        </div>
+        <SegmentedControl
+          value={sort}
+          onChange={setSort}
+          size="sm"
+          options={[
+            { value: 'name', label: 'Name' },
+            { value: 'recent', label: 'Recent' },
+            { value: 'category', label: 'Category' },
+          ]}
         />
       </div>
 
-      <FilterPills
-        categories={categories}
-        active={activeCategory}
-        onSelect={setActiveCategory}
-      />
+      <FilterPills categories={categories} active={activeCategory} onSelect={setActiveCategory} />
+
       <CatalogGrid
         entries={filtered}
         requests={requests}
@@ -94,6 +107,6 @@ export function CatalogBrowsePage() {
         username={username}
         onClose={() => setSelectedEntry(null)}
       />
-    </div>
+    </PageContainer>
   );
 }

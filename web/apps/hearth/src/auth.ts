@@ -22,11 +22,19 @@ export const userManager = new UserManager({
   userStore: new WebStorageStateStore({ store: window.sessionStorage }),
 });
 
-/** Returns the current access token, or null if not authenticated. */
+/** Returns the current bearer token for API calls, or null.
+ *
+ * Uses the id_token (not the access_token) because Kanidm's access tokens
+ * only carry minimal claims (`sub`, `scopes`, `aud`) — the rich user claims
+ * the backend needs (`preferred_username`, `groups`, `email`) live in the
+ * id_token. For a single-tenant SPA talking to its own backend this is the
+ * right call; the backend validates signature, issuer, audience, and expiry
+ * regardless of which token shape we send.
+ */
 export async function getAccessToken(): Promise<string | null> {
   const user = await userManager.getUser();
   if (!user || user.expired) return null;
-  return user.access_token;
+  return user.id_token ?? user.access_token;
 }
 
 /** Returns the current user profile, or null. */
