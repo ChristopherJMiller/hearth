@@ -100,7 +100,10 @@ in
       enable = true;
       settings = {
         default_session = {
-          command = "${cfg.package}/bin/hearth-greeter";
+          # Wrap the greeter in cage (kiosk Wayland compositor) so GTK4
+          # has a display to render on. cage exits when the greeter exits,
+          # then greetd starts the user's desktop session.
+          command = "${pkgs.cage}/bin/cage -s -- ${cfg.package}/bin/hearth-greeter";
           user = "greeter";
         };
         # Terminal VT to use for the greeter
@@ -108,8 +111,14 @@ in
       };
     };
 
-    # Ensure greetd starts after the agent socket is available
-    systemd.services.greetd.after = [ "hearth-agent.socket" ];
+    # seatd provides seat/DRM access for the cage compositor.
+    services.seatd.enable = true;
+
+    # Ensure greetd starts after the agent socket and seatd are available
+    systemd.services.greetd.after = [ "hearth-agent.socket" "seatd.service" ];
+
+    # Allow cage to run without input devices (common in VMs).
+    systemd.services.greetd.environment.WLR_LIBINPUT_NO_DEVICES = "1";
 
     # Disable GDM since we use greetd
     services.displayManager.gdm.enable = lib.mkForce false;
