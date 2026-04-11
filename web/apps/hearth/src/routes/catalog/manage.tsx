@@ -35,14 +35,14 @@ const columns: ColumnDef<CatalogEntry, unknown>[] = [
     cell: ({ row }) => (
       <div className="flex flex-col gap-0.5 min-w-0">
         <span
-          className="font-semibold text-[var(--color-text-primary)] text-sm"
+          className="font-semibold text-text-primary text-sm"
          
         >
           {row.original.name}
         </span>
         {row.original.description && (
           <span
-            className="text-[var(--color-text-tertiary)] truncate max-w-[420px] text-xs"
+            className="text-text-tertiary truncate max-w-[420px] text-xs"
            
           >
             {row.original.description}
@@ -55,7 +55,7 @@ const columns: ColumnDef<CatalogEntry, unknown>[] = [
     accessorKey: 'category',
     header: 'Category',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-sm">
+      <span className="text-text-secondary text-sm">
         {row.original.category ?? '—'}
       </span>
     ),
@@ -87,13 +87,13 @@ const columns: ColumnDef<CatalogEntry, unknown>[] = [
     cell: ({ row }) => {
       const roles = row.original.auto_approve_roles;
       if (roles.length === 0)
-        return <span className="text-[var(--color-text-tertiary)] text-xs">—</span>;
+        return <span className="text-text-tertiary text-xs">—</span>;
       return (
         <div className="flex flex-wrap gap-1.5">
           {roles.map((role) => (
             <span
               key={role}
-              className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] text-2xs"
+              className="font-mono px-2 py-0.5 rounded-[6px] bg-surface-sunken text-text-secondary border border-border-subtle text-2xs"
              
             >
               {role}

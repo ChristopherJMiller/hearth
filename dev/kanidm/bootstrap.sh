@@ -381,6 +381,10 @@ fi
 checked_post "scopemap hearth-enrollment" "/v1/oauth2/hearth-enrollment/_scopemap/hearth-users" \
     '["openid","profile","groups"]'
 
+# Pre-grant consent so the enrollment TUI gets a direct redirect (no consent page).
+checked_post "sup_scopemap hearth-enrollment" "/v1/oauth2/hearth-enrollment/_sup_scopemap/hearth-users" \
+    '["openid","profile","groups"]'
+
 # Enable localhost redirects for enrollment kiosk browser
 checked_patch "configure hearth-enrollment" "/v1/oauth2/hearth-enrollment" \
     '{"attrs":{"oauth2_allow_localhost_redirect":["true"],"oauth2_prefer_short_username":["true"]}}'

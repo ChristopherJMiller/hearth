@@ -46,14 +46,14 @@ const envColumns: ColumnDef<UserEnvironment, unknown>[] = [
     accessorKey: 'username',
     header: 'Username',
     cell: ({ row }) => (
-      <span className="font-semibold text-[var(--color-text-primary)]">{row.original.username}</span>
+      <span className="font-semibold text-text-primary">{row.original.username}</span>
     ),
   },
   {
     accessorKey: 'role',
     header: 'Role',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] capitalize">{row.original.role}</span>
+      <span className="text-text-secondary capitalize">{row.original.role}</span>
     ),
   },
   {
@@ -65,7 +65,7 @@ const envColumns: ColumnDef<UserEnvironment, unknown>[] = [
     accessorKey: 'updated_at',
     header: 'Updated',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
+      <span className="text-text-secondary text-xs">
         {formatRelativeTime(row.original.updated_at)}
       </span>
     ),
@@ -77,7 +77,7 @@ const auditColumns: ColumnDef<AuditEvent, unknown>[] = [
     accessorKey: 'event_type',
     header: 'Event',
     cell: ({ row }) => (
-      <span className="font-medium text-[var(--color-text-primary)]">
+      <span className="font-medium text-text-primary">
         {row.original.event_type}
       </span>
     ),
@@ -86,8 +86,8 @@ const auditColumns: ColumnDef<AuditEvent, unknown>[] = [
     accessorKey: 'actor',
     header: 'Actor',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-sm">
-        {row.original.actor ?? <span className="italic text-[var(--color-text-tertiary)]">system</span>}
+      <span className="text-text-secondary text-sm">
+        {row.original.actor ?? <span className="italic text-text-tertiary">system</span>}
       </span>
     ),
   },
@@ -95,7 +95,7 @@ const auditColumns: ColumnDef<AuditEvent, unknown>[] = [
     accessorKey: 'created_at',
     header: 'When',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
+      <span className="text-text-secondary text-xs">
         {formatRelativeTime(row.original.created_at)}
       </span>
     ),
@@ -114,7 +114,7 @@ function CopyButton({ value }: { value: string }) {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}
-        className="inline-flex items-center justify-center w-6 h-6 rounded-[6px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)] cursor-pointer"
+        className="inline-flex items-center justify-center w-6 h-6 rounded-[6px] text-text-tertiary hover:text-text-primary hover:bg-surface-raised cursor-pointer"
         aria-label="Copy"
       >
         <LuCopy size={12} />
@@ -127,7 +127,7 @@ function MonoValue({ value }: { value: string }) {
   return (
     <span className="inline-flex items-center gap-2 max-w-full">
       <span
-        className="font-mono break-all text-[var(--color-text-primary)] text-xs"
+        className="font-mono break-all text-text-primary text-xs"
        
       >
         {value}
@@ -170,7 +170,7 @@ export function MachineDetailPage() {
             { label: '—' },
           ]}
         />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-[var(--spacing-card-gap)] items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-card-gap items-start">
           <div className="lg:col-span-2"><SkeletonCard /></div>
           <SkeletonCard />
         </div>
@@ -187,28 +187,28 @@ export function MachineDetailPage() {
     {
       label: 'Role',
       icon: <LuShield size={12} />,
-      value: <span className="capitalize">{machine.role ?? <span className="italic text-[var(--color-text-tertiary)]">unassigned</span>}</span>,
+      value: <span className="capitalize">{machine.role ?? <span className="italic text-text-tertiary">unassigned</span>}</span>,
     },
     {
       label: 'Last heartbeat',
       icon: <LuClock size={12} />,
       value: machine.last_heartbeat
         ? formatRelativeTime(machine.last_heartbeat)
-        : <span className="italic text-[var(--color-text-tertiary)]">never</span>,
+        : <span className="italic text-text-tertiary">never</span>,
     },
     {
       label: 'Mesh address',
       icon: <LuNetwork size={12} />,
       value: machine.headscale_ip
         ? <MonoValue value={machine.headscale_ip} />
-        : <span className="italic text-[var(--color-text-tertiary)]">not connected</span>,
+        : <span className="italic text-text-tertiary">not connected</span>,
     },
     {
       label: 'Hardware fingerprint',
       icon: <LuFingerprint size={12} />,
       value: machine.hardware_fingerprint
         ? <MonoValue value={machine.hardware_fingerprint} />
-        : <span className="italic text-[var(--color-text-tertiary)]">unknown</span>,
+        : <span className="italic text-text-tertiary">unknown</span>,
       span: 2 as const,
     },
     {
@@ -216,7 +216,7 @@ export function MachineDetailPage() {
       icon: <LuBox size={12} />,
       value: machine.current_closure
         ? <MonoValue value={machine.current_closure} />
-        : <span className="italic text-[var(--color-text-tertiary)]">none</span>,
+        : <span className="italic text-text-tertiary">none</span>,
       span: 2 as const,
     },
     {
@@ -224,7 +224,7 @@ export function MachineDetailPage() {
       icon: <LuTarget size={12} />,
       value: machine.target_closure
         ? <MonoValue value={machine.target_closure} />
-        : <span className="italic text-[var(--color-text-tertiary)]">none</span>,
+        : <span className="italic text-text-tertiary">none</span>,
       span: 2 as const,
     },
     {
@@ -232,13 +232,13 @@ export function MachineDetailPage() {
       icon: <LuTag size={12} />,
       value:
         machine.tags.length === 0 ? (
-          <span className="italic text-[var(--color-text-tertiary)]">none</span>
+          <span className="italic text-text-tertiary">none</span>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {machine.tags.map((tag) => (
               <span
                 key={tag}
-                className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] text-2xs"
+                className="font-mono px-2 py-0.5 rounded-[6px] bg-surface-sunken text-text-secondary border border-border-subtle text-2xs"
                
               >
                 {tag}
@@ -278,12 +278,12 @@ export function MachineDetailPage() {
 
       <div className="mt-6">
         {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-[var(--spacing-card-gap)] items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-card-gap items-start">
             <Card className="lg:col-span-2">
               <div className="flex items-center gap-2 mb-5">
-                <LuCpu size={16} className="text-[var(--color-text-tertiary)]" />
+                <LuCpu size={16} className="text-text-tertiary" />
                 <h2
-                  className="font-semibold text-[var(--color-text-primary)] text-lg"
+                  className="font-semibold text-text-primary text-lg"
                  
                 >
                   Identity & state
@@ -295,12 +295,12 @@ export function MachineDetailPage() {
             <Card>
               <div className="mb-4">
                 <h2
-                  className="font-semibold text-[var(--color-text-primary)] text-lg"
+                  className="font-semibold text-text-primary text-lg"
                  
                 >
                   Remote actions
                 </h2>
-                <p className="text-[var(--color-text-tertiary)] text-xs">
+                <p className="text-text-tertiary text-xs">
                   Dispatch commands to this machine
                 </p>
               </div>

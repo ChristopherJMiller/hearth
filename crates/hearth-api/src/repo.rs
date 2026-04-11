@@ -1108,6 +1108,21 @@ pub async fn list_build_jobs(
     }
 }
 
+/// Find the most recent build job whose target_filter contains the given machine ID.
+pub async fn latest_build_job_for_machine(
+    pool: &PgPool,
+    machine_id: Uuid,
+) -> Result<Option<BuildJobRow>, sqlx::Error> {
+    sqlx::query_as::<_, BuildJobRow>(&format!(
+        "SELECT {BUILD_JOB_COLUMNS} FROM build_jobs
+         WHERE target_filter @> $1::jsonb
+         ORDER BY created_at DESC LIMIT 1"
+    ))
+    .bind(serde_json::json!({"machine_ids": [machine_id.to_string()]}))
+    .fetch_optional(pool)
+    .await
+}
+
 // --- Remote action queries ---
 
 const ACTION_COLUMNS: &str = "id, machine_id, action_type, payload, status,

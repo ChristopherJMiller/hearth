@@ -85,19 +85,16 @@ function SettingsForm({ config }: { config: UserConfig }) {
         description="Customize your desktop environment. Changes trigger a rebuild of your per-user closure."
       />
 
-      <Card className="mb-[var(--spacing-card-gap)]">
+      <Card className="mb-card-gap">
         <div className="flex items-center gap-4 flex-wrap">
-          <div
-            className="w-12 h-12 rounded-[var(--radius-md)] flex items-center justify-center"
-            style={{ background: 'var(--color-ember-faint)', color: 'var(--color-ember)' }}
-          >
+          <div className="w-12 h-12 rounded-md flex items-center justify-center bg-ember-faint text-ember">
             <LuUser size={20} />
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="font-semibold text-[var(--color-text-primary)] capitalize text-base">
+            <span className="font-semibold text-text-primary capitalize text-base">
               {config.base_role} role
             </span>
-            <span className="text-[var(--color-text-tertiary)] text-xs">
+            <span className="text-text-tertiary text-xs">
               Updated {formatDateTime(config.updated_at)}
             </span>
           </div>
@@ -114,11 +111,11 @@ function SettingsForm({ config }: { config: UserConfig }) {
         )}
       </Card>
 
-      <div className="flex flex-col gap-[var(--spacing-card-gap)]">
+      <div className="flex flex-col gap-card-gap">
         <Card>
           <div className="flex items-center gap-2 mb-5">
-            <LuGitBranch size={16} className="text-[var(--color-text-tertiary)]" />
-            <h3 className="font-semibold text-[var(--color-text-primary)] text-lg">Git</h3>
+            <LuGitBranch size={16} className="text-text-tertiary" />
+            <h3 className="font-semibold text-text-primary text-lg">Git</h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <TextInput
@@ -139,8 +136,8 @@ function SettingsForm({ config }: { config: UserConfig }) {
 
         <Card>
           <div className="flex items-center gap-2 mb-5">
-            <LuTerminal size={16} className="text-[var(--color-text-tertiary)]" />
-            <h3 className="font-semibold text-[var(--color-text-primary)] text-lg">Editor</h3>
+            <LuTerminal size={16} className="text-text-tertiary" />
+            <h3 className="font-semibold text-text-primary text-lg">Editor</h3>
           </div>
           <TextInput
             label="Default editor ($EDITOR / $VISUAL)"
@@ -152,8 +149,8 @@ function SettingsForm({ config }: { config: UserConfig }) {
 
         <Card>
           <div className="flex items-center gap-2 mb-5">
-            <LuTerminal size={16} className="text-[var(--color-text-tertiary)]" />
-            <h3 className="font-semibold text-[var(--color-text-primary)] text-lg">Shell aliases</h3>
+            <LuTerminal size={16} className="text-text-tertiary" />
+            <h3 className="font-semibold text-text-primary text-lg">Shell aliases</h3>
           </div>
           <KeyValueEditor
             value={form.aliases}
@@ -168,8 +165,8 @@ function SettingsForm({ config }: { config: UserConfig }) {
 
         <Card>
           <div className="flex items-center gap-2 mb-5">
-            <LuVariable size={16} className="text-[var(--color-text-tertiary)]" />
-            <h3 className="font-semibold text-[var(--color-text-primary)] text-lg">Session variables</h3>
+            <LuVariable size={16} className="text-text-tertiary" />
+            <h3 className="font-semibold text-text-primary text-lg">Session variables</h3>
           </div>
           <KeyValueEditor
             value={form.sessionVars}

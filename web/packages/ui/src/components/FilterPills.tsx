@@ -18,8 +18,8 @@ function Pill({
       onClick={onClick}
       className={`inline-flex items-center justify-center font-sans font-medium px-4 py-1.5 rounded-full border cursor-pointer transition-all duration-150 ease-out select-none whitespace-nowrap ${
         isActive
-          ? "bg-[var(--color-ember)] border-[var(--color-ember)] text-white"
-          : "bg-transparent border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+          ? "bg-ember border-ember text-white"
+          : "bg-transparent border-border text-text-secondary hover:border-text-tertiary hover:text-text-primary"
       } text-xs`}
      
     >

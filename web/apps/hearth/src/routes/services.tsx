@@ -35,7 +35,7 @@ const iconMap: Record<string, React.ComponentType<{ size?: number; className?: s
 
 function ServiceIcon({ icon }: { icon: string | null }) {
   const Icon = (icon && iconMap[icon]) || LuGlobe;
-  return <Icon size={22} className="text-[var(--color-ember)]" />;
+  return <Icon size={22} className="text-ember" />;
 }
 
 export function ServicesPage() {
@@ -52,7 +52,7 @@ export function ServicesPage() {
       {isError ? (
         <Callout variant="danger" title="Could not load services" />
       ) : isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-card-gap">
           <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />
@@ -64,7 +64,7 @@ export function ServicesPage() {
           description="Enable capabilities in your Helm values (chat, cloud, observability…) to surface services here."
         />
       ) : (
-        <div className="flex flex-col gap-[var(--spacing-section)]">
+        <div className="flex flex-col gap-section">
           {categoryOrder
             .map((cat) => ({
               category: cat,
@@ -75,12 +75,12 @@ export function ServicesPage() {
             .map((group) => (
               <section key={group.category} className="flex flex-col gap-3">
                 <h2
-                  className="uppercase font-semibold text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+                  className="uppercase font-semibold text-text-tertiary text-2xs tracking-wide"
                  
                 >
                   {group.label}
                 </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-card-gap">
                   {group.items.map((service) => (
                     <a
                       key={service.id}
@@ -89,37 +89,34 @@ export function ServicesPage() {
                       rel="noopener noreferrer"
                       className="block group"
                     >
-                      <Card className="h-full hover:border-[var(--color-border-accent)] transition-colors">
+                      <Card className="h-full hover:border-border-accent transition-colors">
                         <div className="flex items-start gap-4">
-                          <div
-                            className="shrink-0 w-12 h-12 rounded-[var(--radius-md)] flex items-center justify-center"
-                            style={{ background: 'var(--color-ember-faint)' }}
-                          >
+                          <div className="shrink-0 w-12 h-12 rounded-md flex items-center justify-center bg-ember-faint">
                             <ServiceIcon icon={service.icon} />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <h3
-                                className="font-semibold text-[var(--color-text-primary)] group-hover:text-[var(--color-ember)] transition-colors text-base"
+                                className="font-semibold text-text-primary group-hover:text-ember transition-colors text-base"
                                
                               >
                                 {service.name}
                               </h3>
                               <LuExternalLink
                                 size={14}
-                                className="text-[var(--color-text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="text-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
                               />
                             </div>
                             {service.description && (
                               <p
-                                className="text-[var(--color-text-secondary)] mt-1.5 text-sm leading-body"
+                                className="text-text-secondary mt-1.5 text-sm leading-body"
                                
                               >
                                 {service.description}
                               </p>
                             )}
                             <div
-                              className="flex items-center gap-1.5 mt-3 text-[var(--color-text-tertiary)] font-mono truncate text-2xs"
+                              className="flex items-center gap-1.5 mt-3 text-text-tertiary font-mono truncate text-2xs"
                              
                             >
                               {new URL(service.url).hostname}

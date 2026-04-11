@@ -134,7 +134,7 @@
               Cmd = [ "${hearth-build-worker}/bin/hearth-build-worker" ];
               Env = [
                 "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-                "NIX_CONFIG=experimental-features = nix-command flakes"
+                "NIX_CONFIG=experimental-features = nix-command flakes\nsandbox = false\nfilter-syscalls = false"
               ];
             };
           };
@@ -191,6 +191,7 @@
         vmTests = lib.optionalAttrs pkgs.stdenv.isLinux {
           vm-agent-polling = import ./tests/agent-polling.nix { inherit pkgs lib; };
           vm-desktop-baseline = import ./tests/desktop-baseline.nix { inherit pkgs lib; };
+          vm-disko-provision = import ./tests/disko-provision.nix { inherit pkgs lib hearth-enrollment; };
           vm-full-enrollment = import ./tests/full-enrollment.nix { inherit pkgs lib hearth-enrollment hearth-agent; };
           vm-agent-heartbeat = import ./tests/agent-heartbeat.nix { inherit pkgs lib hearth-agent; };
           vm-offline-fallback = import ./tests/offline-fallback.nix { inherit pkgs lib hearth-agent; };
@@ -299,7 +300,8 @@
           SQLX_OFFLINE = "true";
           RUST_LOG = "info";
           HEARTH_ATTIC_CACHE = "hearth";
-          HEARTH_ATTIC_SERVER = "http://localhost:8080";
+          # URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
+          HEARTH_ATTIC_SERVER = "http://10.0.2.2:8080";
           # Shared HS256 secret for minting Attic cache tokens.
           # Must match token-hs256-secret-base64 in dev/attic/server.toml.
           # Production: inject from secrets manager, rotate in lockstep with Attic.
@@ -400,10 +402,19 @@
           machineId = data.machine_id;
           serverUrl = data.server_url or "http://localhost:3000";
           hardware = if hardwareModule != null then import hardwareModule else null;
-          extraConfig = {
+          extraConfig = let
+            # extra_config from the DB contains enrollment metadata (cache_url,
+            # cache_token, disko_config, headscale_preauth_key, etc.) alongside
+            # any real NixOS config.  Strip the non-NixOS keys before merging.
+            enrollmentKeys = [ "cache_url" "cache_token" "disko_config"
+                               "headscale_preauth_key" "headscale_url" ];
+            raw = if data ? extra_config && data.extra_config != null
+                  then data.extra_config else {};
+            cleaned = removeAttrs raw enrollmentKeys;
+          in {
             fileSystems."/" = { device = "/dev/disk/by-label/nixos"; fsType = "ext4"; };
             fileSystems."/boot" = { device = "/dev/disk/by-label/boot"; fsType = "vfat"; };
-          } // (if data ? extra_config && data.extra_config != null then data.extra_config else {});
+          } // cleaned;
         } // nixpkgs.lib.optionalAttrs (data ? kanidm_url && data.kanidm_url != null) {
           kanidmUrl = data.kanidm_url;
         } // nixpkgs.lib.optionalAttrs (data ? binary_cache_url && data.binary_cache_url != null) {

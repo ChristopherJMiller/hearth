@@ -30,7 +30,7 @@ function ActionsCell({ request }: { request: SoftwareRequest }) {
   const actor = useActor();
 
   if (request.status !== 'pending') {
-    return <span className="text-[var(--color-text-tertiary)] text-xs">—</span>;
+    return <span className="text-text-tertiary text-xs">—</span>;
   }
 
   const busy = approve.isPending || deny.isPending;
@@ -71,7 +71,7 @@ const columns: ColumnDef<SoftwareRequest, unknown>[] = [
     accessorKey: 'username',
     header: 'User',
     cell: ({ row }) => (
-      <span className="font-semibold text-[var(--color-text-primary)]">{row.original.username}</span>
+      <span className="font-semibold text-text-primary">{row.original.username}</span>
     ),
   },
   {
@@ -80,7 +80,7 @@ const columns: ColumnDef<SoftwareRequest, unknown>[] = [
     cell: ({ row }) => (
       <Tooltip content={row.original.machine_id}>
         <span
-          className="font-mono text-[var(--color-text-secondary)] text-xs"
+          className="font-mono text-text-secondary text-xs"
          
         >
           {truncateId(row.original.machine_id)}
@@ -94,7 +94,7 @@ const columns: ColumnDef<SoftwareRequest, unknown>[] = [
     cell: ({ row }) => (
       <Tooltip content={row.original.catalog_entry_id}>
         <span
-          className="font-mono text-[var(--color-text-secondary)] text-xs"
+          className="font-mono text-text-secondary text-xs"
          
         >
           {truncateId(row.original.catalog_entry_id)}
@@ -111,7 +111,7 @@ const columns: ColumnDef<SoftwareRequest, unknown>[] = [
     accessorKey: 'requested_at',
     header: 'Requested',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
+      <span className="text-text-secondary text-xs">
         {formatRelativeTime(row.original.requested_at)}
       </span>
     ),
@@ -153,7 +153,7 @@ export function RequestsPage() {
       />
 
       <div
-        className="grid gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]"
+        className="grid gap-card-gap"
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
       >
         <MetricTile label="Total" value={counts.total} icon={<LuInbox size={18} />} tone="ember" />

@@ -43,74 +43,63 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf cfg.enable (lib.mkMerge [
+    {
+      # --- PAM service configuration (always applied) ---
+      security.pam.services = {
+        greetd.makeHomeDir = cfg.enableMkhomedir;
+        login.makeHomeDir = cfg.enableMkhomedir;
+        sshd.makeHomeDir = cfg.enableMkhomedir;
+      };
+    }
+
     # --- SSSD integration (legacy backend) ---
-    services.sssd = lib.mkIf useSssd {
-      enable = true;
-      # Note: the actual sssd.conf with domain configuration is site-specific.
-      # Fleet operators provide this via extraConfig or sops-nix secrets.
-      # We just ensure the SSSD service is running and PAM is wired.
-      sshAuthorizedKeysIntegration = true;
-    };
-
-    # --- NSS configuration ---
-    system.nssDatabases = lib.mkIf useSssd {
-      passwd = lib.mkAfter [ "sss" ];
-      group = lib.mkAfter [ "sss" ];
-      shadow = lib.mkAfter [ "sss" ];
-    };
-    # Note: when authBackend = "kanidm", NSS is configured automatically
-    # by NixOS's services.kanidm.enablePam option (via kanidm-client.nix).
-
-    # --- PAM service configuration ---
-    security.pam.services = {
-      greetd = if useSssd then {
-        sssdStrictAccess = false;
-        makeHomeDir = cfg.enableMkhomedir;
-        pamMount = true;
-      } else {
-        # kanidm: PAM auth configured by services.kanidm.enablePam;
-        # we only add mkhomedir as a safety net.
-        makeHomeDir = cfg.enableMkhomedir;
+    (lib.mkIf useSssd {
+      services.sssd = {
+        enable = true;
+        settings = {
+          sssd.services = lib.concatStringsSep ", " cfg.sssdServices;
+          nss = {};
+          pam = {};
+        };
       };
 
-      login = if useSssd then {
-        sssdStrictAccess = false;
-        makeHomeDir = cfg.enableMkhomedir;
-      } else {
-        makeHomeDir = cfg.enableMkhomedir;
+      system.nssDatabases = {
+        passwd = lib.mkAfter [ "sss" ];
+        group = lib.mkAfter [ "sss" ];
+        shadow = lib.mkAfter [ "sss" ];
       };
 
-      sshd = if useSssd then {
-        sssdStrictAccess = false;
-        makeHomeDir = cfg.enableMkhomedir;
-      } else {
-        makeHomeDir = cfg.enableMkhomedir;
+      security.pam.services = {
+        greetd = { sssdStrictAccess = false; pamMount = true; };
+        login.sssdStrictAccess = false;
+        sshd.sssdStrictAccess = false;
       };
-    };
+    })
 
     # --- Home directory skeleton ---
-    # Ensure the home directory skeleton has sensible defaults
-    environment.etc."skel/.bashrc" = lib.mkIf cfg.enableMkhomedir {
-      text = ''
-        # Hearth managed workstation — default .bashrc
-        # This file is created on first login. Home-manager activation
-        # will replace it with the role-appropriate configuration.
+    (lib.mkIf cfg.enableMkhomedir {
+      environment.etc."skel/.bashrc" = {
+        text = ''
+          # Hearth managed workstation — default .bashrc
+          # This file is created on first login. Home-manager activation
+          # will replace it with the role-appropriate configuration.
 
-        # If not running interactively, don't do anything
-        case $- in
-            *i*) ;;
-              *) return;;
-        esac
+          # If not running interactively, don't do anything
+          case $- in
+              *i*) ;;
+                *) return;;
+          esac
 
-        # Basic prompt
-        PS1='\u@\h:\w\$ '
+          # Basic prompt
+          PS1='\u@\h:\w\$ '
 
-        # Default aliases
-        alias ls='ls --color=auto'
-        alias ll='ls -la'
-      '';
-      mode = "0644";
-    };
-  };
+          # Default aliases
+          alias ls='ls --color=auto'
+          alias ll='ls -la'
+        '';
+        mode = "0644";
+      };
+    })
+  ]);
 }

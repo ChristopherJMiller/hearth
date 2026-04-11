@@ -48,15 +48,15 @@ export function HealthPage() {
         </div>
       )}
 
-      <section className="mb-[var(--spacing-section)]">
+      <section>
         <h2
-          className="uppercase font-semibold text-[var(--color-text-tertiary)] mb-3 text-2xs tracking-wide"
+          className="uppercase font-semibold text-text-tertiary mb-3 text-2xs tracking-wide"
          
         >
           Core
         </h2>
         <div
-          className="grid gap-[var(--spacing-card-gap)]"
+          className="grid gap-card-gap"
           style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
         >
           <MetricTile
@@ -89,7 +89,7 @@ export function HealthPage() {
 
       <section>
         <h2
-          className="uppercase font-semibold text-[var(--color-text-tertiary)] mb-3 text-2xs tracking-wide"
+          className="uppercase font-semibold text-text-tertiary mb-3 text-2xs tracking-wide"
          
         >
           Services
@@ -97,7 +97,7 @@ export function HealthPage() {
         {services.isError ? (
           <Callout variant="danger" title="Services discovery failed" />
         ) : services.isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-card-gap">
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -105,17 +105,14 @@ export function HealthPage() {
         ) : !services.data || services.data.length === 0 ? (
           <Card>
             <div className="flex items-center gap-3">
-              <div
-                className="w-10 h-10 rounded-[var(--radius-sm)] flex items-center justify-center text-[var(--color-text-tertiary)]"
-                style={{ background: 'var(--color-surface-raised)' }}
-              >
+              <div className="w-10 h-10 rounded-sm flex items-center justify-center text-text-tertiary bg-surface-raised">
                 <LuGlobe size={18} />
               </div>
               <div>
-                <div className="font-medium text-[var(--color-text-primary)] text-sm">
+                <div className="font-medium text-text-primary text-sm">
                   No services configured
                 </div>
-                <div className="text-[var(--color-text-tertiary)] text-xs">
+                <div className="text-text-tertiary text-xs">
                   Enable capabilities in your Helm values to surface services.
                 </div>
               </div>
@@ -123,7 +120,7 @@ export function HealthPage() {
           </Card>
         ) : (
           <div
-            className="grid gap-[var(--spacing-card-gap)]"
+            className="grid gap-card-gap"
             style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
           >
             {services.data.map((service) => (

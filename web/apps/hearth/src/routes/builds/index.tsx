@@ -57,16 +57,16 @@ function BuildCard({ job, onClick }: { job: BuildJob; onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className={`group flex flex-col gap-2.5 w-full text-left rounded-[var(--radius-md)] border bg-[var(--color-surface)] cursor-pointer hover:bg-[var(--color-surface-raised)] transition-all p-6 ${
+      className={`group flex flex-col gap-2.5 w-full text-left rounded-md border bg-surface cursor-pointer hover:bg-surface-raised transition-all p-6 ${
         stuck
-          ? 'border-[var(--color-border-accent)] shadow-[0_0_24px_rgba(233,69,96,0.25)]'
-          : 'border-[var(--color-border-subtle)]'
+          ? 'border-border-accent shadow-[0_0_24px_rgba(233,69,96,0.25)]'
+          : 'border-border-subtle'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
         <Tooltip content={job.flake_ref}>
           <span
-            className="font-mono text-[var(--color-text-primary)] truncate font-semibold text-xs"
+            className="font-mono text-text-primary truncate font-semibold text-xs"
            
           >
             {truncateStorePath(job.flake_ref)}
@@ -74,14 +74,14 @@ function BuildCard({ job, onClick }: { job: BuildJob; onClick: () => void }) {
         </Tooltip>
         {stuck && (
           <span
-            className="shrink-0 px-1.5 py-0.5 rounded-[6px] bg-[var(--color-error-faint)] text-[var(--color-error)] uppercase font-semibold text-2xs tracking-wide"
+            className="shrink-0 px-1.5 py-0.5 rounded-[6px] bg-error-faint text-error uppercase font-semibold text-2xs tracking-wide"
            
           >
             Stuck
           </span>
         )}
       </div>
-      <div className="flex items-center gap-3 text-[var(--color-text-tertiary)] text-2xs">
+      <div className="flex items-center gap-3 text-text-tertiary text-2xs">
         <span className="flex items-center gap-1"><LuClock size={11} />{formatRelativeTime(job.created_at)}</span>
         {job.worker_id && (
           <span className="flex items-center gap-1 truncate">
@@ -93,7 +93,7 @@ function BuildCard({ job, onClick }: { job: BuildJob; onClick: () => void }) {
       {job.closure && (
         <Tooltip content={job.closure}>
           <span
-            className="font-mono text-[var(--color-text-secondary)] truncate text-2xs"
+            className="font-mono text-text-secondary truncate text-2xs"
            
           >
             → {truncateStorePath(job.closure)}
@@ -102,7 +102,7 @@ function BuildCard({ job, onClick }: { job: BuildJob; onClick: () => void }) {
       )}
       {job.error_message && (
         <span
-          className="text-[var(--color-error)] truncate text-2xs"
+          className="text-error truncate text-2xs"
          
         >
           {job.error_message}
@@ -165,7 +165,7 @@ export function BuildsPage() {
       />
 
       <div
-        className="grid gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]"
+        className="grid gap-card-gap"
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
       >
         <MetricTile label="Total" value={counts.total} icon={<LuHammer size={18} />} tone="ember" />
@@ -198,15 +198,15 @@ export function BuildsPage() {
           description="Create a deployment to enqueue a build job. Jobs will flow through the pipeline below."
         />
       ) : view === 'kanban' ? (
-        <div className="grid gap-[var(--spacing-card-gap)]" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(240px, 1fr))` }}>
+        <div className="grid gap-card-gap" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(240px, 1fr))` }}>
           {stages.map((stage) => {
             const items = grouped.get(stage) ?? [];
             return (
               <div key={stage} className="flex flex-col gap-3 min-w-0">
-                <div className="flex items-center justify-between gap-2 sticky top-0 z-10 px-1 py-2 bg-[var(--color-surface-base)]">
+                <div className="flex items-center justify-between gap-2 sticky top-0 z-10 px-1 py-2 bg-surface-base">
                   <StatusChip status={stage} label={stageLabel[stage]} />
                   <span
-                    className="text-[var(--color-text-tertiary)] tabular-nums text-xs"
+                    className="text-text-tertiary tabular-nums text-xs"
                    
                   >
                     {items.length}
@@ -215,7 +215,7 @@ export function BuildsPage() {
                 <div className="flex flex-col gap-2.5">
                   {items.length === 0 ? (
                     <div
-                      className="text-center py-6 rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border-subtle)] text-[var(--color-text-tertiary)] text-xs"
+                      className="text-center py-6 rounded-sm border border-dashed border-border-subtle text-text-tertiary text-xs"
                      
                     >
                       Empty
@@ -236,15 +236,15 @@ export function BuildsPage() {
                 key={job.id}
                 type="button"
                 onClick={() => handleOpen(job)}
-                className="flex items-center gap-4 px-4 py-3 rounded-[var(--radius-sm)] hover:bg-[var(--color-surface-raised)] cursor-pointer text-left"
+                className="flex items-center gap-4 px-4 py-3 rounded-sm hover:bg-surface-raised cursor-pointer text-left"
               >
                 <StatusChip status={job.status} />
                 <Tooltip content={job.flake_ref}>
-                  <span className="font-mono text-[var(--color-text-primary)] truncate flex-1 text-xs">
+                  <span className="font-mono text-text-primary truncate flex-1 text-xs">
                     {truncateStorePath(job.flake_ref)}
                   </span>
                 </Tooltip>
-                <span className="text-[var(--color-text-tertiary)] shrink-0 text-xs">
+                <span className="text-text-tertiary shrink-0 text-xs">
                   {formatRelativeTime(job.updated_at)}
                 </span>
               </button>

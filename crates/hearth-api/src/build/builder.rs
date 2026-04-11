@@ -52,14 +52,37 @@ impl BuildResult {
 pub async fn build_derivation(drv_path: &str) -> Result<BuildResult, BuildError> {
     debug!(drv = drv_path, "building derivation");
 
+    let mut args = vec![
+        "build".to_string(),
+        "--no-link".into(),
+        "--print-out-paths".into(),
+    ];
+    args.extend(super::nix_extra_args());
+    args.push(drv_path.into());
+
     let output = Command::new("nix")
-        .args(["build", "--no-link", "--print-out-paths", drv_path])
+        .args(&args)
         .output()
         .await
         .map_err(BuildError::SpawnFailed)?;
 
     if output.status.success() {
-        let out_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let raw_out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // nix build --print-out-paths may return the .drv path or be empty.
+        // Use nix-store --realise to ensure the output path exists in the local
+        // store and get the actual output path.
+        let out_path = if raw_out.ends_with(".drv") || raw_out.is_empty() {
+            let realise = Command::new("nix-store")
+                .args(["--realise", drv_path])
+                .output()
+                .await
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+            realise.unwrap_or(raw_out)
+        } else {
+            raw_out
+        };
         debug!(drv = drv_path, out = %out_path, "build succeeded");
         Ok(BuildResult {
             drv_path: drv_path.to_string(),

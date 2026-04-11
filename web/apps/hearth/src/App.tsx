@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
+import { Toaster, TooltipProvider } from '@hearth/ui';
 import { router } from './router';
 import { AuthGuard } from './AuthGuard';
 import { CallbackPage } from './routes/callback';
@@ -19,9 +20,12 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthGuard>
-        <RouterProvider router={router} />
-      </AuthGuard>
+      <TooltipProvider delayDuration={250}>
+        <AuthGuard>
+          <RouterProvider router={router} />
+        </AuthGuard>
+        <Toaster />
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

@@ -34,14 +34,14 @@ const driftColumns: ColumnDef<DriftedMachine, unknown>[] = [
     accessorKey: 'hostname',
     header: 'Hostname',
     cell: ({ getValue }) => (
-      <span className="font-semibold text-[var(--color-text-primary)]">{getValue<string>()}</span>
+      <span className="font-semibold text-text-primary">{getValue<string>()}</span>
     ),
   },
   {
     accessorKey: 'role',
     header: 'Role',
     cell: ({ getValue }) => (
-      <span className="text-[var(--color-text-secondary)] capitalize text-sm">
+      <span className="text-text-secondary capitalize text-sm">
         {getValue<string>() ?? '—'}
       </span>
     ),
@@ -59,7 +59,7 @@ const driftColumns: ColumnDef<DriftedMachine, unknown>[] = [
       return (
         <Tooltip content={v ?? 'none'}>
           <span
-            className="font-mono text-[var(--color-text-secondary)] text-xs"
+            className="font-mono text-text-secondary text-xs"
            
           >
             {v ? truncateStorePath(v) : '—'}
@@ -76,7 +76,7 @@ const driftColumns: ColumnDef<DriftedMachine, unknown>[] = [
       return (
         <Tooltip content={v ?? 'none'}>
           <span
-            className="font-mono text-[var(--color-text-secondary)] text-xs"
+            className="font-mono text-text-secondary text-xs"
            
           >
             {v ? truncateStorePath(v) : '—'}
@@ -89,14 +89,14 @@ const driftColumns: ColumnDef<DriftedMachine, unknown>[] = [
     accessorKey: 'last_heartbeat',
     header: 'Last seen',
     cell: ({ getValue }) => (
-      <span className="text-[var(--color-text-tertiary)] text-xs">
+      <span className="text-text-tertiary text-xs">
         {getValue<string>() ? formatRelativeTime(getValue<string>()!) : 'never'}
       </span>
     ),
   },
 ];
 
-const CHART_TONES = ['var(--chart-3)', 'var(--chart-1)', 'var(--chart-axis)'];
+const CHART_TONES = ['var(--color-chart-3)', 'var(--color-chart-1)', 'var(--chart-axis)'];
 
 export function CompliancePage() {
   const [driftFilter, setDriftFilter] = useState<DriftFilter>('all');
@@ -134,7 +134,7 @@ export function CompliancePage() {
         accessorKey: 'name',
         header: 'Policy',
         cell: ({ getValue }) => (
-          <span className="font-semibold text-[var(--color-text-primary)]">
+          <span className="font-semibold text-text-primary">
             {getValue<string>()}
           </span>
         ),
@@ -149,7 +149,7 @@ export function CompliancePage() {
         header: 'Control',
         cell: ({ getValue }) => (
           <span
-            className="font-mono text-[var(--color-text-secondary)] text-xs"
+            className="font-mono text-text-secondary text-xs"
            
           >
             {getValue<string>() ?? '—'}
@@ -172,7 +172,7 @@ export function CompliancePage() {
         cell: ({ getValue }) => (
           <Tooltip content={getValue<string>()} side="top">
             <span
-              className="font-mono text-[var(--color-text-secondary)] truncate max-w-[320px] inline-block text-xs"
+              className="font-mono text-text-secondary truncate max-w-[320px] inline-block text-xs"
              
             >
               {getValue<string>()}
@@ -187,7 +187,7 @@ export function CompliancePage() {
         cell: ({ row }) => (
           <button
             type="button"
-            className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-faint)] cursor-pointer"
+            className="w-7 h-7 flex items-center justify-center rounded-sm text-text-tertiary hover:text-error hover:bg-error-faint cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
               setPendingDelete(row.original);
@@ -215,9 +215,9 @@ export function CompliancePage() {
         description="Drift detection, compliance policies, and SBOMs across the fleet."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-card-gap">
         <div
-          className="grid gap-[var(--spacing-card-gap)]"
+          className="grid gap-card-gap"
           style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}
         >
           <MetricTile
@@ -243,7 +243,7 @@ export function CompliancePage() {
         {pieData.length > 0 && (
           <Card>
             <div
-              className="uppercase font-semibold text-[var(--color-text-tertiary)] mb-2 text-2xs tracking-wide"
+              className="uppercase font-semibold text-text-tertiary mb-2 text-2xs tracking-wide"
              
             >
               Posture

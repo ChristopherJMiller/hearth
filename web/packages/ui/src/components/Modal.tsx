@@ -1,6 +1,12 @@
-import { type ReactNode, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { lockBodyScroll } from "../lib/scrollLock";
+import { type ReactNode } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 
 export type ModalSize = "sm" | "md" | "lg";
 
@@ -16,11 +22,15 @@ export interface ModalProps {
 }
 
 const sizeWidth: Record<ModalSize, string> = {
-  sm: "420px",
-  md: "560px",
-  lg: "720px",
+  sm: "sm:max-w-[420px]",
+  md: "sm:max-w-[560px]",
+  lg: "sm:max-w-[720px]",
 };
 
+/**
+ * Hearth Modal — wraps shadcn Dialog with a size prop and the Hearth surface
+ * palette. Scroll lock, focus trap, and escape handling are delegated to Radix.
+ */
 export function Modal({
   open,
   onOpenChange,
@@ -31,63 +41,45 @@ export function Modal({
   children,
   dismissable = true,
 }: ModalProps) {
-  useEffect(() => {
-    if (!open) return;
-    const release = lockBodyScroll();
-    const onKey = (e: KeyboardEvent) => {
-      if (dismissable && e.key === "Escape") onOpenChange(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      release();
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open, onOpenChange, dismissable]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={() => dismissable && onOpenChange(false)}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-pointer animate-[fade-in_0.2s_ease_both]"
-      />
-      <div
-        className="relative bg-[var(--color-surface)] rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] shadow-[var(--shadow-overlay)] flex flex-col animate-[fade-in-up_0.25s_ease_both] max-h-[90vh]"
-        style={{ width: sizeWidth[size] }}
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!dismissable && !next) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent
+        showCloseButton={dismissable}
+        className={`${sizeWidth[size]} bg-surface border-border-subtle p-0 gap-0 max-h-[90vh]`}
+        onEscapeKeyDown={(e) => {
+          if (!dismissable) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (!dismissable) e.preventDefault();
+        }}
       >
         {(title || description) && (
-          <div className="flex flex-col gap-1 border-b border-[var(--color-border-subtle)] p-6">
+          <DialogHeader className="p-6 border-b border-border-subtle">
             {title && (
-              <h2
-                className="font-semibold text-[var(--color-text-primary)] text-xl"
-               
-              >
+              <DialogTitle className="text-xl text-text-primary">
                 {title}
-              </h2>
+              </DialogTitle>
             )}
             {description && (
-              <p
-                className="text-[var(--color-text-secondary)] text-sm"
-               
-              >
+              <DialogDescription className="text-text-secondary">
                 {description}
-              </p>
+              </DialogDescription>
             )}
-          </div>
+          </DialogHeader>
         )}
-
         <div className="flex-1 overflow-y-auto p-6">{children}</div>
-
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] rounded-b-[var(--radius-lg)] p-6">
+          <DialogFooter className="border-t border-border-subtle bg-surface-sunken p-6 rounded-b-lg">
             {footer}
-          </div>
+          </DialogFooter>
         )}
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }

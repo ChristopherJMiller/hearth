@@ -55,10 +55,10 @@ function NavButton({
   return (
     <button type="button"
       onClick={onClick}
-      className={`flex items-center gap-3 w-full rounded-[var(--radius-sm)] px-3 py-2.5 font-medium cursor-pointer transition-colors duration-100 ${
+      className={`flex items-center gap-3 w-full rounded-sm px-3 py-2.5 font-medium cursor-pointer transition-colors duration-100 ${
         isActive
-          ? "bg-[var(--color-ember-faint)] text-[var(--color-ember)] border border-[var(--color-border-accent)] shadow-[inset_0_0_0_1px_rgba(233,69,96,0.15)]"
-          : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)] border border-transparent"
+          ? "bg-ember-faint text-ember border border-border-accent shadow-[inset_0_0_0_1px_rgba(233,69,96,0.15)]"
+          : "text-text-secondary hover:text-text-primary hover:bg-surface-raised border border-transparent"
       } text-sm`}
      
       title={collapsed ? item.label : undefined}
@@ -71,7 +71,7 @@ function NavButton({
           <span className="truncate flex-1 text-left">{item.label}</span>
           {item.badge != null && item.badge > 0 && (
             <span
-              className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[var(--color-ember)] text-white font-semibold text-2xs"
+              className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-ember text-white font-semibold text-2xs"
              
             >
               {item.badge}
@@ -95,18 +95,18 @@ export function Sidebar({
 
   return (
     <aside
-      className={`flex flex-col h-full bg-[var(--color-surface)] border-r border-[var(--color-border-subtle)] transition-all duration-200 ${
+      className={`flex flex-col h-full bg-surface border-r border-border-subtle transition-all duration-200 ${
         collapsed ? "w-16" : "w-[260px]"
       }`}
     >
-      <div className="flex items-center justify-between px-4 py-4 border-b border-[var(--color-border-subtle)]">
+      <div className="flex items-center justify-between px-4 py-4 border-b border-border-subtle">
         {!collapsed && (
           <div className="flex items-center gap-2 overflow-hidden">{header}</div>
         )}
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center justify-center w-8 h-8 rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)] transition-colors duration-100 cursor-pointer shrink-0"
+          className="flex items-center justify-center w-8 h-8 rounded-sm text-text-tertiary hover:text-text-primary hover:bg-surface-raised transition-colors duration-100 cursor-pointer shrink-0"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <ChevronIcon collapsed={collapsed} />
@@ -120,7 +120,7 @@ export function Sidebar({
               <div key={group.id} className="flex flex-col gap-1">
                 {!collapsed && (
                   <div
-                    className="px-3 pb-1 font-semibold uppercase text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+                    className="px-3 pb-1 font-semibold uppercase text-text-tertiary text-2xs tracking-wide"
                    
                   >
                     {group.label}
@@ -141,7 +141,7 @@ export function Sidebar({
             ))}
           </div>
         ) : (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-1">
             {(items ?? []).map((item) => (
               <NavButton
                 key={item.id}
@@ -156,7 +156,7 @@ export function Sidebar({
       </nav>
 
       {footer && !collapsed && (
-        <div className="border-t border-[var(--color-border-subtle)]">
+        <div className="border-t border-border-subtle">
           {footer}
         </div>
       )}

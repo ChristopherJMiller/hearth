@@ -43,26 +43,26 @@ export function NotificationCenter() {
   return (
     <div
       ref={ref}
-      className="fixed right-6 top-[68px] z-40 w-[360px] max-w-[calc(100vw-2rem)] rounded-[var(--radius-md)] bg-[var(--color-surface-popover)] border border-[var(--color-border)] shadow-[var(--shadow-overlay)] animate-[fade-in-up_0.2s_ease_both] flex flex-col max-h-[70vh]"
+      className="fixed right-6 top-[68px] z-40 w-[360px] max-w-[calc(100vw-2rem)] rounded-md bg-surface-popover border border-border shadow-overlay animate-[fade-in-up_0.2s_ease_both] flex flex-col max-h-[70vh]"
     >
-      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--color-border-subtle)]">
+      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border-subtle">
         <div className="flex items-center gap-2">
-          <LuBell size={14} className="text-[var(--color-text-tertiary)]" />
+          <LuBell size={14} className="text-text-tertiary" />
           <span
-            className="font-semibold text-[var(--color-text-primary)] text-sm"
+            className="font-semibold text-text-primary text-sm"
            
           >
             Notifications
           </span>
         </div>
-        <span className="text-[var(--color-text-tertiary)] text-2xs">
+        <span className="text-text-tertiary text-2xs">
           {items.length} item{items.length === 1 ? '' : 's'}
         </span>
       </div>
       <div className="overflow-y-auto">
         {items.length === 0 ? (
           <div
-            className="text-center py-12 text-[var(--color-text-tertiary)] text-sm"
+            className="text-center py-12 text-text-tertiary text-sm"
            
           >
             All caught up.
@@ -76,7 +76,7 @@ export function NotificationCenter() {
                 if (item.href) router.navigate({ to: item.href.to });
                 closeNotifications();
               }}
-              className="w-full text-left flex items-start gap-3 px-4 py-3 border-b border-[var(--color-border-subtle)] last:border-b-0 hover:bg-[var(--color-surface-raised)] cursor-pointer transition-colors"
+              className="w-full text-left flex items-start gap-3 px-4 py-3 border-b border-border-subtle last:border-b-0 hover:bg-surface-raised cursor-pointer transition-colors"
             >
               <span
                 className="mt-1 w-2 h-2 rounded-full shrink-0"
@@ -84,14 +84,14 @@ export function NotificationCenter() {
               />
               <div className="flex-1 min-w-0">
                 <div
-                  className="font-semibold text-[var(--color-text-primary)] text-sm"
+                  className="font-semibold text-text-primary text-sm"
                  
                 >
                   {item.title}
                 </div>
                 {item.body && (
                   <div
-                    className="text-[var(--color-text-secondary)] mt-0.5 text-xs"
+                    className="text-text-secondary mt-0.5 text-xs"
                    
                   >
                     {item.body}

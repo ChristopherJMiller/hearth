@@ -64,15 +64,15 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
     <Dialog.Root open={!!entry} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[999] bg-black/60 backdrop-blur-sm animate-[fade-in_0.2s_ease_both]" />
-        <Dialog.Content className="fixed z-[1000] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[var(--radius-lg)] shadow-[var(--shadow-overlay)] animate-[fade-in-up_0.3s_ease_both] focus:outline-none">
+        <Dialog.Content className="fixed z-[1000] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-surface border border-border rounded-lg shadow-overlay animate-[fade-in-up_0.3s_ease_both] focus:outline-none">
           {/* Header area with colored accent stripe */}
           <div className="relative px-6 pt-6 pb-4">
             {/* Subtle ember glow at top */}
-            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--color-ember)] to-transparent opacity-40" />
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-ember to-transparent opacity-40" />
 
             <div className="flex items-start gap-4">
               {/* Large icon */}
-              <div className="w-16 h-16 rounded-[var(--radius-md)] bg-[var(--color-surface-raised)] border border-[var(--color-border-subtle)] flex items-center justify-center shrink-0 text-[28px]">
+              <div className="w-16 h-16 rounded-md bg-surface-raised border border-border-subtle flex items-center justify-center shrink-0 text-[28px]">
                 {entry.icon_url ? (
                   <img src={entry.icon_url} alt="" className="w-11 h-11 rounded-lg object-cover" />
                 ) : (
@@ -81,11 +81,11 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
               </div>
 
               <div className="flex-1 min-w-0">
-                <Dialog.Title className="text-xl font-bold tracking-tight text-[var(--color-text-primary)] leading-tight">
+                <Dialog.Title className="text-xl font-bold tracking-tight text-text-primary leading-tight">
                   {entry.name}
                 </Dialog.Title>
                 {entry.category && (
-                  <p className="text-sm text-[var(--color-text-tertiary)] mt-1">
+                  <p className="text-sm text-text-tertiary mt-1">
                     {entry.category}
                   </p>
                 )}
@@ -97,7 +97,7 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
               </div>
 
               {/* Close */}
-              <Dialog.Close className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors p-1 -mt-1 -mr-1 rounded-md hover:bg-[var(--color-surface-raised)]">
+              <Dialog.Close className="text-text-tertiary hover:text-text-primary transition-colors p-1 -mt-1 -mr-1 rounded-md hover:bg-surface-raised">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
@@ -109,7 +109,7 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
           {/* Body */}
           <div className="px-6 pb-2">
             {entry.description && (
-              <Dialog.Description className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+              <Dialog.Description className="text-sm text-text-secondary leading-relaxed">
                 {entry.description}
               </Dialog.Description>
             )}
@@ -117,39 +117,39 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
             {/* Metadata grid */}
             <div className="mt-4 grid grid-cols-2 gap-3">
               {entry.flatpak_ref && (
-                <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                  <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                <div className="bg-surface-raised rounded-sm px-3 py-2">
+                  <div className="text-2xs font-mono uppercase tracking-wider text-text-tertiary mb-0.5">
                     Flatpak Ref
                   </div>
-                  <div className="text-sm font-mono text-[var(--color-text-primary)] truncate">
+                  <div className="text-sm font-mono text-text-primary truncate">
                     {entry.flatpak_ref}
                   </div>
                 </div>
               )}
               {entry.nix_attr && (
-                <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                  <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                <div className="bg-surface-raised rounded-sm px-3 py-2">
+                  <div className="text-2xs font-mono uppercase tracking-wider text-text-tertiary mb-0.5">
                     Nix Attribute
                   </div>
-                  <div className="text-sm font-mono text-[var(--color-text-primary)] truncate">
+                  <div className="text-sm font-mono text-text-primary truncate">
                     {entry.nix_attr}
                   </div>
                 </div>
               )}
-              <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+              <div className="bg-surface-raised rounded-sm px-3 py-2">
+                <div className="text-2xs font-mono uppercase tracking-wider text-text-tertiary mb-0.5">
                   Approval
                 </div>
-                <div className="text-sm text-[var(--color-text-primary)]">
+                <div className="text-sm text-text-primary">
                   {entry.approval_required ? 'Required' : 'Auto-approved'}
                 </div>
               </div>
               {entry.auto_approve_roles.length > 0 && (
-                <div className="bg-[var(--color-surface-raised)] rounded-[var(--radius-sm)] px-3 py-2">
-                  <div className="text-2xs font-mono uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                <div className="bg-surface-raised rounded-sm px-3 py-2">
+                  <div className="text-2xs font-mono uppercase tracking-wider text-text-tertiary mb-0.5">
                     Auto-approve Roles
                   </div>
-                  <div className="text-sm font-mono text-[var(--color-text-primary)]">
+                  <div className="text-sm font-mono text-text-primary">
                     {entry.auto_approve_roles.join(', ')}
                   </div>
                 </div>
@@ -158,7 +158,7 @@ export function SoftwareDetail({ entry, status, machineId, username, onClose }: 
           </div>
 
           {/* Footer actions */}
-          <div className="px-6 py-4 mt-2 border-t border-[var(--color-border-subtle)] flex items-center justify-between gap-3">
+          <div className="px-6 py-4 mt-2 border-t border-border-subtle flex items-center justify-between gap-3">
             {status ? (
               <StatusChip status={status} />
             ) : (

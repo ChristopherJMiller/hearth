@@ -67,13 +67,13 @@ function FsmGraph({ status }: { status: Deployment['status'] }) {
               {stage.label}
             </div>
             {i < fsmStages.length - 1 && (
-              <LuArrowRight size={14} className="text-[var(--color-text-tertiary)]" />
+              <LuArrowRight size={14} className="text-text-tertiary" />
             )}
           </div>
         );
       })}
       {failed && (
-        <div className="flex items-center gap-2 ml-2 pl-2 border-l border-[var(--color-border-subtle)]">
+        <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border-subtle">
           <StatusChip status={status} />
         </div>
       )}
@@ -87,7 +87,7 @@ const machineColumns: ColumnDef<DeploymentMachineStatus, unknown>[] = [
     header: 'Machine',
     cell: ({ row }) => (
       <span
-        className="font-mono text-[var(--color-text-primary)] text-xs"
+        className="font-mono text-text-primary text-xs"
        
       >
         {truncateId(row.original.machine_id)}
@@ -103,8 +103,8 @@ const machineColumns: ColumnDef<DeploymentMachineStatus, unknown>[] = [
     accessorKey: 'started_at',
     header: 'Started',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
-        {row.original.started_at ? formatRelativeTime(row.original.started_at) : <span className="italic text-[var(--color-text-tertiary)]">—</span>}
+      <span className="text-text-secondary text-xs">
+        {row.original.started_at ? formatRelativeTime(row.original.started_at) : <span className="italic text-text-tertiary">—</span>}
       </span>
     ),
   },
@@ -112,8 +112,8 @@ const machineColumns: ColumnDef<DeploymentMachineStatus, unknown>[] = [
     accessorKey: 'completed_at',
     header: 'Completed',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
-        {row.original.completed_at ? formatRelativeTime(row.original.completed_at) : <span className="italic text-[var(--color-text-tertiary)]">—</span>}
+      <span className="text-text-secondary text-xs">
+        {row.original.completed_at ? formatRelativeTime(row.original.completed_at) : <span className="italic text-text-tertiary">—</span>}
       </span>
     ),
   },
@@ -122,11 +122,11 @@ const machineColumns: ColumnDef<DeploymentMachineStatus, unknown>[] = [
     header: 'Error',
     cell: ({ row }) => {
       const err = row.original.error_message;
-      if (!err) return <span className="text-[var(--color-text-tertiary)]">—</span>;
+      if (!err) return <span className="text-text-tertiary">—</span>;
       return (
         <Tooltip content={err}>
           <span
-            className="text-[var(--color-error)] max-w-[280px] truncate inline-block text-xs"
+            className="text-error max-w-[280px] truncate inline-block text-xs"
            
           >
             {err}
@@ -211,11 +211,11 @@ export function DeploymentDetailPage() {
         onConfirm={() => rollback.mutate(deployment.id)}
       />
 
-      <Card className="mb-[var(--spacing-card-gap)]">
+      <Card className="mb-card-gap">
         <div className="flex items-start justify-between gap-6 flex-wrap">
           <div className="flex flex-col gap-3">
             <span
-              className="uppercase font-semibold text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+              className="uppercase font-semibold text-text-tertiary text-2xs tracking-wide"
              
             >
               Pipeline state
@@ -247,9 +247,9 @@ export function DeploymentDetailPage() {
         {activeTab === 'overview' && (
           <Card>
             <div className="flex items-center gap-2 mb-5">
-              <LuPackage size={16} className="text-[var(--color-text-tertiary)]" />
+              <LuPackage size={16} className="text-text-tertiary" />
               <h2
-                className="font-semibold text-[var(--color-text-primary)] text-lg"
+                className="font-semibold text-text-primary text-lg"
                
               >
                 Configuration

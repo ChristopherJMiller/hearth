@@ -64,14 +64,14 @@ export function KeyValueEditor({
     <div className="flex flex-col gap-2.5">
       {rows.length === 0 ? (
         <div
-          className="py-4 px-3 rounded-[var(--radius-sm)] bg-[var(--color-surface-sunken)] text-[var(--color-text-tertiary)] text-center italic text-xs"
+          className="py-4 px-3 rounded-sm bg-surface-sunken text-text-tertiary text-center italic text-xs"
          
         >
           {emptyLabel}
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-[minmax(120px,1fr)_minmax(120px,2fr)_auto] gap-2 uppercase font-semibold text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+          <div className="grid grid-cols-[minmax(120px,1fr)_minmax(120px,2fr)_auto] gap-2 uppercase font-semibold text-text-tertiary text-2xs tracking-wide"
               >
             <span>{keyLabel}</span>
             <span>{valueLabel}</span>
@@ -87,7 +87,7 @@ export function KeyValueEditor({
                 value={row.key}
                 onChange={(e) => update(row.id, { key: e.target.value })}
                 placeholder={keyPlaceholder}
-                className="px-3 py-2 rounded-[var(--radius-sm)] bg-[var(--color-surface-sunken)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-ember)] text-sm"
+                className="px-3 py-2 rounded-sm bg-surface-sunken border border-border-subtle text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-ember text-sm"
                
               />
               <input
@@ -95,12 +95,12 @@ export function KeyValueEditor({
                 value={row.value}
                 onChange={(e) => update(row.id, { value: e.target.value })}
                 placeholder={valuePlaceholder}
-                className={`px-3 py-2 rounded-[var(--radius-sm)] bg-[var(--color-surface-sunken)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-ember)] ${monoValues ? "font-mono text-xs" : "text-sm"}`}
+                className={`px-3 py-2 rounded-sm bg-surface-sunken border border-border-subtle text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-ember ${monoValues ? "font-mono text-xs" : "text-sm"}`}
               />
               <button
                 type="button"
                 onClick={() => remove(row.id)}
-                className="w-9 h-9 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-faint)] transition-colors cursor-pointer"
+                className="w-9 h-9 flex items-center justify-center rounded-sm text-text-tertiary hover:text-error hover:bg-error-faint transition-colors cursor-pointer"
                 aria-label="Remove entry"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -114,7 +114,7 @@ export function KeyValueEditor({
       <button
         type="button"
         onClick={add}
-        className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[var(--color-text-secondary)] hover:text-[var(--color-ember)] hover:bg-[var(--color-ember-faint)] border border-dashed border-[var(--color-border)] hover:border-[var(--color-border-accent)] transition-colors cursor-pointer text-xs"
+        className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-text-secondary hover:text-ember hover:bg-ember-faint border border-dashed border-border hover:border-border-accent transition-colors cursor-pointer text-xs"
        
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

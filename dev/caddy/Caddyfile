@@ -13,6 +13,11 @@ cache.hearth.local {
 	reverse_proxy localhost:8080
 }
 
+# Plain HTTP for binary cache (Nix substituters don't handle custom CAs well)
+http://cache.hearth.local {
+	reverse_proxy localhost:8080
+}
+
 kanidm.hearth.local {
 	reverse_proxy https://localhost:8443 {
 		transport http {

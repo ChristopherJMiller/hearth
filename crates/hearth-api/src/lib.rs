@@ -388,6 +388,14 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
         .nest("/api/v1/services", services_routes())
         .nest("/api/v1/directory", directory_routes())
         .nest("/api/v1/me", me_config_routes())
+        .route(
+            "/api/v1/fleet-config/flake.tar.gz",
+            get(routes::fleet_config::flake_tarball),
+        )
+        .route(
+            "/api/v1/cache-token",
+            post(routes::cache_token::get_cache_token),
+        )
         .fallback_service(spa)
         .layer(middleware::from_fn(metrics::track_request))
         .layer(cors)

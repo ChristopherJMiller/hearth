@@ -46,9 +46,9 @@ export function ReportsPage() {
         description="Long-running fleet metrics — compliance posture, deployment cadence, and enrollment flow over time."
       />
 
-      <section className="mb-[var(--spacing-section)]">
+      <section>
         <h2
-          className="uppercase font-semibold text-[var(--color-text-tertiary)] mb-3 text-2xs tracking-wide"
+          className="uppercase font-semibold text-text-tertiary mb-3 text-2xs tracking-wide"
          
         >
           Compliance posture
@@ -59,7 +59,7 @@ export function ReportsPage() {
           <SkeletonCard />
         ) : (
           <div
-            className="grid gap-[var(--spacing-card-gap)]"
+            className="grid gap-card-gap"
             style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
           >
             <MetricTile
@@ -91,16 +91,16 @@ export function ReportsPage() {
         )}
       </section>
 
-      <section className="mb-[var(--spacing-section)]">
+      <section>
         <Card>
           <h2
-            className="font-semibold text-[var(--color-text-primary)] mb-1 text-lg"
+            className="font-semibold text-text-primary mb-1 text-lg"
            
           >
             Deployment activity
           </h2>
           <p
-            className="text-[var(--color-text-tertiary)] mb-5 text-xs"
+            className="text-text-tertiary mb-5 text-xs"
            
           >
             Last 30 days
@@ -111,7 +111,7 @@ export function ReportsPage() {
             <div className="h-[280px]" />
           ) : !deploymentTimeline.data || deploymentTimeline.data.length === 0 ? (
             <p
-              className="text-[var(--color-text-tertiary)] py-12 text-center text-sm"
+              className="text-text-tertiary py-12 text-center text-sm"
              
             >
               No deployment data yet.
@@ -124,9 +124,9 @@ export function ReportsPage() {
                 <YAxis tick={chartAxisTick} allowDecimals={false} />
                 <Tooltip contentStyle={chartTooltipContent} cursor={{ fill: 'var(--color-surface-raised)' }} />
                 <Legend wrapperStyle={{ fontSize: 12, color: 'var(--color-text-secondary)' }} />
-                <Bar dataKey="completed" name="Completed" fill="var(--chart-3)" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="failed" name="Failed" fill="var(--chart-1)" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="rolled_back" name="Rolled back" fill="var(--chart-4)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="completed" name="Completed" fill="var(--color-chart-3)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="failed" name="Failed" fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="rolled_back" name="Rolled back" fill="var(--color-chart-4)" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -136,13 +136,13 @@ export function ReportsPage() {
       <section>
         <Card>
           <h2
-            className="font-semibold text-[var(--color-text-primary)] mb-1 text-lg"
+            className="font-semibold text-text-primary mb-1 text-lg"
            
           >
             Enrollment activity
           </h2>
           <p
-            className="text-[var(--color-text-tertiary)] mb-5 text-xs"
+            className="text-text-tertiary mb-5 text-xs"
            
           >
             Last 30 days
@@ -153,7 +153,7 @@ export function ReportsPage() {
             <div className="h-[280px]" />
           ) : !enrollmentTimeline.data || enrollmentTimeline.data.length === 0 ? (
             <p
-              className="text-[var(--color-text-tertiary)] py-12 text-center text-sm"
+              className="text-text-tertiary py-12 text-center text-sm"
              
             >
               No enrollment data yet.
@@ -170,17 +170,17 @@ export function ReportsPage() {
                   type="monotone"
                   dataKey="enrolled"
                   name="Enrolled"
-                  stroke="var(--chart-3)"
+                  stroke="var(--color-chart-3)"
                   strokeWidth={2}
-                  dot={{ r: 3, fill: 'var(--chart-3)' }}
+                  dot={{ r: 3, fill: 'var(--color-chart-3)' }}
                 />
                 <Line
                   type="monotone"
                   dataKey="pending"
                   name="Pending"
-                  stroke="var(--chart-4)"
+                  stroke="var(--color-chart-4)"
                   strokeWidth={2}
-                  dot={{ r: 3, fill: 'var(--chart-4)' }}
+                  dot={{ r: 3, fill: 'var(--color-chart-4)' }}
                 />
               </LineChart>
             </ResponsiveContainer>

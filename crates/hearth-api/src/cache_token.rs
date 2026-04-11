@@ -76,6 +76,10 @@ pub fn mint_pull_token(
         .unwrap()
         .as_secs();
 
+    // Attic serves each cache at /{cache_name}/ — the substituter URL must
+    // include the cache name so Nix hits the right endpoint.
+    let full_cache_url = format!("{}/{}", cache_url.trim_end_matches('/'), cache_name);
+
     let mut caches = std::collections::HashMap::new();
     caches.insert(cache_name, CachePerms { r: 1 });
 
@@ -89,7 +93,7 @@ pub fn mint_pull_token(
     let token = jsonwebtoken::encode(&Header::default(), &claims, &key)?;
 
     Ok(Some(CacheCredentials {
-        cache_url,
+        cache_url: full_cache_url,
         cache_token: token,
     }))
 }

@@ -432,6 +432,12 @@ pub struct EnrollmentResponse {
     /// Headscale coordination server URL.
     #[serde(default)]
     pub headscale_url: Option<String>,
+    /// Build job status for this machine (if a build has been queued).
+    #[serde(default)]
+    pub build_status: Option<String>,
+    /// Build error message (set when the build job has failed).
+    #[serde(default)]
+    pub build_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -446,6 +452,16 @@ pub struct ApproveEnrollmentRequest {
     /// Defaults to "standard" if not specified.
     #[serde(default)]
     pub disko_config: Option<String>,
+}
+
+// --- Cache token types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheTokenResponse {
+    pub cache_url: String,
+    pub cache_token: String,
+    /// Seconds until the token expires.
+    pub expires_in: u64,
 }
 
 // --- User environment request types ---

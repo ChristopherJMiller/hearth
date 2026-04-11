@@ -2,6 +2,7 @@ mod actions;
 mod audit;
 mod auth;
 mod build_jobs;
+mod build_pipeline;
 mod catalog;
 mod deployment_monitor;
 mod deployments;

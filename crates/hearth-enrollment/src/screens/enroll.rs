@@ -122,17 +122,23 @@ impl EnrollScreen {
                         Style::default().fg(Color::Red).bold(),
                     )),
                     Line::from(""),
-                    Line::from(Span::styled(
-                        format!("  {err}"),
-                        Style::default().fg(Color::Red),
-                    )),
+                ];
+                // Wrap long error messages to fit within the available width.
+                let max_width = inner.width.saturating_sub(4) as usize;
+                let err_lines = ui::textwrap_lines(err, max_width, Color::Red);
+                let footer = vec![
                     Line::from(""),
                     Line::from(Span::styled(
                         "  Press Enter to retry  |  Esc to go back",
                         Style::default().fg(ui::MUTED),
                     )),
                 ];
-                frame.render_widget(Paragraph::new(items), inner);
+                let all: Vec<Line> = items
+                    .into_iter()
+                    .chain(err_lines)
+                    .chain(footer)
+                    .collect();
+                frame.render_widget(Paragraph::new(all), inner);
             }
         }
     }

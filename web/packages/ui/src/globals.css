@@ -1,14 +1,10 @@
 @import url("./tokens.css");
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=JetBrains+Mono:wght@400;500;600&display=swap");
 
-/* Reset */
-*,
-*::before,
-*::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+/* Tailwind v4 preflight handles the *, ::before, ::after reset
+   (margin, padding, box-sizing) inside @layer base. Do NOT duplicate
+   it here — unlayered CSS overrides all @layer utilities, which is
+   why padding classes like px-5 and py-3 were silently ignored. */
 
 /* Base body */
 body {

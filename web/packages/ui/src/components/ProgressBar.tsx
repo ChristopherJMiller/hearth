@@ -7,9 +7,9 @@ export interface ProgressBarProps {
 }
 
 const variantColors = {
-  default: "bg-[var(--color-ember)]",
-  success: "bg-[var(--color-success)]",
-  error: "bg-[var(--color-error)]",
+  default: "bg-ember",
+  success: "bg-success",
+  error: "bg-error",
 };
 
 export function ProgressBar({
@@ -25,14 +25,14 @@ export function ProgressBar({
     <div className="w-full">
       {label && (
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs text-[var(--color-text-secondary)]">{label}</span>
-          <span className="text-xs font-mono text-[var(--color-text-tertiary)]">
+          <span className="text-xs text-text-secondary">{label}</span>
+          <span className="text-xs font-mono text-text-tertiary">
             {Math.round(pct)}%
           </span>
         </div>
       )}
       <div
-        className={`w-full bg-[var(--color-surface-raised)] rounded-full overflow-hidden ${
+        className={`w-full bg-surface-raised rounded-full overflow-hidden ${
           size === "sm" ? "h-1.5" : "h-2.5"
         }`}
       >

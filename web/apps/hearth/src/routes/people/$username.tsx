@@ -130,19 +130,19 @@ function PersonDetailForm({
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-[var(--spacing-card-gap)] items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-card-gap items-start">
         <Card>
           <div className="flex flex-col items-center gap-3 text-center">
             <Avatar name={displayName} size="lg" />
             <div className="flex flex-col gap-1">
-              <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">
+              <h2 className="font-semibold text-text-primary text-lg">
                 {displayName}
               </h2>
-              <span className="text-[var(--color-text-tertiary)] text-xs">@{username}</span>
+              <span className="text-text-tertiary text-xs">@{username}</span>
             </div>
             <StatusChip status={config.build_status} />
           </div>
-          <div className="mt-5 pt-5 border-t border-[var(--color-border-subtle)]">
+          <div className="mt-5 pt-5 border-t border-border-subtle">
             <DescriptionList
               columns={1}
               items={[
@@ -154,7 +154,7 @@ function PersonDetailForm({
                   value: config.latest_closure ? (
                     <span className="font-mono break-all text-2xs">{config.latest_closure}</span>
                   ) : (
-                    <span className="italic text-[var(--color-text-tertiary)]">none</span>
+                    <span className="italic text-text-tertiary">none</span>
                   ),
                 },
               ]}
@@ -162,11 +162,11 @@ function PersonDetailForm({
           </div>
         </Card>
 
-        <div className="flex flex-col gap-[var(--spacing-card-gap)]">
+        <div className="flex flex-col gap-card-gap">
           <Card>
             <div className="flex items-center gap-2 mb-5">
-              <LuUser size={16} className="text-[var(--color-text-tertiary)]" />
-              <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">Base role</h2>
+              <LuUser size={16} className="text-text-tertiary" />
+              <h2 className="font-semibold text-text-primary text-lg">Base role</h2>
             </div>
             <Select
               options={roleOptions}
@@ -178,8 +178,8 @@ function PersonDetailForm({
 
           <Card>
             <div className="mb-2">
-              <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">Overrides</h2>
-              <p className="text-[var(--color-text-tertiary)] text-xs">
+              <h2 className="font-semibold text-text-primary text-lg">Overrides</h2>
+              <p className="text-text-tertiary text-xs">
                 Per-user environment overrides. Values are parsed as JSON when valid, otherwise stored as strings.
               </p>
             </div>

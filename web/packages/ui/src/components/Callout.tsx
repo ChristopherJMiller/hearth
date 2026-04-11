@@ -58,7 +58,7 @@ export function Callout({
   const s = variantStyle[variant];
   return (
     <div
-      className={`flex items-start gap-3 rounded-[var(--radius-md)] border ${className}`}
+      className={`flex items-start gap-3 rounded-md border ${className}`}
       style={{
         background: s.bg,
         borderColor: s.border,
@@ -75,7 +75,7 @@ export function Callout({
       <div className="flex-1 min-w-0 flex flex-col gap-1">
         {title && (
           <div
-            className="font-semibold text-[var(--color-text-primary)] text-sm"
+            className="font-semibold text-text-primary text-sm"
            
           >
             {title}
@@ -83,7 +83,7 @@ export function Callout({
         )}
         {children && (
           <div
-            className="text-[var(--color-text-secondary)] text-sm leading-body"
+            className="text-text-secondary text-sm leading-body"
            
           >
             {children}

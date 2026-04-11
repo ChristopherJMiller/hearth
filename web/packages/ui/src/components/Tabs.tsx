@@ -15,6 +15,13 @@ export interface TabsProps {
   ariaLabel?: string;
 }
 
+/**
+ * Controlled, flat Tabs. Kept hand-rolled instead of wrapping shadcn Tabs
+ * because our existing call sites pass `tabs={[{id, label, icon, count}]}`
+ * and `activeId`/`onChange` — the shadcn API (TabsList + TabsTrigger +
+ * TabsContent children) is a different shape. Accessibility behavior here
+ * matches the ARIA tablist pattern.
+ */
 export function Tabs({
   tabs,
   activeId,
@@ -43,8 +50,8 @@ export function Tabs({
   };
 
   const wrapperClass = orientation === "horizontal"
-    ? "flex items-center gap-1 border-b border-[var(--color-border-subtle)] overflow-x-auto"
-    : "flex flex-col gap-1 border-r border-[var(--color-border-subtle)]";
+    ? "flex items-center gap-1 border-b border-border-subtle overflow-x-auto"
+    : "flex flex-col gap-1 border-r border-border-subtle";
 
   return (
     <div
@@ -57,8 +64,8 @@ export function Tabs({
       {tabs.map((tab) => {
         const isActive = tab.id === activeId;
         const activeBorder = orientation === "horizontal"
-          ? (isActive ? "border-b-2 border-[var(--color-ember)] -mb-px" : "border-b-2 border-transparent -mb-px")
-          : (isActive ? "border-r-2 border-[var(--color-ember)] -mr-px" : "border-r-2 border-transparent -mr-px");
+          ? (isActive ? "border-b-2 border-ember -mb-px" : "border-b-2 border-transparent -mb-px")
+          : (isActive ? "border-r-2 border-ember -mr-px" : "border-r-2 border-transparent -mr-px");
         return (
           <button
             key={tab.id}
@@ -70,17 +77,14 @@ export function Tabs({
             onClick={() => onChange(tab.id)}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium cursor-pointer transition-colors duration-100 ${activeBorder} ${
               isActive
-                ? "text-[var(--color-ember)]"
-                : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                ? "text-ember"
+                : "text-text-secondary hover:text-text-primary"
             }`}
           >
             {tab.icon && <span className="w-4 h-4 shrink-0 flex items-center justify-center">{tab.icon}</span>}
             {tab.label}
             {tab.count != null && (
-              <span
-                className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--color-surface-raised)] text-[var(--color-text-secondary)] text-2xs"
-               
-              >
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-surface-raised text-text-secondary text-2xs">
                 {tab.count}
               </span>
             )}

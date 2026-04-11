@@ -44,16 +44,16 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   if (state === 'loading') {
     return (
-      <div className="flex items-center justify-center h-screen bg-[var(--color-surface-base)]">
-        <p className="text-sm text-[var(--color-text-secondary)]">Loading...</p>
+      <div className="flex items-center justify-center h-screen bg-surface-base">
+        <p className="text-sm text-text-secondary">Loading...</p>
       </div>
     );
   }
 
   if (state === 'unauthenticated') {
     return (
-      <div className="flex items-center justify-center h-screen bg-[var(--color-surface-base)]">
-        <p className="text-sm text-[var(--color-text-secondary)]">Redirecting to sign in...</p>
+      <div className="flex items-center justify-center h-screen bg-surface-base">
+        <p className="text-sm text-text-secondary">Redirecting to sign in...</p>
       </div>
     );
   }

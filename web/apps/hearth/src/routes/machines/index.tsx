@@ -27,19 +27,19 @@ const columns: ColumnDef<Machine, unknown>[] = [
     header: 'Hostname',
     cell: ({ row }) => (
       <div className="flex items-center gap-2.5 min-w-0">
-        <div className="shrink-0 w-8 h-8 rounded-[var(--radius-sm)] bg-[var(--color-surface-raised)] border border-[var(--color-border-subtle)] flex items-center justify-center text-[var(--color-text-secondary)]">
+        <div className="shrink-0 w-8 h-8 rounded-sm bg-surface-raised border border-border-subtle flex items-center justify-center text-text-secondary">
           <LuMonitor size={14} />
         </div>
         <div className="flex flex-col gap-0.5 min-w-0">
           <span
-            className="font-semibold text-[var(--color-text-primary)] truncate text-sm"
+            className="font-semibold text-text-primary truncate text-sm"
            
           >
             {row.original.hostname}
           </span>
           {row.original.headscale_ip && (
             <span
-              className="font-mono text-[var(--color-text-tertiary)] text-2xs"
+              className="font-mono text-text-tertiary text-2xs"
              
             >
               {row.original.headscale_ip}
@@ -54,7 +54,7 @@ const columns: ColumnDef<Machine, unknown>[] = [
     header: 'Role',
     cell: ({ row }) => (
       <span
-        className="text-[var(--color-text-secondary)] capitalize text-sm"
+        className="text-text-secondary capitalize text-sm"
        
       >
         {row.original.role ?? '—'}
@@ -71,12 +71,12 @@ const columns: ColumnDef<Machine, unknown>[] = [
     header: 'Last seen',
     cell: ({ row }) => (
       <span
-        className="text-[var(--color-text-secondary)] text-xs"
+        className="text-text-secondary text-xs"
        
       >
         {row.original.last_heartbeat
           ? formatRelativeTime(row.original.last_heartbeat)
-          : <span className="text-[var(--color-text-tertiary)] italic">never</span>}
+          : <span className="text-text-tertiary italic">never</span>}
       </span>
     ),
   },
@@ -86,7 +86,7 @@ const columns: ColumnDef<Machine, unknown>[] = [
     enableSorting: false,
     cell: ({ row }) => {
       if (row.original.tags.length === 0) {
-        return <span className="text-[var(--color-text-tertiary)] text-xs">—</span>;
+        return <span className="text-text-tertiary text-xs">—</span>;
       }
       const visible = row.original.tags.slice(0, 3);
       const more = row.original.tags.length - visible.length;
@@ -95,7 +95,7 @@ const columns: ColumnDef<Machine, unknown>[] = [
           {visible.map((tag) => (
             <span
               key={tag}
-              className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] text-2xs"
+              className="font-mono px-2 py-0.5 rounded-[6px] bg-surface-sunken text-text-secondary border border-border-subtle text-2xs"
              
             >
               {tag}
@@ -104,7 +104,7 @@ const columns: ColumnDef<Machine, unknown>[] = [
           {more > 0 && (
             <Tooltip content={row.original.tags.slice(3).join(', ')}>
               <span
-                className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-raised)] text-[var(--color-text-tertiary)] border border-[var(--color-border-subtle)] text-2xs"
+                className="font-mono px-2 py-0.5 rounded-[6px] bg-surface-raised text-text-tertiary border border-border-subtle text-2xs"
                
               >
                 +{more}
@@ -179,7 +179,7 @@ export function MachinesPage() {
       />
 
       <div
-        className="grid gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]"
+        className="grid gap-card-gap"
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
       >
         <MetricTile label="Fleet size" value={counts.total} icon={<LuMonitor size={18} />} tone="ember" />

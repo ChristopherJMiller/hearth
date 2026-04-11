@@ -1,5 +1,10 @@
 // Hearth Design System — @hearth/ui
 //
+// Composed on shadcn/ui primitives (generated into src/components/ui/*) with
+// Hearth-specific wrappers in src/components/*. Consumers import from the
+// barrel below; subpath imports into ./components/ui are intentionally not
+// re-exported to keep the public API narrow.
+//
 // CSS side-effect imports (consumers should import these in their entry point):
 //   import "@hearth/ui/tokens.css";
 //   import "@hearth/ui/globals.css";
@@ -64,10 +69,6 @@ export type { TimelineProps, TimelineEvent, TimelineTone } from "./components/Ti
 export { MetricTile } from "./components/MetricTile";
 export type { MetricTileProps, MetricTone, MetricDelta } from "./components/MetricTile";
 
-/** @deprecated Use `MetricTile`. */
-export { StatCard } from "./components/StatCard";
-export type { StatCardProps } from "./components/StatCard";
-
 // ── Layout ────────────────────────────────────────────────────────────────
 export { Sidebar } from "./components/Sidebar";
 export type { SidebarProps, SidebarItem, SidebarGroup } from "./components/Sidebar";
@@ -100,13 +101,16 @@ export type { ConfirmDialogProps } from "./components/ConfirmDialog";
 export { CommandPalette } from "./components/CommandPalette";
 export type { CommandPaletteProps, CommandItem } from "./components/CommandPalette";
 
-export { ToastContainer } from "./components/Toast";
-export type { ToastContainerProps } from "./components/Toast";
-
 // ── Feedback ──────────────────────────────────────────────────────────────
 export { Skeleton, SkeletonText, SkeletonCard, SkeletonTable } from "./components/Skeleton";
 export type { SkeletonProps } from "./components/Skeleton";
 
-// ── Hooks ─────────────────────────────────────────────────────────────────
-export { useToast } from "./hooks/useToast";
-export type { ToastItem } from "./hooks/useToast";
+// ── Toast ─────────────────────────────────────────────────────────────────
+// Sonner provides the toast primitives; <Toaster /> mounts once near the app
+// root and `toast(...)` is called from anywhere.
+export { Toaster } from "./components/ui/sonner";
+export { toast } from "sonner";
+
+// ── Tooltip provider ──────────────────────────────────────────────────────
+// Re-exported so the app can mount <TooltipProvider> once at the root.
+export { TooltipProvider } from "./components/ui/tooltip";

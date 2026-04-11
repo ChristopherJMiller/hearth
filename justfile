@@ -35,6 +35,16 @@ setup:
     else
         echo "    WARNING: Could not create Attic token (is atticd running?)"
     fi
+    echo "==> Generating cache signing key..."
+    if [ ! -f dev/attic/signing-key.sec ]; then
+        nix key generate-secret --key-name hearth-cache > dev/attic/signing-key.sec
+        nix key convert-secret-to-public < dev/attic/signing-key.sec > dev/attic/signing-key.pub
+        echo "    Generated signing key-pair in dev/attic/"
+    else
+        echo "    Signing key already exists"
+    fi
+    CACHE_PUBLIC_KEY=$(cat dev/attic/signing-key.pub)
+    echo "    Public key: $CACHE_PUBLIC_KEY"
     echo "==> Bootstrapping Kanidm identity provider..."
     bash dev/kanidm/bootstrap.sh
     echo "==> Waiting for Synapse..."
@@ -70,6 +80,8 @@ demo:
     echo "=== Hearth Demo Environment ==="
     echo ""
     just setup
+    echo "==> Building and caching Hearth packages..."
+    just push-cache
     echo "==> Seeding demo data..."
     bash dev/seed-demo-data.sh
     echo ""
@@ -123,9 +135,17 @@ dev:
     export HEARTH_CLOUD_URL=http://localhost:8089
     export HEARTH_IDENTITY_URL=https://localhost:8443
     export HEARTH_MATRIX_SERVER_NAME=hearth.local
+    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}"
+    # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
+    export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
+    # Cache signing public key for signature verification.
+    if [ -f dev/attic/signing-key.pub ]; then
+        export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/signing-key.pub)"
+    fi
     echo ""
     echo "NOTE: 'just dev' only runs the API server (serves pre-built web/dist)."
     echo "  For live frontend HMR, run 'just dev-full' instead, or 'just web-dev' in a second terminal."
+    echo "  HEARTH_FLAKE_REF=$HEARTH_FLAKE_REF"
     echo ""
     exec cargo run -p hearth-api
 
@@ -145,13 +165,27 @@ dev-full:
     export HEARTH_CLOUD_URL=http://localhost:8089
     export HEARTH_IDENTITY_URL=https://localhost:8443
     export HEARTH_MATRIX_SERVER_NAME=hearth.local
+    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}"
+    export ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}"
+    # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
+    export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
+    # Cache signing key for the build worker.
+    export HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}"
+    # Cache public key for enrolled machines.
+    if [ -f dev/attic/signing-key.pub ]; then
+        export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/signing-key.pub)"
+    fi
     (cd web && pnpm dev) &
     WEB_PID=$!
-    trap "kill $WEB_PID 2>/dev/null || true" EXIT INT TERM
+    # Start build worker in background so build jobs are automatically claimed.
+    cargo run -p hearth-build-worker &
+    WORKER_PID=$!
+    trap "kill $WEB_PID $WORKER_PID 2>/dev/null || true" EXIT INT TERM
     echo ""
     echo "=== Hearth dev ==="
     echo "  API:       http://localhost:3000"
     echo "  Web (HMR): http://localhost:5174  ← open this one"
+    echo "  Worker:    running (PID $WORKER_PID)"
     echo ""
     cargo run -p hearth-api
 
@@ -171,10 +205,17 @@ dev-watch:
     export HEARTH_CLOUD_URL=http://localhost:8089
     export HEARTH_IDENTITY_URL=https://localhost:8443
     export HEARTH_MATRIX_SERVER_NAME=hearth.local
+    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}"
+    # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
+    # Uses Attic's port directly — no Caddy proxy needed for HTTP binary cache.
+    export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
     exec cargo watch -x 'run -p hearth-api'
 
-# Start a build worker
+# Start a build worker (HEARTH_FLAKE_REF defaults to API tarball endpoint)
 worker:
+    HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}" \
+    ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}" \
+    HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}" \
     cargo run -p hearth-build-worker
 
 # Start build worker with file watching
@@ -276,6 +317,37 @@ matrix-setup:
 # Set up Nextcloud cloud storage for development
 nextcloud-setup:
     bash dev/nextcloud/bootstrap.sh
+
+# Build all Hearth packages and push them to the local Attic cache.
+# This ensures the build worker can substitute packages instead of building from source.
+push-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SIGNING_KEY="dev/attic/signing-key.sec"
+    echo "Building hearth packages..."
+    nix build .#hearth-agent .#hearth-greeter .#hearth-enrollment --no-link --print-out-paths | while read -r path; do
+        # Sign the store path before pushing if signing key exists
+        if [ -f "$SIGNING_KEY" ]; then
+            echo "  Signing $path"
+            nix store sign --key-file "$SIGNING_KEY" "$path" 2>/dev/null || true
+        fi
+        echo "  Pushing $path"
+        attic push hearth "$path" 2>/dev/null || true
+    done
+    echo "Packages pushed to Attic cache"
+
+# Validate that the fleet config evaluates successfully (catches module errors early)
+check-fleet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Evaluating fleet config with dummy instance data..."
+    cat > /tmp/hearth-check-fleet.json << 'INST'
+    {"hostname":"check-fleet","machine_id":"00000000-0000-0000-0000-000000000000","role":"default","server_url":"http://localhost:3000","hardware_config":null,"extra_config":{}}
+    INST
+    nix eval --no-eval-cache --impure --expr \
+      'let flake = builtins.getFlake "path:'"$(pwd)"'"; in (flake.lib.buildMachineConfig { instanceDataPath = "/tmp/hearth-check-fleet.json"; }).config.system.build.toplevel' \
+      > /dev/null
+    echo "Fleet config evaluation succeeded"
 
 # Push a Nix closure to the local Attic cache
 cache-push PATH:

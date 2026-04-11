@@ -31,7 +31,7 @@ const columns: ColumnDef<Deployment, unknown>[] = [
     cell: ({ row }) => (
       <Tooltip content={row.original.closure} side="top">
         <span
-          className="font-mono text-[var(--color-text-primary)] text-xs"
+          className="font-mono text-text-primary text-xs"
          
         >
           {truncateStorePath(row.original.closure)}
@@ -54,14 +54,14 @@ const columns: ColumnDef<Deployment, unknown>[] = [
         <div className="flex flex-col gap-1.5 min-w-[160px]">
           <div className="flex items-baseline justify-between gap-2">
             <span
-              className="text-[var(--color-text-secondary)] tabular-nums text-xs"
+              className="text-text-secondary tabular-nums text-xs"
              
             >
               {d.succeeded}/{d.total_machines}
             </span>
             {d.failed > 0 && (
               <span
-                className="text-[var(--color-error)] text-2xs"
+                className="text-error text-2xs"
                
               >
                 {d.failed} failed
@@ -81,7 +81,7 @@ const columns: ColumnDef<Deployment, unknown>[] = [
     id: 'fleet',
     header: 'Fleet',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
+      <span className="text-text-secondary text-xs">
         canary {row.original.canary_size} · batch {row.original.batch_size}
       </span>
     ),
@@ -90,7 +90,7 @@ const columns: ColumnDef<Deployment, unknown>[] = [
     accessorKey: 'created_at',
     header: 'Created',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
+      <span className="text-text-secondary text-xs">
         {formatRelativeTime(row.original.created_at)}
       </span>
     ),
@@ -139,7 +139,7 @@ export function DeploymentsPage() {
       />
 
       <div
-        className="grid gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]"
+        className="grid gap-card-gap"
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
       >
         <MetricTile label="Total" value={counts.total} icon={<LuLayers size={18} />} tone="ember" />

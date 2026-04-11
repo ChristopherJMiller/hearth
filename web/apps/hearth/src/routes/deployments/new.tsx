@@ -83,12 +83,12 @@ export function NewDeploymentPage() {
         ]}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-[var(--spacing-card-gap)] items-start">
-        <div className="lg:col-span-2 flex flex-col gap-[var(--spacing-card-gap)]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-card-gap items-start">
+        <div className="lg:col-span-2 flex flex-col gap-card-gap">
           <Card>
             <div className="flex items-center gap-2 mb-5">
-              <LuPackage size={16} className="text-[var(--color-text-tertiary)]" />
-              <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">
+              <LuPackage size={16} className="text-text-tertiary" />
+              <h2 className="font-semibold text-text-primary text-lg">
                 Closure
               </h2>
             </div>
@@ -111,12 +111,12 @@ export function NewDeploymentPage() {
 
           <Card>
             <div className="flex items-center gap-2 mb-2">
-              <LuTarget size={16} className="text-[var(--color-text-tertiary)]" />
-              <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">
+              <LuTarget size={16} className="text-text-tertiary" />
+              <h2 className="font-semibold text-text-primary text-lg">
                 Target filter
               </h2>
             </div>
-            <p className="text-[var(--color-text-tertiary)] mb-4 text-xs">
+            <p className="text-text-tertiary mb-4 text-xs">
               Optional. Restrict the rollout by tag or role. Empty matches the full fleet.
             </p>
             <KeyValueEditor
@@ -133,8 +133,8 @@ export function NewDeploymentPage() {
 
           <Card>
             <div className="flex items-center gap-2 mb-5">
-              <LuSettings size={16} className="text-[var(--color-text-tertiary)]" />
-              <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">
+              <LuSettings size={16} className="text-text-tertiary" />
+              <h2 className="font-semibold text-text-primary text-lg">
                 Rollout policy
               </h2>
             </div>
@@ -161,7 +161,7 @@ export function NewDeploymentPage() {
                 error={errors.failureThreshold}
               />
             </div>
-            <p className="mt-3 text-[var(--color-text-tertiary)] text-xs">
+            <p className="mt-3 text-text-tertiary text-xs">
               The failure threshold is the fraction of machines (0 to 1) that can fail before the deployment is halted.
             </p>
           </Card>
@@ -195,10 +195,10 @@ export function NewDeploymentPage() {
         <div>
           <Card>
             <div className="mb-4">
-              <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">
+              <h2 className="font-semibold text-text-primary text-lg">
                 Review
               </h2>
-              <p className="text-[var(--color-text-tertiary)] text-xs">
+              <p className="text-text-tertiary text-xs">
                 What you're about to launch
               </p>
             </div>
@@ -207,21 +207,21 @@ export function NewDeploymentPage() {
               items={[
                 {
                   label: 'Closure',
-                  value: closure ? <span className="font-mono break-all text-2xs">{closure}</span> : <span className="italic text-[var(--color-text-tertiary)]">unset</span>,
+                  value: closure ? <span className="font-mono break-all text-2xs">{closure}</span> : <span className="italic text-text-tertiary">unset</span>,
                 },
                 {
                   label: 'Module library',
-                  value: moduleLibraryRef || <span className="italic text-[var(--color-text-tertiary)]">default</span>,
+                  value: moduleLibraryRef || <span className="italic text-text-tertiary">default</span>,
                 },
                 {
                   label: 'Filter',
                   value: Object.keys(targetFilter).length === 0
-                    ? <span className="italic text-[var(--color-text-tertiary)]">whole fleet</span>
+                    ? <span className="italic text-text-tertiary">whole fleet</span>
                     : (
                       <div className="flex flex-col gap-1">
                         {Object.entries(targetFilter).map(([k, v]) => (
                           <span key={k} className="font-mono text-xs">
-                            {k}: <span className="text-[var(--color-text-secondary)]">{v}</span>
+                            {k}: <span className="text-text-secondary">{v}</span>
                           </span>
                         ))}
                       </div>

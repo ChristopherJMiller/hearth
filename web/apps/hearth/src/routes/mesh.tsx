@@ -20,8 +20,8 @@ const meshColumns: ColumnDef<Machine, unknown>[] = [
     header: 'Hostname',
     cell: ({ row }) => (
       <div className="flex items-center gap-2">
-        <LuMonitor size={14} className="text-[var(--color-text-tertiary)]" />
-        <span className="font-semibold text-[var(--color-text-primary)]">{row.original.hostname}</span>
+        <LuMonitor size={14} className="text-text-tertiary" />
+        <span className="font-semibold text-text-primary">{row.original.hostname}</span>
       </div>
     ),
   },
@@ -30,11 +30,11 @@ const meshColumns: ColumnDef<Machine, unknown>[] = [
     header: 'Mesh IP',
     cell: ({ row }) =>
       row.original.headscale_ip ? (
-        <span className="font-mono text-[var(--color-text-secondary)] text-xs">
+        <span className="font-mono text-text-secondary text-xs">
           {row.original.headscale_ip}
         </span>
       ) : (
-        <span className="italic text-[var(--color-text-tertiary)] text-xs">
+        <span className="italic text-text-tertiary text-xs">
           not connected
         </span>
       ),
@@ -44,11 +44,11 @@ const meshColumns: ColumnDef<Machine, unknown>[] = [
     header: 'Node ID',
     cell: ({ row }) =>
       row.original.headscale_node_id ? (
-        <span className="font-mono text-[var(--color-text-secondary)] text-xs">
+        <span className="font-mono text-text-secondary text-xs">
           {row.original.headscale_node_id}
         </span>
       ) : (
-        <span className="text-[var(--color-text-tertiary)] text-xs">—</span>
+        <span className="text-text-tertiary text-xs">—</span>
       ),
   },
   {
@@ -60,7 +60,7 @@ const meshColumns: ColumnDef<Machine, unknown>[] = [
     accessorKey: 'last_heartbeat',
     header: 'Last heartbeat',
     cell: ({ row }) => (
-      <span className="text-[var(--color-text-secondary)] text-xs">
+      <span className="text-text-secondary text-xs">
         {row.original.last_heartbeat ? formatRelativeTime(row.original.last_heartbeat) : 'never'}
       </span>
     ),
@@ -93,7 +93,7 @@ export function MeshPage() {
       />
 
       <div
-        className="grid gap-[var(--spacing-card-gap)] mb-[var(--spacing-section)]"
+        className="grid gap-card-gap"
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
       >
         <MetricTile label="Mesh nodes" value={counts.total} icon={<LuNetwork size={18} />} tone="ember" />

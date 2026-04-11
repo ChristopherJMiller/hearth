@@ -8,10 +8,10 @@ export interface BadgeProps {
 }
 
 const variantClasses: Record<BadgeVariant, string> = {
-  flatpak: "bg-[var(--color-success-faint)] text-[var(--color-success)]",
-  "nix-system": "bg-[var(--color-warning-faint)] text-[var(--color-warning)]",
-  "nix-user": "bg-[var(--color-info-faint)] text-[var(--color-info)]",
-  "home-manager": "bg-[var(--color-purple-faint)] text-[var(--color-purple)]",
+  flatpak: "bg-success-faint text-success",
+  "nix-system": "bg-warning-faint text-warning",
+  "nix-user": "bg-info-faint text-info",
+  "home-manager": "bg-purple-faint text-purple",
 };
 
 export function Badge({ variant, children }: BadgeProps) {

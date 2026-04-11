@@ -23,7 +23,7 @@ function PulseDot({ label, tone }: PulseDotProps) {
         style={{ background: color }}
       />
       <span
-        className="text-[var(--color-text-secondary)] truncate text-2xs tracking-wide"
+        className="text-text-secondary truncate text-2xs tracking-wide"
        
       >
         {label}
@@ -57,11 +57,11 @@ export function SystemPulse() {
     <button
       type="button"
       onClick={() => router.navigate({ to: '/health' })}
-      className="flex flex-col gap-1.5 px-4 py-3 border-t border-[var(--color-border-subtle)] cursor-pointer hover:bg-[var(--color-surface-raised)] transition-colors w-full text-left"
+      className="flex flex-col gap-1.5 px-4 py-3 border-t border-border-subtle cursor-pointer hover:bg-surface-raised transition-colors w-full text-left"
       title="System health"
     >
       <div
-        className="font-semibold uppercase text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+        className="font-semibold uppercase text-text-tertiary text-2xs tracking-wide"
        
       >
         System Pulse

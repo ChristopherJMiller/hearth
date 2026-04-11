@@ -1,65 +1,43 @@
-import { type ReactNode, useState, useRef, useEffect, cloneElement, isValidElement } from "react";
+import { type ReactNode } from "react";
+import {
+  Tooltip as ShadcnTooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 export type TooltipSide = "top" | "bottom" | "left" | "right";
 
 export interface TooltipProps {
   content: ReactNode;
   side?: TooltipSide;
+  /** Delay in ms before the tooltip shows on hover. */
   delay?: number;
   children: ReactNode;
   className?: string;
 }
 
 /**
- * Minimal CSS-positioned tooltip. Wraps a single child element and reveals
- * a small hint on hover/focus. No floating-ui dependency — positioning is
- * relative to the trigger and assumes normal flow.
+ * Tooltip wraps a single child and reveals floating hint content on hover/focus.
+ * Built on Radix Tooltip via shadcn — requires a `<TooltipProvider>` ancestor
+ * (mounted once near the app root in `App.tsx`).
  */
-export function Tooltip({ content, side = "top", delay = 250, children, className = "" }: TooltipProps) {
-  const [open, setOpen] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  const show = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(true), delay);
-  };
-  const hide = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen(false);
-  };
-
-  const positionClasses: Record<TooltipSide, string> = {
-    top: "bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2",
-    bottom: "top-[calc(100%+8px)] left-1/2 -translate-x-1/2",
-    left: "right-[calc(100%+8px)] top-1/2 -translate-y-1/2",
-    right: "left-[calc(100%+8px)] top-1/2 -translate-y-1/2",
-  };
-
-  const triggerProps = {
-    onMouseEnter: show,
-    onMouseLeave: hide,
-    onFocus: show,
-    onBlur: hide,
-  };
-
-  // If we got a single element child, clone it and attach handlers.
-  const trigger = isValidElement(children)
-    ? cloneElement(children as any, triggerProps)
-    : <span {...triggerProps}>{children}</span>;
-
+export function Tooltip({
+  content,
+  side = "top",
+  delay = 250,
+  children,
+  className,
+}: TooltipProps) {
   return (
-    <span className={`relative inline-flex ${className}`}>
-      {trigger}
-      {open && (
-        <span role="tooltip"
-          className={`absolute z-50 pointer-events-none whitespace-nowrap px-2 py-1 rounded-[var(--radius-sm)] bg-[var(--color-surface-popover)] border border-[var(--color-border)] text-[var(--color-text-primary)] shadow-[var(--shadow-overlay)] ${positionClasses[side]} text-2xs`}
-          style={{ animation: "fade-in 0.15s ease both" }}
-        >
-          {content}
-        </span>
-      )}
-    </span>
+    <ShadcnTooltip delayDuration={delay}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side={side}
+        className={className}
+        sideOffset={6}
+      >
+        {content}
+      </TooltipContent>
+    </ShadcnTooltip>
   );
 }

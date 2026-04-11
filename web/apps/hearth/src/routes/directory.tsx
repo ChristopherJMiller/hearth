@@ -25,18 +25,18 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
           <Avatar name={displayName} size="md" />
           <div className="min-w-0 flex-1">
             <h3
-              className="font-semibold text-[var(--color-text-primary)] truncate text-base"
+              className="font-semibold text-text-primary truncate text-base"
              
             >
               {displayName}
             </h3>
-            <p className="text-[var(--color-text-tertiary)] truncate text-xs">
+            <p className="text-text-tertiary truncate text-xs">
               @{person.username}
             </p>
           </div>
           {person.last_seen && (
             <Tooltip content={`Last seen ${formatRelativeTime(person.last_seen)}`}>
-              <span className="w-2 h-2 rounded-full bg-[var(--color-success)] mt-2 shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-success mt-2 shrink-0" />
             </Tooltip>
           )}
         </div>
@@ -46,7 +46,7 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
             {person.groups.map((group) => (
               <span
                 key={group}
-                className="font-mono px-2 py-0.5 rounded-[6px] bg-[var(--color-surface-sunken)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] text-2xs"
+                className="font-mono px-2 py-0.5 rounded-[6px] bg-surface-sunken text-text-secondary border border-border-subtle text-2xs"
                
               >
                 {group.replace(/^hearth-/, '')}
@@ -55,12 +55,12 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
           </div>
         )}
 
-        <div className="flex items-center gap-2 pt-3 border-t border-[var(--color-border-subtle)]">
+        <div className="flex items-center gap-2 pt-3 border-t border-border-subtle">
           {person.email && (
             <Tooltip content={person.email}>
               <a
                 href={`mailto:${person.email}`}
-                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-ember)] hover:bg-[var(--color-ember-faint)] transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-sm text-text-tertiary hover:text-ember hover:bg-ember-faint transition-colors"
               >
                 <LuMail size={15} />
               </a>
@@ -72,7 +72,7 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
                 href={`https://matrix.to/#/${person.matrix_id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-ember)] hover:bg-[var(--color-ember-faint)] transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-sm text-text-tertiary hover:text-ember hover:bg-ember-faint transition-colors"
               >
                 <LuMessageSquare size={15} />
               </a>
@@ -84,7 +84,7 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
                 href={person.nextcloud_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] hover:text-[var(--color-ember)] hover:bg-[var(--color-ember-faint)] transition-colors"
+                className="w-8 h-8 flex items-center justify-center rounded-sm text-text-tertiary hover:text-ember hover:bg-ember-faint transition-colors"
               >
                 <LuCloud size={15} />
               </a>
@@ -92,7 +92,7 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
           )}
           {person.last_seen && (
             <span
-              className="ml-auto flex items-center gap-1 text-[var(--color-text-tertiary)] text-2xs"
+              className="ml-auto flex items-center gap-1 text-text-tertiary text-2xs"
              
             >
               <LuClock size={11} />
@@ -134,7 +134,7 @@ export function DirectoryPage() {
         }
       />
 
-      <div className="max-w-md mb-[var(--spacing-section)]">
+      <div className="max-w-md">
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -145,7 +145,7 @@ export function DirectoryPage() {
       {isError ? (
         <Callout variant="danger" title="Could not load directory" />
       ) : isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-card-gap">
           <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />
@@ -157,7 +157,7 @@ export function DirectoryPage() {
           description={search ? 'Try a different search term.' : 'People will appear here once they sign in.'}
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--spacing-card-gap)]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-card-gap">
           {filtered.map((person) => (
             <PersonCard key={person.username} person={person} />
           ))}

@@ -84,6 +84,11 @@ pub trait HearthApiClient: Send + Sync {
         username: &str,
     ) -> impl Future<Output = Result<UserEnvClosureResponse, ApiError>> + Send;
 
+    /// Request a fresh binary cache token from the API.
+    fn get_cache_token(
+        &self,
+    ) -> impl Future<Output = Result<CacheTokenResponse, ApiError>> + Send;
+
     /// Update the bearer token at runtime (e.g. after a refresh from heartbeat).
     /// Default implementation is a no-op for test mocks.
     fn update_token(&self, _token: &str) {}
@@ -347,6 +352,15 @@ impl HearthApiClient for ReqwestApiClient {
         let resp = self.check_response(resp).await?;
         let body = resp.json::<UserEnvClosureResponse>().await?;
         Ok(body)
+    }
+
+    async fn get_cache_token(&self) -> Result<CacheTokenResponse, ApiError> {
+        let resp = self
+            .authed_post(self.url("/api/v1/cache-token"))
+            .send()
+            .await?;
+        let resp = self.check_response(resp).await?;
+        Ok(resp.json::<CacheTokenResponse>().await?)
     }
 
     fn update_token(&self, token: &str) {

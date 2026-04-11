@@ -2,7 +2,7 @@
 #
 # Usage in a fleet host configuration:
 #   disko.devices = (import ./standard.nix { device = "/dev/nvme0n1"; }).disko.devices;
-{ device }:
+{ device, ... }:
 {
   disko.devices.disk.main = {
     inherit device;
@@ -17,6 +17,7 @@
             type = "filesystem";
             format = "vfat";
             mountpoint = "/boot";
+            extraArgs = [ "-n" "boot" ];
           };
         };
         root = {
@@ -25,6 +26,7 @@
             type = "filesystem";
             format = "ext4";
             mountpoint = "/";
+            extraArgs = [ "-L" "nixos" ];
           };
         };
       };

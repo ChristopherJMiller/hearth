@@ -54,8 +54,9 @@ pub async fn update_machine(
 
             // Auto-queue a build job when role or extra_config changes.
             if triggers_rebuild {
-                let flake_ref = std::env::var("HEARTH_FLAKE_REF")
-                    .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
+                let flake_ref = std::env::var("HEARTH_FLAKE_REF").map_err(|_| {
+                    AppError::Internal("HEARTH_FLAKE_REF not configured on server".into())
+                })?;
                 let machine_filter = serde_json::json!({
                     "machine_ids": [id.to_string()]
                 });

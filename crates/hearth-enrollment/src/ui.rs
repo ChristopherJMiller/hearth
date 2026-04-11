@@ -67,3 +67,49 @@ pub fn status_line(text: &str) -> Paragraph<'_> {
     Paragraph::new(Line::from(Span::styled(text, Style::default().fg(MUTED))))
         .alignment(Alignment::Center)
 }
+
+/// Wrap a long error message into multiple indented `Line`s that fit within
+/// `max_width` characters.  Splits on word boundaries where possible, with a
+/// hard cap of `max_width` per line.  Returns at most 8 lines; the last line
+/// is truncated with "…" if the message is longer.
+pub fn textwrap_lines(msg: &str, max_width: usize, color: Color) -> Vec<Line<'static>> {
+    const MAX_LINES: usize = 8;
+    let width = max_width.max(20);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut remaining = msg;
+
+    while !remaining.is_empty() {
+        if lines.len() >= MAX_LINES {
+            // Replace last line with truncated version.
+            if let Some(last) = lines.last_mut() {
+                let mut trunc: String = last.to_string();
+                if trunc.len() > 3 {
+                    trunc.truncate(trunc.len() - 1);
+                }
+                trunc.push('…');
+                *last = Line::from(Span::styled(trunc, Style::default().fg(color)));
+            }
+            break;
+        }
+
+        if remaining.len() <= width {
+            lines.push(Line::from(Span::styled(
+                format!("  {remaining}"),
+                Style::default().fg(color),
+            )));
+            break;
+        }
+
+        // Find a word boundary to break at.
+        let break_at = remaining[..width]
+            .rfind(' ')
+            .unwrap_or(width);
+        let (chunk, rest) = remaining.split_at(break_at);
+        lines.push(Line::from(Span::styled(
+            format!("  {chunk}"),
+            Style::default().fg(color),
+        )));
+        remaining = rest.trim_start();
+    }
+    lines
+}

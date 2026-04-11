@@ -1,26 +1,31 @@
-//! Login screen: OAuth2 Authorization Code + PKCE with kiosk browser.
+//! Login screen: interactive username/password form against Kanidm.
 //!
-//! Launches Firefox in kiosk mode inside `cage` (Wayland kiosk compositor)
-//! for the user to authenticate via Kanidm. A local HTTP callback server
-//! receives the authorization code redirect.
+//! Authenticates directly via Kanidm's REST API (3-step auth flow).
+//! Falls back from env-var token injection → env-var credentials →
+//! interactive TUI form.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
-use tokio::sync::oneshot;
 use tracing::{error, info};
 
 use crate::app::EnrollmentData;
-use crate::oauth::{self, AuthToken};
+use crate::oauth;
 use crate::ui;
 
+#[derive(Clone, Copy, PartialEq)]
+enum Field {
+    Username,
+    Password,
+}
+
 enum LoginState {
-    /// Waiting for the flow to start (initial state).
-    Ready,
-    /// Browser launched, waiting for user to authenticate.
-    WaitingForAuth {
-        token_rx: Option<oneshot::Receiver<Result<AuthToken, String>>>,
-        elapsed_ticks: u64,
+    /// Interactive credential input form.
+    InteractiveLogin {
+        username: String,
+        password: String,
+        focused: Field,
+        error: Option<String>,
     },
     /// Direct credential auth pending (no browser). Transitions to
     /// `Authenticated` or `Error` on the first tick — never persists across ticks.
@@ -36,10 +41,9 @@ enum LoginState {
 impl std::fmt::Debug for LoginState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ready => write!(f, "Ready"),
-            Self::WaitingForAuth { elapsed_ticks, .. } => f
-                .debug_struct("WaitingForAuth")
-                .field("elapsed_ticks", elapsed_ticks)
+            Self::InteractiveLogin { username, .. } => f
+                .debug_struct("InteractiveLogin")
+                .field("username", username)
                 .finish_non_exhaustive(),
             Self::DirectAuth { username, .. } => f
                 .debug_struct("DirectAuth")
@@ -61,15 +65,6 @@ pub struct LoginScreen {
     kanidm_url: String,
     /// OAuth2 client ID for enrollment.
     client_id: String,
-    /// Whether the initial flow has been kicked off.
-    started: bool,
-    /// Auth URL that needs to be opened in a kiosk browser.
-    /// Set by `start_flow`, consumed by the main loop via `take_browser_request`.
-    pending_browser_url: Option<String>,
-    /// Signal that fires as soon as the OAuth callback is received. The
-    /// main loop selects on this to close the kiosk browser automatically.
-    /// Taken together with `pending_browser_url` via `take_browser_request`.
-    pending_callback_rx: Option<oneshot::Receiver<()>>,
 }
 
 impl LoginScreen {
@@ -79,13 +74,19 @@ impl LoginScreen {
         let client_id =
             std::env::var("HEARTH_KANIDM_CLIENT_ID").unwrap_or_else(|_| "hearth-enrollment".into());
 
-        // Auth bypass: token injection takes priority, then credential auth, then browser flow.
+        // Auth bypass: token injection takes priority, then env-var credentials,
+        // then interactive form.
         let state = if let Ok(token) = std::env::var("HEARTH_AUTH_TOKEN") {
             if !token.is_empty() {
-                info!("HEARTH_AUTH_TOKEN set, will bypass browser login");
+                info!("HEARTH_AUTH_TOKEN set, will bypass login");
                 LoginState::TokenInjected { token }
             } else {
-                LoginState::Ready
+                LoginState::InteractiveLogin {
+                    username: String::new(),
+                    password: String::new(),
+                    focused: Field::Username,
+                    error: None,
+                }
             }
         } else if let (Ok(username), Ok(password)) = (
             std::env::var("HEARTH_AUTH_USERNAME"),
@@ -95,19 +96,26 @@ impl LoginScreen {
                 info!(username = %username, "HEARTH_AUTH_USERNAME/PASSWORD set, will use direct credential auth");
                 LoginState::DirectAuth { username, password }
             } else {
-                LoginState::Ready
+                LoginState::InteractiveLogin {
+                    username: String::new(),
+                    password: String::new(),
+                    focused: Field::Username,
+                    error: None,
+                }
             }
         } else {
-            LoginState::Ready
+            LoginState::InteractiveLogin {
+                username: String::new(),
+                password: String::new(),
+                focused: Field::Username,
+                error: None,
+            }
         };
 
         Self {
             state,
             kanidm_url,
             client_id,
-            started: false,
-            pending_browser_url: None,
-            pending_callback_rx: None,
         }
     }
 
@@ -120,15 +128,64 @@ impl LoginScreen {
         frame.render_widget(block, center);
 
         match &self.state {
-            LoginState::Ready => {
-                let items = vec![
+            LoginState::InteractiveLogin {
+                username,
+                password,
+                focused,
+                error,
+            } => {
+                let username_style = if *focused == Field::Username {
+                    Style::default().fg(ui::EMBER).bold()
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let password_style = if *focused == Field::Password {
+                    Style::default().fg(ui::EMBER).bold()
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let cursor_on = "▎";
+                let cursor_off = " ";
+                let u_cursor = if *focused == Field::Username { cursor_on } else { cursor_off };
+                let p_cursor = if *focused == Field::Password { cursor_on } else { cursor_off };
+                let masked: String = "•".repeat(password.len());
+
+                let mut lines = vec![
                     Line::from(""),
                     Line::from(Span::styled(
-                        "  Preparing authentication...",
-                        Style::default().fg(Color::Yellow),
+                        "  Sign in with your Kanidm credentials",
+                        Style::default().fg(ui::MUTED),
                     )),
+                    Line::from(""),
+                    Line::from(""),
+                    Line::from(Span::styled("  Username", username_style)),
+                    Line::from(Span::styled(
+                        format!("  {u_cursor} {username}"),
+                        username_style,
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled("  Password", password_style)),
+                    Line::from(Span::styled(
+                        format!("  {p_cursor} {masked}"),
+                        password_style,
+                    )),
+                    Line::from(""),
                 ];
-                frame.render_widget(Paragraph::new(items), inner);
+
+                if let Some(err) = error {
+                    lines.push(Line::from(Span::styled(
+                        format!("  {err}"),
+                        Style::default().fg(Color::Red),
+                    )));
+                    lines.push(Line::from(""));
+                }
+
+                lines.push(Line::from(Span::styled(
+                    "  Tab/↑↓: switch field  Enter: sign in",
+                    Style::default().fg(ui::MUTED),
+                )));
+
+                frame.render_widget(Paragraph::new(lines), inner);
             }
             LoginState::TokenInjected { .. } => {
                 let items = vec![
@@ -149,9 +206,6 @@ impl LoginScreen {
                     )),
                 ];
                 frame.render_widget(Paragraph::new(items), inner);
-            }
-            LoginState::WaitingForAuth { elapsed_ticks, .. } => {
-                render_waiting(frame, inner, *elapsed_ticks);
             }
             LoginState::Authenticated { username } => {
                 let items = vec![
@@ -181,17 +235,22 @@ impl LoginScreen {
                         Style::default().fg(Color::Red).bold(),
                     )),
                     Line::from(""),
-                    Line::from(Span::styled(
-                        format!("  {err}"),
-                        Style::default().fg(Color::Red),
-                    )),
+                ];
+                let max_width = inner.width.saturating_sub(4) as usize;
+                let err_lines = ui::textwrap_lines(err, max_width, Color::Red);
+                let footer = vec![
                     Line::from(""),
                     Line::from(Span::styled(
                         "  Press Enter to retry",
                         Style::default().fg(ui::MUTED),
                     )),
                 ];
-                frame.render_widget(Paragraph::new(items), inner);
+                let all: Vec<Line> = items
+                    .into_iter()
+                    .chain(err_lines)
+                    .chain(footer)
+                    .collect();
+                frame.render_widget(Paragraph::new(all), inner);
             }
         }
     }
@@ -199,20 +258,59 @@ impl LoginScreen {
     /// Returns true when login is complete and we should advance.
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         match &mut self.state {
+            LoginState::InteractiveLogin {
+                username,
+                password,
+                focused,
+                ..
+            } => {
+                match key.code {
+                    KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down => {
+                        *focused = match focused {
+                            Field::Username => Field::Password,
+                            Field::Password => Field::Username,
+                        };
+                    }
+                    KeyCode::Enter => {
+                        if *focused == Field::Username {
+                            // Enter on username moves to password
+                            *focused = Field::Password;
+                        } else if !username.is_empty() && !password.is_empty() {
+                            let u = username.clone();
+                            let p = password.clone();
+                            self.state = LoginState::DirectAuth {
+                                username: u,
+                                password: p,
+                            };
+                        }
+                    }
+                    KeyCode::Backspace => match focused {
+                        Field::Username => {
+                            username.pop();
+                        }
+                        Field::Password => {
+                            password.pop();
+                        }
+                    },
+                    KeyCode::Char(c) => match focused {
+                        Field::Username => username.push(c),
+                        Field::Password => password.push(c),
+                    },
+                    _ => {}
+                }
+                false
+            }
             LoginState::Authenticated { .. } => {
                 matches!(key.code, KeyCode::Enter)
             }
             LoginState::Error(_) => {
                 if matches!(key.code, KeyCode::Enter) {
-                    self.state = LoginState::Ready;
-                    self.started = false;
-                }
-                false
-            }
-            LoginState::WaitingForAuth { .. } => {
-                if matches!(key.code, KeyCode::Esc) {
-                    self.state =
-                        LoginState::Error("Authentication cancelled. Press Enter to retry.".into());
+                    self.state = LoginState::InteractiveLogin {
+                        username: String::new(),
+                        password: String::new(),
+                        focused: Field::Username,
+                        error: None,
+                    };
                 }
                 false
             }
@@ -220,25 +318,19 @@ impl LoginScreen {
         }
     }
 
-    /// Take the pending browser URL (if any) for the main loop to launch,
-    /// together with the oneshot that fires when the OAuth callback arrives.
-    pub fn take_browser_request(&mut self) -> Option<(String, oneshot::Receiver<()>)> {
-        let url = self.pending_browser_url.take()?;
-        let rx = self.pending_callback_rx.take()?;
-        Some((url, rx))
-    }
-
-    /// Notify the login screen that the browser failed to launch.
-    pub fn notify_browser_failed(&mut self, err: String) {
-        self.state = LoginState::Error(err);
-    }
-
-    /// Called on each tick. Starts the auth flow or checks for completion.
+    /// Called on each tick. Checks for token injection / credential auth completion.
     pub async fn tick(&mut self, data: &mut EnrollmentData) -> bool {
         match &self.state {
             LoginState::TokenInjected { .. } => {
-                // Direct token injection — use token captured at construction time.
-                let token = match std::mem::replace(&mut self.state, LoginState::Ready) {
+                let token = match std::mem::replace(
+                    &mut self.state,
+                    LoginState::InteractiveLogin {
+                        username: String::new(),
+                        password: String::new(),
+                        focused: Field::Username,
+                        error: None,
+                    },
+                ) {
                     LoginState::TokenInjected { token } => token,
                     _ => unreachable!(),
                 };
@@ -251,16 +343,22 @@ impl LoginScreen {
                 true
             }
             LoginState::DirectAuth { .. } => {
-                // Extract credentials by replacing state, then authenticate inline.
-                // This always transitions to Authenticated or Error before returning.
-                let (username, password) =
-                    match std::mem::replace(&mut self.state, LoginState::Ready) {
-                        LoginState::DirectAuth { username, password } => (username, password),
-                        _ => unreachable!(),
-                    };
+                let (username, password) = match std::mem::replace(
+                    &mut self.state,
+                    LoginState::InteractiveLogin {
+                        username: String::new(),
+                        password: String::new(),
+                        focused: Field::Username,
+                        error: None,
+                    },
+                ) {
+                    LoginState::DirectAuth { username, password } => (username, password),
+                    _ => unreachable!(),
+                };
                 let kanidm_url = self.kanidm_url.clone();
+                let client_id = self.client_id.clone();
                 info!(username = %username, "starting direct credential auth against Kanidm");
-                match oauth::authenticate_with_credentials(&kanidm_url, &username, &password).await
+                match oauth::authenticate_with_credentials(&kanidm_url, &client_id, &username, &password).await
                 {
                     Ok(token) => {
                         let display_name = extract_username_from_jwt(&token.access_token)
@@ -280,110 +378,11 @@ impl LoginScreen {
                     }
                 }
             }
-            LoginState::Ready => {
-                if !self.started {
-                    self.started = true;
-                    self.start_flow().await;
-                }
-                false
-            }
-            LoginState::WaitingForAuth { .. } => {
-                self.check_auth(data).await;
-                matches!(self.state, LoginState::Authenticated { .. })
-            }
+            LoginState::InteractiveLogin { .. } => false,
             LoginState::Authenticated { .. } => true,
             LoginState::Error(_) => false,
         }
     }
-
-    async fn start_flow(&mut self) {
-        match oauth::start_auth_code_flow(&self.kanidm_url, &self.client_id).await {
-            Ok(handle) => {
-                // Store the auth URL for the main loop to open in a kiosk browser.
-                // The main loop handles terminal suspension and cage launch.
-                self.pending_browser_url = Some(handle.auth_url);
-                self.pending_callback_rx = Some(handle.callback_rx);
-                info!("OAuth flow started, browser launch requested");
-                self.state = LoginState::WaitingForAuth {
-                    token_rx: Some(handle.token_rx),
-                    elapsed_ticks: 0,
-                };
-            }
-            Err(e) => {
-                error!(error = %e, "failed to start auth flow");
-                self.state = LoginState::Error(e);
-            }
-        }
-    }
-
-    async fn check_auth(&mut self, data: &mut EnrollmentData) {
-        let LoginState::WaitingForAuth {
-            token_rx,
-            elapsed_ticks,
-        } = &mut self.state
-        else {
-            return;
-        };
-
-        *elapsed_ticks += 1;
-
-        // Check if the token channel has a result
-        if let Some(rx) = token_rx.as_mut() {
-            match rx.try_recv() {
-                Ok(Ok(token)) => {
-                    info!("authentication succeeded");
-                    let username = extract_username_from_jwt(&token.access_token);
-                    data.user_token = Some(token.access_token);
-                    data.kanidm_url = Some(self.kanidm_url.clone());
-                    self.state = LoginState::Authenticated {
-                        username: username.unwrap_or_else(|| "unknown".into()),
-                    };
-                }
-                Ok(Err(e)) => {
-                    error!(error = %e, "authentication failed");
-                    self.state = LoginState::Error(e);
-                }
-                Err(oneshot::error::TryRecvError::Empty) => {
-                    // Still waiting
-                }
-                Err(oneshot::error::TryRecvError::Closed) => {
-                    self.state =
-                        LoginState::Error("Authentication callback failed unexpectedly.".into());
-                }
-            }
-        }
-    }
-}
-
-fn render_waiting(frame: &mut Frame, area: Rect, elapsed_ticks: u64) {
-    let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    let spin = spinner[(elapsed_ticks as usize) % spinner.len()];
-
-    let lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  A browser window has opened for authentication.",
-            Style::default().fg(Color::White),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Complete sign-in in the browser to continue.",
-            Style::default().fg(Color::White),
-        )),
-        Line::from(""),
-        Line::from(""),
-        Line::from(Span::styled(
-            format!("  {spin} Waiting for authentication..."),
-            Style::default().fg(Color::Yellow),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Press Esc to cancel",
-            Style::default().fg(ui::MUTED),
-        )),
-    ];
-
-    frame.render_widget(Paragraph::new(lines), area);
 }
 
 /// Extract the preferred_username or sub from a JWT without validating it.

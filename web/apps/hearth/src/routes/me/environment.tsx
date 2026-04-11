@@ -54,19 +54,19 @@ export function MyEnvironmentPage() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-[var(--spacing-card-gap)] items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-card-gap items-start">
         <Card>
           <div className="flex flex-col items-center gap-3 text-center">
             <Avatar name={displayName} size="lg" />
             <div className="flex flex-col gap-1">
               <h2
-                className="font-semibold text-[var(--color-text-primary)] text-lg"
+                className="font-semibold text-text-primary text-lg"
                
               >
                 {displayName}
               </h2>
               <span
-                className="text-[var(--color-text-tertiary)] capitalize text-xs"
+                className="text-text-tertiary capitalize text-xs"
                
               >
                 {config.base_role} role
@@ -78,9 +78,9 @@ export function MyEnvironmentPage() {
 
         <Card>
           <div className="flex items-center gap-2 mb-5">
-            <LuUser size={16} className="text-[var(--color-text-tertiary)]" />
+            <LuUser size={16} className="text-text-tertiary" />
             <h2
-              className="font-semibold text-[var(--color-text-primary)] text-lg"
+              className="font-semibold text-text-primary text-lg"
              
             >
               Closure details
@@ -92,7 +92,7 @@ export function MyEnvironmentPage() {
               { label: 'Username', value: config.username },
               { label: 'Base role', value: <span className="capitalize">{config.base_role}</span> },
               { label: 'Build status', value: <StatusChip status={config.build_status} /> },
-              { label: 'Latest closure', value: config.latest_closure ? <span className="font-mono break-all text-2xs">{config.latest_closure}</span> : <span className="italic text-[var(--color-text-tertiary)]">none</span>, span: 2 },
+              { label: 'Latest closure', value: config.latest_closure ? <span className="font-mono break-all text-2xs">{config.latest_closure}</span> : <span className="italic text-text-tertiary">none</span>, span: 2 },
               { label: 'Created', value: formatDateTime(config.created_at) },
               { label: 'Updated', value: formatDateTime(config.updated_at) },
             ]}

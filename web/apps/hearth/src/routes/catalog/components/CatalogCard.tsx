@@ -64,7 +64,7 @@ export function CatalogCard({ entry, status, machineId, username, index, onSelec
   let action: ReactNode;
   if (!hasCredentials) {
     action = (
-      <span className="text-xs text-[var(--color-text-tertiary)] italic">
+      <span className="text-xs text-text-tertiary italic">
         No credentials
       </span>
     );
@@ -92,7 +92,7 @@ export function CatalogCard({ entry, status, machineId, username, index, onSelec
       <div className="flex flex-col gap-3 h-full">
         {/* Top: icon + name */}
         <div className="flex items-start gap-3.5">
-          <div className="w-12 h-12 rounded-[var(--radius-sm)] bg-[var(--color-surface-raised)] border border-[var(--color-border-subtle)] flex items-center justify-center shrink-0 text-[22px] transition-colors duration-200 group-hover:border-[var(--color-border)]">
+          <div className="w-12 h-12 rounded-sm bg-surface-raised border border-border-subtle flex items-center justify-center shrink-0 text-[22px] transition-colors duration-200 group-hover:border-border">
             {entry.icon_url ? (
               <img src={entry.icon_url} alt="" className="w-8 h-8 rounded-md object-cover" />
             ) : (
@@ -100,11 +100,11 @@ export function CatalogCard({ entry, status, machineId, username, index, onSelec
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold tracking-tight leading-snug text-[var(--color-text-primary)]">
+            <div className="text-sm font-semibold tracking-tight leading-snug text-text-primary">
               {entry.name}
             </div>
             {entry.category && (
-              <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+              <div className="text-xs text-text-tertiary mt-0.5">
                 {entry.category}
               </div>
             )}
@@ -113,7 +113,7 @@ export function CatalogCard({ entry, status, machineId, username, index, onSelec
 
         {/* Description */}
         {entry.description && (
-          <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed flex-1 line-clamp-3">
+          <p className="text-sm text-text-secondary leading-relaxed flex-1 line-clamp-3">
             {entry.description}
           </p>
         )}

@@ -216,8 +216,14 @@ async fn execute_user_env_job(pool: &sqlx::PgPool, job: &hearth_api::db::UserEnv
         }
     };
 
-    let flake_ref =
-        std::env::var("HEARTH_FLAKE_REF").unwrap_or_else(|_| "github:hearth-os/hearth".into());
+    let flake_ref = match std::env::var("HEARTH_FLAKE_REF") {
+        Ok(r) => r,
+        Err(_) => {
+            error!(job_id = %job.id, "HEARTH_FLAKE_REF not set — cannot build user env");
+            let _ = repo::fail_user_env_build(pool, job.id, "HEARTH_FLAKE_REF not configured").await;
+            return;
+        }
+    };
     let cache_name = std::env::var("ATTIC_CACHE_NAME").ok();
 
     match user_env::build_user_env(&config, &flake_ref, cache_name.as_deref()).await {

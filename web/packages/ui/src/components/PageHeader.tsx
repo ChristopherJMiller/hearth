@@ -19,27 +19,27 @@ export function PageHeader({
   children,
 }: PageHeaderProps) {
   return (
-    <div className="flex flex-col gap-3 mb-[var(--density-section-gap)]">
+    <div className="flex flex-col gap-3">
       {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
       <div className="flex items-center justify-between gap-6 flex-wrap">
         <div className="flex flex-col gap-2 min-w-0 flex-1">
           {eyebrow && (
             <div
-              className="uppercase font-semibold text-[var(--color-ember)] text-2xs tracking-wide"
+              className="uppercase font-semibold text-ember text-2xs tracking-wide"
              
             >
               {eyebrow}
             </div>
           )}
           <h1
-            className="font-semibold text-[var(--color-text-primary)] text-2xl tracking-tight leading-tight"
+            className="font-semibold text-text-primary text-2xl tracking-tight leading-tight"
            
           >
             {title}
           </h1>
           {description && (
             <p
-              className="text-[var(--color-text-secondary)] max-w-[72ch] text-sm leading-body"
+              className="text-text-secondary max-w-[72ch] text-sm leading-body"
              
             >
               {description}

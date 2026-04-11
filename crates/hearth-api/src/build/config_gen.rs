@@ -53,10 +53,11 @@ pub async fn generate_fleet_config(
     for m in machines {
         let m: hearth_common::api_types::Machine = m.into();
 
-        // Only include active/enrolled machines
+        // Only include machines that have been approved or are further along.
         let dominated = matches!(
             m.enrollment_status,
-            hearth_common::api_types::EnrollmentStatus::Active
+            hearth_common::api_types::EnrollmentStatus::Approved
+                | hearth_common::api_types::EnrollmentStatus::Active
                 | hearth_common::api_types::EnrollmentStatus::Enrolled
                 | hearth_common::api_types::EnrollmentStatus::Provisioning
         );

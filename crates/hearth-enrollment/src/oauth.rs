@@ -1,13 +1,10 @@
-//! OAuth2 Authorization Code + PKCE client for enrollment.
+//! Credential-based authentication against Kanidm, producing a proper OIDC token.
 //!
-//! Uses the `openidconnect` crate with OIDC Discovery:
-//! 1. Discover endpoints from Kanidm's `.well-known/openid-configuration`
-//! 2. Generate PKCE challenge and build the authorization URL
-//! 3. Listen on a random localhost port for the redirect callback
-//! 4. Exchange the authorization code for an access token
+//! 1. Authenticate via Kanidm's REST API (`/v1/auth`) to establish a session
+//! 2. Use that session to programmatically complete an OAuth2 Authorization Code
+//!    + PKCE flow (no browser needed)
+//! 3. Return the OIDC id_token for use with the Hearth API
 
-use std::io::{Read, Write};
-use std::net::TcpListener;
 use std::time::Duration;
 
 use openidconnect::core::CoreProviderMetadata;
@@ -15,8 +12,7 @@ use openidconnect::{
     AuthenticationFlow, AuthorizationCode, ClientId, CsrfToken, Nonce, OAuth2TokenResponse,
     PkceCodeChallenge, RedirectUrl, Scope,
 };
-use tokio::sync::oneshot;
-use tracing::{debug, warn};
+use tracing::{debug, info};
 
 /// Access token obtained after successful authentication.
 #[derive(Debug, Clone)]
@@ -24,54 +20,91 @@ pub struct AuthToken {
     pub access_token: String,
 }
 
-/// Handle returned from `start_auth_code_flow` — holds the authorization URL
-/// and channels for signaling auth completion.
-pub struct AuthFlowHandle {
-    /// URL to open in the kiosk browser for user authentication.
-    pub auth_url: String,
-    /// Receives the token result once the user completes (or fails) auth.
-    pub token_rx: oneshot::Receiver<Result<AuthToken, String>>,
-    /// Fires as soon as the OAuth callback is received (before the token
-    /// exchange completes). The main loop uses this to close the kiosk
-    /// browser automatically — the token exchange continues in the
-    /// background and delivers to `token_rx` shortly after.
-    pub callback_rx: oneshot::Receiver<()>,
-}
-
 fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .danger_accept_invalid_certs(true) // dev: self-signed Kanidm certs
+        .cookie_store(true)
         .timeout(Duration::from_secs(15))
         .build()
         .expect("failed to build HTTP client")
 }
 
-/// Start the authorization code + PKCE flow.
-///
-/// Discovers Kanidm's OIDC endpoints, binds a local TCP listener on a random
-/// port, builds the authorization URL with PKCE, and spawns a background task
-/// that waits for the callback redirect and exchanges the code for a token.
-pub async fn start_auth_code_flow(
+/// Authenticate with username + password, then obtain a proper OIDC token
+/// via the OAuth2 authorization code flow (driven programmatically, no browser).
+pub async fn authenticate_with_credentials(
     kanidm_url: &str,
     client_id: &str,
-) -> Result<AuthFlowHandle, String> {
-    let http = http_client();
-
-    // Discover OIDC endpoints from Kanidm.
-    //
-    // We fetch the discovery document manually instead of using `discover_async`
-    // because the enrollment VM reaches Kanidm via a different URL (e.g.
-    // https://10.0.2.2:8443) than Kanidm's configured origin (https://kanidm.hearth.local:8443).
-    // `discover_async` would reject the issuer mismatch. We rewrite the origin
-    // in the discovery JSON so all endpoints point to the reachable URL.
+    username: &str,
+    password: &str,
+) -> Result<AuthToken, String> {
     let base = kanidm_url.trim_end_matches('/');
+    let client = http_client();
+
+    // --- Phase 1: Authenticate with Kanidm REST API to get a session ---
+    let auth_endpoint = format!("{base}/v1/auth");
+
+    // Step 1: init
+    let resp = client
+        .post(&auth_endpoint)
+        .json(&serde_json::json!({"step": {"init": username}}))
+        .send()
+        .await
+        .map_err(|e| format!("auth request failed: {e}"))?;
+    // Kanidm returns 404 for unknown users (body: "nomatchingentries")
+    if !resp.status().is_success() {
+        return Err("Unknown username".to_string());
+    }
+    let _ = resp.text().await;
+
+    // Step 2: begin password method
+    let resp = client
+        .post(&auth_endpoint)
+        .json(&serde_json::json!({"step": {"begin": "password"}}))
+        .send()
+        .await
+        .map_err(|e| format!("auth request failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("auth begin returned status {}", resp.status()));
+    }
+    let _ = resp.text().await;
+
+    // Step 3: submit password
+    // Kanidm returns 200 for both success and failure here — check the body.
+    let resp = client
+        .post(&auth_endpoint)
+        .json(&serde_json::json!({"step": {"cred": {"password": password}}}))
+        .send()
+        .await
+        .map_err(|e| format!("auth request failed: {e}"))?;
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("failed to parse auth response: {e}"))?;
+
+    // Check for denied state (wrong password)
+    if let Some(denied) = body.get("state").and_then(|s| s.get("denied")) {
+        let reason = denied.as_str().unwrap_or("access denied");
+        return Err(format!("Incorrect password ({reason})"));
+    }
+
+    let bearer_token = body
+        .get("state")
+        .and_then(|s| s.get("success"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Authentication failed".to_string())?;
+
+    info!(username = %username, "Kanidm session established, starting OAuth2 flow");
+
+    // --- Phase 2: OAuth2 Authorization Code + PKCE flow using the session ---
+
     let discovery_url =
         format!("{base}/oauth2/openid/{client_id}/.well-known/openid-configuration");
 
     debug!(%discovery_url, "fetching OIDC discovery document");
 
-    let discovery_json = http
+    let discovery_json = client
         .get(&discovery_url)
         .send()
         .await
@@ -80,10 +113,11 @@ pub async fn start_auth_code_flow(
         .await
         .map_err(|e| format!("failed to read discovery response: {e}"))?;
 
-    // The discovery document's URLs use Kanidm's configured origin which may
-    // differ from the URL we used to reach it. Rewrite so the browser and
-    // token exchange both go through the reachable address.
-    let rewritten = if let Some(origin) = extract_origin(&discovery_json) {
+    // Rewrite origin if the discovery doc uses a different hostname than we used,
+    // and fix the authorization endpoint path: Kanidm's discovery doc advertises
+    // `/ui/oauth2` (the browser consent page) but we need `/oauth2/authorise`
+    // (the API endpoint that returns JSON).
+    let mut rewritten = if let Some(origin) = extract_origin(&discovery_json) {
         if origin != base {
             debug!(kanidm_origin = %origin, reachable_url = %base, "rewriting discovery origin");
             discovery_json.replace(&origin, base)
@@ -93,33 +127,24 @@ pub async fn start_auth_code_flow(
     } else {
         discovery_json
     };
+    rewritten = rewritten.replace("/ui/oauth2", "/oauth2/authorise");
 
     let provider_metadata: CoreProviderMetadata = serde_json::from_str(&rewritten)
         .map_err(|e| format!("failed to parse discovery document: {e}"))?;
 
-    // Bind callback listener on a random port
-    let listener =
-        TcpListener::bind("127.0.0.1:0").map_err(|e| format!("failed to bind listener: {e}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| format!("failed to get listener address: {e}"))?
-        .port();
-
-    let redirect_uri = RedirectUrl::new(format!("http://localhost:{port}/callback"))
+    // Dummy redirect URI — we intercept the redirect directly, never listen.
+    let redirect_uri = RedirectUrl::new("http://localhost:0/callback".to_string())
         .map_err(|e| format!("invalid redirect URI: {e}"))?;
 
-    // Build the OIDC client from discovered metadata
     let oidc_client = openidconnect::core::CoreClient::from_provider_metadata(
         provider_metadata,
         ClientId::new(client_id.to_string()),
-        None, // public client, no secret
+        None,
     )
     .set_redirect_uri(redirect_uri);
 
-    // Generate PKCE challenge
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
-    // Build authorization URL
     let (auth_url, csrf_token, _nonce) = oidc_client
         .authorize_url(
             AuthenticationFlow::<openidconnect::core::CoreResponseType>::AuthorizationCode,
@@ -132,257 +157,147 @@ pub async fn start_auth_code_flow(
         .set_pkce_challenge(pkce_challenge)
         .url();
 
-    let auth_url_str = auth_url.to_string();
-    debug!(port, auth_url = %auth_url_str, "starting auth code + PKCE flow");
+    debug!(auth_url = %auth_url, "hitting authorize endpoint with session");
 
-    let (tx, rx) = oneshot::channel();
-    let (callback_tx, callback_rx) = oneshot::channel::<()>();
+    // Hit the authorize endpoint with our bearer token. Kanidm returns either
+    // a 302 redirect (consent pre-granted) or a 200 with a consent form.
+    let resp = client
+        .get(auth_url.to_string())
+        .bearer_auth(bearer_token)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("authorize request failed: {e}"))?;
 
-    // Spawn the callback handler. The client is moved into the closure so its
-    // concrete endpoint typestate type is inferred — avoids spelling out the
-    // 17-parameter generic signature.
-    tokio::spawn(async move {
-        let mut callback_tx = Some(callback_tx);
-        let result = async {
-            let (code, state) = accept_callback(listener).await?;
+    let status = resp.status();
 
-            // Signal the main loop that the callback arrived — the kiosk
-            // browser can close now. The token exchange below continues
-            // while the TUI regains control.
-            if let Some(tx) = callback_tx.take() {
-                let _ = tx.send(());
-            }
+    let (code, state) = if status.is_redirection() {
+        let location = resp
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| "redirect without Location header".to_string())?;
+        extract_code_from_redirect(location)?
+    } else if status.as_u16() == 200 {
+        // Consent page — Kanidm wraps it as {"ConsentRequested": {"consent_token": "..."}}.
+        let body_text = resp
+            .text()
+            .await
+            .map_err(|e| format!("failed to read consent response body: {e}"))?;
+        let body: serde_json::Value = serde_json::from_str(&body_text).map_err(|e| {
+            let preview = &body_text[..body_text.len().min(300)];
+            format!("failed to parse consent response as JSON: {e}\n  body: {preview}")
+        })?;
 
-            // Verify state (CSRF protection)
-            if state.as_deref() != Some(csrf_token.secret().as_str()) {
-                warn!("state mismatch in OAuth2 callback");
-                return Err("state mismatch — possible CSRF attack".to_string());
-            }
+        let consent_token = body
+            .get("ConsentRequested")
+            .and_then(|cr| cr.get("consent_token"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                format!("unexpected authorize response: {body}")
+            })?;
 
-            debug!("received authorization code, exchanging for token");
+        debug!("approving OAuth2 consent");
 
-            // Exchange code for token
-            let http = http_client();
-            let token_response = oidc_client
-                .exchange_code(AuthorizationCode::new(code))
-                .map_err(|e| format!("failed to build token request: {e}"))?
-                .set_pkce_verifier(pkce_verifier)
-                .request_async(&http)
-                .await
-                .map_err(|e| format!("token exchange failed: {e}"))?;
+        // Kanidm's permit endpoint expects the consent_token as a bare JSON
+        // string, not wrapped in an object.
+        let consent_resp = client
+            .post(format!("{base}/oauth2/authorise/permit"))
+            .bearer_auth(bearer_token)
+            .header("Content-Type", "application/json")
+            .body(format!("\"{consent_token}\""))
+            .send()
+            .await
+            .map_err(|e| format!("consent approval request failed: {e}"))?;
 
-            // Prefer the id_token (which carries preferred_username, groups,
-            // email) over the access_token for downstream API calls. Kanidm's
-            // access tokens only have sub+scopes.
-            let token = token_response
-                .extra_fields()
-                .id_token()
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| token_response.access_token().secret().to_string());
+        // Kanidm returns 200 with a Location header (not a 302).
+        let location = consent_resp
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                format!(
+                    "consent permit returned status {} without Location header",
+                    consent_resp.status()
+                )
+            })?;
+        extract_code_from_redirect(location)?
+    } else {
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "unexpected authorize response status: {status} (body: {})",
+            &body_text[..body_text.len().min(500)]
+        ));
+    };
 
-            Ok(AuthToken {
-                access_token: token,
-            })
-        }
-        .await;
-        // If we never got to the callback (error path), still release the
-        // main loop so it can close the browser instead of hanging.
-        if let Some(tx) = callback_tx.take() {
-            let _ = tx.send(());
-        }
-        let _ = tx.send(result);
-    });
+    // Verify CSRF state
+    match state.as_deref() {
+        Some(s) if s == csrf_token.secret() => {}
+        Some(_) => return Err("state mismatch — possible CSRF".to_string()),
+        None => return Err("missing state parameter in redirect".to_string()),
+    }
 
-    Ok(AuthFlowHandle {
-        auth_url: auth_url_str,
-        token_rx: rx,
-        callback_rx,
+    // --- Phase 3: Exchange authorization code for OIDC token ---
+
+    let exchange_http = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let token_response = oidc_client
+        .exchange_code(AuthorizationCode::new(code))
+        .map_err(|e| format!("failed to build token request: {e}"))?
+        .set_pkce_verifier(pkce_verifier)
+        .request_async(&exchange_http)
+        .await
+        .map_err(|e| format!("token exchange failed: {e}"))?;
+
+    // Prefer id_token (carries preferred_username, groups, email)
+    let token = token_response
+        .extra_fields()
+        .id_token()
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| token_response.access_token().secret().to_string());
+
+    info!("OIDC token obtained successfully");
+
+    Ok(AuthToken {
+        access_token: token,
     })
 }
 
-/// Accept a single HTTP callback on the listener and extract the `code` and
-/// `state` query parameters. Returns an error if the IdP sent an error
-/// response or if the connection times out.
-async fn accept_callback(listener: TcpListener) -> Result<(String, Option<String>), String> {
-    // Accept one connection with a 5-minute timeout
-    let stream = tokio::task::spawn_blocking({
-        let timeout = Duration::from_secs(300);
-        move || {
-            listener
-                .set_nonblocking(true)
-                .map_err(|e| format!("failed to set nonblocking: {e}"))?;
-
-            let start = std::time::Instant::now();
-            loop {
-                match listener.accept() {
-                    Ok((stream, _)) => return Ok(stream),
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        if start.elapsed() > timeout {
-                            return Err("authentication timed out (5 minutes)".to_string());
-                        }
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-                    Err(e) => return Err(format!("failed to accept connection: {e}")),
-                }
-            }
-        }
-    })
-    .await
-    .map_err(|e| format!("callback task panicked: {e}"))??;
-
-    // Read the HTTP request
-    let mut stream = stream;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .map_err(|e| format!("failed to set read timeout: {e}"))?;
-
-    let mut buf = vec![0u8; 4096];
-    let n = stream
-        .read(&mut buf)
-        .map_err(|e| format!("failed to read request: {e}"))?;
-    let request = String::from_utf8_lossy(&buf[..n]);
-
-    // Send a response to the browser
-    let html = "<!DOCTYPE html><html><body><h2>Authentication complete</h2>\
-                <p>This window will close automatically.</p>\
-                <script>window.close()</script></body></html>";
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        html.len(),
-        html,
-    );
-    let _ = stream.write_all(response.as_bytes());
-
-    // Parse the request line to extract query parameters
-    let request_line = request
-        .lines()
-        .next()
-        .ok_or_else(|| "empty HTTP request".to_string())?;
-
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| "malformed HTTP request line".to_string())?;
-
-    let url = url::Url::parse(&format!("http://localhost{path}"))
-        .map_err(|e| format!("failed to parse callback URL: {e}"))?;
+fn extract_code_from_redirect(location: &str) -> Result<(String, Option<String>), String> {
+    let url =
+        url::Url::parse(location).map_err(|e| format!("failed to parse redirect URL: {e}"))?;
 
     let params: std::collections::HashMap<String, String> =
         url.query_pairs().into_owned().collect();
 
-    // Check for error response from Kanidm
     if let Some(err) = params.get("error") {
         let desc = params
             .get("error_description")
             .map(|d| format!(": {d}"))
             .unwrap_or_default();
-        warn!(error = %err, "authorization denied");
-        return Err(format!("Authorization denied ({err}{desc})"));
+        return Err(format!("authorization denied ({err}{desc})"));
     }
 
     let code = params
         .get("code")
-        .ok_or_else(|| "missing authorization code in callback".to_string())?
+        .ok_or_else(|| "missing authorization code in redirect".to_string())?
         .clone();
 
-    let state = params.get("state").cloned();
-
-    Ok((code, state))
-}
-
-/// Authenticate directly with Kanidm using username + password (no browser).
-///
-/// Implements Kanidm's 3-step REST API auth flow:
-/// 1. `POST /v1/auth` with `{"step":{"init":"<username>"}}`  — starts session
-/// 2. `POST /v1/auth` with `{"step":{"begin":"password"}}`   — selects method
-/// 3. `POST /v1/auth` with `{"step":{"cred":{"password":"<password>"}}}` — submits cred
-///
-/// The session is tracked via cookies between requests.
-pub async fn authenticate_with_credentials(
-    kanidm_url: &str,
-    username: &str,
-    password: &str,
-) -> Result<AuthToken, String> {
-    let base = kanidm_url.trim_end_matches('/');
-    let auth_endpoint = format!("{base}/v1/auth");
-
-    // Build a client that persists cookies across requests (session tracking).
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .cookie_store(true)
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-
-    // Step 1: init — start the auth session for the given user.
-    let init_body = serde_json::json!({"step": {"init": username}});
-    let resp = client
-        .post(&auth_endpoint)
-        .json(&init_body)
-        .send()
-        .await
-        .map_err(|e| format!("auth init request failed: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("auth init returned status {}", resp.status()));
-    }
-    // Consume the body so the cookie jar picks up any Set-Cookie headers.
-    let _ = resp.text().await;
-
-    // Step 2: begin — select the password authentication method.
-    let begin_body = serde_json::json!({"step": {"begin": "password"}});
-    let resp = client
-        .post(&auth_endpoint)
-        .json(&begin_body)
-        .send()
-        .await
-        .map_err(|e| format!("auth begin request failed: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("auth begin returned status {}", resp.status()));
-    }
-    let _ = resp.text().await;
-
-    // Step 3: cred — submit the password.
-    let cred_body = serde_json::json!({"step": {"cred": {"password": password}}});
-    let resp = client
-        .post(&auth_endpoint)
-        .json(&cred_body)
-        .send()
-        .await
-        .map_err(|e| format!("auth cred request failed: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("auth cred returned status {}", resp.status()));
-    }
-
-    let body_text = resp
-        .text()
-        .await
-        .map_err(|e| format!("failed to read auth response: {e}"))?;
-
-    let body: serde_json::Value = serde_json::from_str(&body_text)
-        .map_err(|e| format!("failed to parse auth response: {e}"))?;
-
-    // The token lives at .state.success in the Kanidm response.
-    let token = body
-        .get("state")
-        .and_then(|s: &serde_json::Value| s.get("success"))
-        .and_then(|v: &serde_json::Value| v.as_str())
-        .ok_or_else(|| {
-            format!("authentication failed: no success token in response (body: {body_text})",)
-        })?;
-
-    Ok(AuthToken {
-        access_token: token.to_string(),
-    })
+    Ok((code, params.get("state").cloned()))
 }
 
 /// Extract the origin (scheme + host + port) from the `issuer` field of a
-/// discovery JSON document. Returns e.g. `https://localhost:8443`.
+/// discovery JSON document.
 fn extract_origin(discovery_json: &str) -> Option<String> {
     let doc: serde_json::Value = serde_json::from_str(discovery_json).ok()?;
     let issuer = doc.get("issuer")?.as_str()?;
     let parsed = url::Url::parse(issuer).ok()?;
     Some(
-        format!("{}://{}", parsed.scheme(), parsed.host_str()?,)
+        format!("{}://{}", parsed.scheme(), parsed.host_str()?)
             + &parsed.port().map(|p| format!(":{p}")).unwrap_or_default(),
     )
 }

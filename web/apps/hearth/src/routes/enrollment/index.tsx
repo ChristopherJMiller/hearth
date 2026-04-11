@@ -50,7 +50,7 @@ function CopyButton({ value }: { value: string }) {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}
-        className="inline-flex items-center justify-center w-7 h-7 rounded-[6px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)] cursor-pointer"
+        className="inline-flex items-center justify-center w-7 h-7 rounded-[6px] text-text-tertiary hover:text-text-primary hover:bg-surface-raised cursor-pointer"
         aria-label="Copy"
       >
         <LuCopy size={13} />
@@ -88,15 +88,12 @@ function EnrollmentCard({ machine }: { machine: PendingMachine }) {
         <div className="flex flex-col gap-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div
-                className="shrink-0 w-12 h-12 rounded-[var(--radius-md)] flex items-center justify-center text-[var(--color-warning)]"
-                style={{ background: 'var(--color-warning-faint)' }}
-              >
+              <div className="shrink-0 w-12 h-12 rounded-md flex items-center justify-center text-warning bg-warning-faint">
                 <LuUserPlus size={22} />
               </div>
               <div className="flex flex-col gap-1 min-w-0">
                 <h3
-                  className="font-semibold text-[var(--color-text-primary)] truncate text-lg"
+                  className="font-semibold text-text-primary truncate text-lg"
                  
                 >
                   {machine.hostname}
@@ -106,11 +103,11 @@ function EnrollmentCard({ machine }: { machine: PendingMachine }) {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 p-4 rounded-[var(--radius-sm)] bg-[var(--color-surface-sunken)] border border-[var(--color-border-subtle)]">
+          <div className="flex flex-col gap-3 p-4 rounded-sm bg-surface-sunken border border-border-subtle">
             <div className="flex items-center gap-2">
-              <LuFingerprint size={14} className="text-[var(--color-text-tertiary)] shrink-0" />
+              <LuFingerprint size={14} className="text-text-tertiary shrink-0" />
               <span
-                className="uppercase font-semibold text-[var(--color-text-tertiary)] text-2xs tracking-wide"
+                className="uppercase font-semibold text-text-tertiary text-2xs tracking-wide"
                
               >
                 Hardware fingerprint
@@ -118,7 +115,7 @@ function EnrollmentCard({ machine }: { machine: PendingMachine }) {
             </div>
             <div className="flex items-center justify-between gap-2">
               <code
-                className="font-mono text-[var(--color-text-primary)] break-all flex-1 text-xs"
+                className="font-mono text-text-primary break-all flex-1 text-xs"
                
               >
                 {machine.hardware_fingerprint ?? 'unknown'}
@@ -126,7 +123,7 @@ function EnrollmentCard({ machine }: { machine: PendingMachine }) {
               {machine.hardware_fingerprint && <CopyButton value={machine.hardware_fingerprint} />}
             </div>
             <div
-              className="flex items-center gap-1.5 text-[var(--color-text-tertiary)] text-2xs"
+              className="flex items-center gap-1.5 text-text-tertiary text-2xs"
              
             >
               <LuClock size={12} />
@@ -155,7 +152,7 @@ function EnrollmentCard({ machine }: { machine: PendingMachine }) {
           <button
             type="button"
             onClick={() => setAdvancedOpen(true)}
-            className="self-start inline-flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] cursor-pointer text-xs"
+            className="self-start inline-flex items-center gap-1.5 text-text-tertiary hover:text-text-secondary cursor-pointer text-xs"
            
           >
             <LuSettings2 size={12} />
@@ -230,7 +227,7 @@ export function EnrollmentPage() {
       {isError ? (
         <Callout variant="danger" title="Could not load enrollments" />
       ) : isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--spacing-card-gap)]">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-card-gap">
           <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />
@@ -242,7 +239,7 @@ export function EnrollmentPage() {
           description="All devices have been reviewed. New devices will appear here when they request enrollment."
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--spacing-card-gap)]">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-card-gap">
           {pending.map((machine) => (
             <EnrollmentCard key={machine.id} machine={machine} />
           ))}

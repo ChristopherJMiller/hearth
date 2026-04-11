@@ -21,15 +21,15 @@ export function CallbackPage() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[var(--color-surface-base)]">
+      <div className="flex items-center justify-center h-screen bg-surface-base">
         <div className="text-center">
-          <h1 className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
+          <h1 className="text-lg font-semibold text-text-primary mb-2">
             Authentication Error
           </h1>
-          <p className="text-sm text-[var(--color-text-secondary)] mb-4">{error}</p>
+          <p className="text-sm text-text-secondary mb-4">{error}</p>
           <a
             href="/"
-            className="text-sm text-[var(--color-ember)] hover:underline"
+            className="text-sm text-ember hover:underline"
           >
             Return to Hearth
           </a>
@@ -39,8 +39,8 @@ export function CallbackPage() {
   }
 
   return (
-    <div className="flex items-center justify-center h-screen bg-[var(--color-surface-base)]">
-      <p className="text-sm text-[var(--color-text-secondary)]">Completing sign-in...</p>
+    <div className="flex items-center justify-center h-screen bg-surface-base">
+      <p className="text-sm text-text-secondary">Completing sign-in...</p>
     </div>
   );
 }

@@ -25,13 +25,13 @@ export function DescriptionList({ items, columns = 2, className = "" }: Descript
           key={i}
           className={`flex flex-col gap-1.5 min-w-0 ${item.span === 2 ? "md:col-span-2" : item.span === 3 ? "md:col-span-3" : ""}`}
         >
-          <dt className="flex items-center gap-1.5 text-[var(--color-text-tertiary)] uppercase font-semibold text-2xs tracking-wide"
+          <dt className="flex items-center gap-1.5 text-text-tertiary uppercase font-semibold text-2xs tracking-wide"
              >
             {item.icon && <span className="shrink-0">{item.icon}</span>}
             {item.label}
           </dt>
           <dd
-            className={`text-[var(--color-text-primary)] break-words ${item.mono ? "font-mono text-xs" : "text-sm"}`}
+            className={`text-text-primary break-words ${item.mono ? "font-mono text-xs" : "text-sm"}`}
           >
             {item.value}
           </dd>

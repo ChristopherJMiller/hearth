@@ -16,11 +16,20 @@ const sizeMap: Record<PageSize, string> = {
 };
 
 /**
- * Centers page content at a chosen max-width. Horizontal/vertical page
- * padding is owned by the shell's <main> element — this component does
- * not add its own padding, so it can nest inside the padded main area
- * without doubling up.
+ * Centers page content at a chosen max-width and provides a uniform
+ * vertical rhythm between its direct children via `gap-section` (40px).
+ *
+ * This is the single source of truth for spacing between top-level page
+ * blocks — `PageHeader`, metric grids, content sections, etc. all inherit
+ * the same gap without needing their own `mb-section` / `mb-...` classes.
+ *
+ * Horizontal/vertical page padding is owned by the shell's <main> element,
+ * so this component does not add its own padding.
  */
 export function PageContainer({ size = "default", children, className = "" }: PageContainerProps) {
-  return <div className={`mx-auto w-full ${sizeMap[size]} ${className}`}>{children}</div>;
+  return (
+    <div className={`mx-auto w-full flex flex-col gap-card-gap ${sizeMap[size]} ${className}`}>
+      {children}
+    </div>
+  );
 }

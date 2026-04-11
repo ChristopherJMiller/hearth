@@ -37,9 +37,9 @@ const columns: ColumnDef<AuditEvent, unknown>[] = [
     header: 'Actor',
     cell: ({ row }) => (
       <div className="flex items-center gap-2">
-        <LuUser size={13} className="text-[var(--color-text-tertiary)] shrink-0" />
-        <span className="text-[var(--color-text-secondary)] text-sm">
-          {row.original.actor ?? <span className="italic text-[var(--color-text-tertiary)]">system</span>}
+        <LuUser size={13} className="text-text-tertiary shrink-0" />
+        <span className="text-text-secondary text-sm">
+          {row.original.actor ?? <span className="italic text-text-tertiary">system</span>}
         </span>
       </div>
     ),
@@ -49,13 +49,13 @@ const columns: ColumnDef<AuditEvent, unknown>[] = [
     header: 'Machine',
     cell: ({ row }) => {
       const mid = row.original.machine_id;
-      if (!mid) return <span className="text-[var(--color-text-tertiary)] text-xs">—</span>;
+      if (!mid) return <span className="text-text-tertiary text-xs">—</span>;
       return (
         <Tooltip content={mid}>
           <div className="flex items-center gap-2">
-            <LuMonitor size={13} className="text-[var(--color-text-tertiary)] shrink-0" />
+            <LuMonitor size={13} className="text-text-tertiary shrink-0" />
             <span
-              className="font-mono text-[var(--color-text-secondary)] text-xs"
+              className="font-mono text-text-secondary text-xs"
              
             >
               {truncateId(mid)}
@@ -70,8 +70,8 @@ const columns: ColumnDef<AuditEvent, unknown>[] = [
     header: 'When',
     cell: ({ row }) => (
       <div className="flex items-center gap-2">
-        <LuClock size={13} className="text-[var(--color-text-tertiary)] shrink-0" />
-        <span className="text-[var(--color-text-secondary)] text-xs">
+        <LuClock size={13} className="text-text-tertiary shrink-0" />
+        <span className="text-text-secondary text-xs">
           {formatRelativeTime(row.original.created_at)}
         </span>
       </div>
@@ -157,7 +157,7 @@ export function AuditPage() {
           pageSize={50}
           renderExpanded={(row) => (
             <pre
-              className="font-mono whitespace-pre-wrap text-[var(--color-text-secondary)] text-2xs"
+              className="font-mono whitespace-pre-wrap text-text-secondary text-2xs"
              
             >
               {JSON.stringify(row.details, null, 2)}

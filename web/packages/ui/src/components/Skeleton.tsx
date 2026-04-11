@@ -25,7 +25,7 @@ export function Skeleton({
   return (
     <span
       aria-hidden="true"
-      className={`block relative overflow-hidden bg-[var(--color-surface-raised)] ${className}`}
+      className={`block relative overflow-hidden bg-surface-raised ${className}`}
       style={{
         width,
         height,
@@ -58,7 +58,7 @@ export function SkeletonText({ lines = 3, className = "" }: { lines?: number; cl
 export function SkeletonCard({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border-subtle)] p-[var(--density-card)] ${className}`}
+      className={`rounded-md bg-surface border border-border-subtle p-(--density-card) ${className}`}
     >
       <Skeleton height="1.25rem" width="40%" />
       <div className="mt-4">
@@ -70,8 +70,8 @@ export function SkeletonCard({ className = "" }: { className?: string }) {
 
 export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] overflow-hidden">
-      <div className="bg-[var(--color-surface)] border-b border-[var(--color-border-subtle)] py-3.5 px-5">
+    <div className="rounded-md border border-border-subtle overflow-hidden">
+      <div className="bg-surface border-b border-border-subtle py-3.5 px-5">
         <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
           {Array.from({ length: cols }).map((_, i) => (
             <Skeleton key={i} height="0.75rem" width="60%" />
@@ -81,7 +81,7 @@ export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: nu
       {Array.from({ length: rows }).map((_, r) => (
         <div
           key={r}
-          className="border-b border-[var(--color-border-subtle)] last:border-b-0 py-3.5 px-5"
+          className="border-b border-border-subtle last:border-b-0 py-3.5 px-5"
         >
           <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
             {Array.from({ length: cols }).map((_, c) => (

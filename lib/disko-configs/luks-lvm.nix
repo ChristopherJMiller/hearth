@@ -5,7 +5,7 @@
 #
 # Usage in a fleet host configuration:
 #   disko.devices = (import ./luks-lvm.nix { device = "/dev/nvme0n1"; }).disko.devices;
-{ device }:
+{ device, ... }:
 {
   disko.devices.disk.main = {
     inherit device;
@@ -20,6 +20,7 @@
             type = "filesystem";
             format = "vfat";
             mountpoint = "/boot";
+            extraArgs = [ "-n" "boot" ];
           };
         };
         luks = {
@@ -49,6 +50,7 @@
           type = "filesystem";
           format = "ext4";
           mountpoint = "/";
+          extraArgs = [ "-L" "nixos" ];
         };
       };
       home = {

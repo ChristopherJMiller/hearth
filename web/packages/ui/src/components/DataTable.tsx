@@ -72,7 +72,7 @@ function Checkbox({
       }}
       onChange={onChange}
       onClick={(e) => e.stopPropagation()}
-      className="w-4 h-4 rounded-[4px] border border-[var(--color-border)] bg-[var(--color-surface-sunken)] accent-[var(--color-ember)] cursor-pointer"
+      className="w-4 h-4 rounded-[4px] border border-border bg-surface-sunken accent-ember cursor-pointer"
     />
   );
 }
@@ -131,7 +131,7 @@ export function DataTable<T>({
             e.stopPropagation();
             row.toggleExpanded();
           }}
-          className="w-6 h-6 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
+          className="w-6 h-6 flex items-center justify-center text-text-tertiary hover:text-text-primary cursor-pointer"
           aria-label={row.getIsExpanded() ? "Collapse row" : "Expand row"}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -176,15 +176,15 @@ export function DataTable<T>({
 
   return (
     <div className={`w-full flex flex-col gap-3 ${className}`}>
-      <div className="w-full overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-surface)]">
+      <div className="w-full overflow-x-auto rounded-md border border-border-subtle bg-surface">
         <table className="w-full border-collapse text-sm">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="bg-[var(--color-surface-sunken)]">
+              <tr key={headerGroup.id} className="bg-surface-sunken">
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className={`text-left font-semibold text-[var(--color-text-tertiary)] uppercase border-b border-[var(--color-border-subtle)] select-none text-2xs tracking-wide ${cellPad}`}
+                    className={`text-left font-semibold text-text-tertiary uppercase border-b border-border-subtle select-none text-2xs tracking-wide ${cellPad}`}
                     style={{
                       cursor: header.column.getCanSort() ? "pointer" : "default",
                       width: header.column.columnDef.size,
@@ -209,7 +209,7 @@ export function DataTable<T>({
               <tr>
                 <td
                   colSpan={finalColumns.length}
-                  className="text-center text-[var(--color-text-tertiary)] text-sm py-12 px-4"
+                  className="text-center text-text-tertiary text-sm py-12 px-4"
                 >
                   {emptyMessage}
                 </td>
@@ -220,11 +220,11 @@ export function DataTable<T>({
                 return (
                   <Fragment key={row.id}>
                     <tr
-                      className={`border-b border-[var(--color-border-subtle)] last:border-b-0 transition-colors duration-100 ${
-                        row.getIsSelected() ? "bg-[var(--color-ember-faint)]" : highlighted ? "bg-[var(--color-warning-faint)]" : ""
+                      className={`border-b border-border-subtle last:border-b-0 transition-colors duration-100 ${
+                        row.getIsSelected() ? "bg-ember-faint" : highlighted ? "bg-warning-faint" : ""
                       } ${
                         onRowClick
-                          ? "cursor-pointer hover:bg-[var(--color-surface-raised)]"
+                          ? "cursor-pointer hover:bg-surface-raised"
                           : ""
                       }`}
                       onClick={() => onRowClick?.(row.original)}
@@ -232,17 +232,17 @@ export function DataTable<T>({
                       {row.getVisibleCells().map((cell) => (
                         <td
                           key={cell.id}
-                          className={`text-[var(--color-text-primary)] align-middle ${cellPad}`}
+                          className={`text-text-primary align-middle ${cellPad}`}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}
                     </tr>
                     {renderExpanded && row.getIsExpanded() && (
-                      <tr className="bg-[var(--color-surface-sunken)]">
+                      <tr className="bg-surface-sunken">
                         <td
                           colSpan={finalColumns.length}
-                          className={`border-b border-[var(--color-border-subtle)] ${cellPad}`}
+                          className={`border-b border-border-subtle ${cellPad}`}
                         >
                           {renderExpanded(row.original)}
                         </td>
@@ -258,7 +258,7 @@ export function DataTable<T>({
 
       {pageSize && rows.length > 0 && (
         <div
-          className="flex items-center justify-between text-[var(--color-text-tertiary)] text-xs"
+          className="flex items-center justify-between text-text-tertiary text-xs"
          
         >
           <div>
@@ -269,7 +269,7 @@ export function DataTable<T>({
               type="button"
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
-              className="px-2.5 py-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="px-2.5 py-1.5 rounded-sm border border-border-subtle hover:bg-surface-raised hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               Prev
             </button>
@@ -280,7 +280,7 @@ export function DataTable<T>({
               type="button"
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
-              className="px-2.5 py-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="px-2.5 py-1.5 rounded-sm border border-border-subtle hover:bg-surface-raised hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               Next
             </button>

@@ -40,7 +40,7 @@ export function Timeline({ events, emptyLabel = "No activity yet" }: TimelinePro
   if (events.length === 0) {
     return (
       <div
-        className="text-center py-8 text-[var(--color-text-tertiary)] text-sm"
+        className="text-center py-8 text-text-tertiary text-sm"
        
       >
         {emptyLabel}
@@ -57,7 +57,7 @@ export function Timeline({ events, emptyLabel = "No activity yet" }: TimelinePro
           <li key={event.id} className="flex gap-4 relative pb-5 last:pb-0">
             {!isLast && (
               <span
-                className="absolute left-[15px] top-8 bottom-0 w-px bg-[var(--color-border-subtle)]"
+                className="absolute left-[15px] top-8 bottom-0 w-px bg-border-subtle"
                 aria-hidden="true"
               />
             )}
@@ -76,20 +76,20 @@ export function Timeline({ events, emptyLabel = "No activity yet" }: TimelinePro
               onClick={event.onClick}
               className={`flex-1 flex flex-col gap-1 min-w-0 text-left ${
                 clickable
-                  ? "rounded-[var(--radius-sm)] -mx-3 px-3 py-1.5 cursor-pointer hover:bg-[var(--color-surface-raised)] transition-colors"
+                  ? "rounded-sm -mx-3 px-3 py-1.5 cursor-pointer hover:bg-surface-raised transition-colors"
                   : ""
               }`}
               disabled={!clickable}
             >
               <div className="flex items-baseline justify-between gap-3">
                 <div
-                  className="font-medium text-[var(--color-text-primary)] text-sm"
+                  className="font-medium text-text-primary text-sm"
                  
                 >
                   {event.title}
                 </div>
                 <div
-                  className="text-[var(--color-text-tertiary)] shrink-0 tabular-nums text-2xs"
+                  className="text-text-tertiary shrink-0 tabular-nums text-2xs"
                  
                 >
                   {event.time}
@@ -97,7 +97,7 @@ export function Timeline({ events, emptyLabel = "No activity yet" }: TimelinePro
               </div>
               {event.body && (
                 <div
-                  className="text-[var(--color-text-secondary)] text-xs"
+                  className="text-text-secondary text-xs"
                  
                 >
                   {event.body}
@@ -105,7 +105,7 @@ export function Timeline({ events, emptyLabel = "No activity yet" }: TimelinePro
               )}
               {event.actor && (
                 <div
-                  className="text-[var(--color-text-tertiary)] text-2xs"
+                  className="text-text-tertiary text-2xs"
                  
                 >
                   by {event.actor}

@@ -26,18 +26,18 @@ function PersonRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-4 w-full text-left p-4 rounded-[var(--radius-sm)] bg-[var(--color-surface)] border border-[var(--color-border-subtle)] hover:border-[var(--color-border-accent)] hover:bg-[var(--color-surface-raised)] transition-colors cursor-pointer"
+      className="flex items-center gap-4 w-full text-left p-4 rounded-sm bg-surface border border-border-subtle hover:border-border-accent hover:bg-surface-raised transition-colors cursor-pointer"
     >
       <Avatar name={displayName} size="md" />
       <div className="flex-1 min-w-0">
         <div
-          className="font-semibold text-[var(--color-text-primary)] truncate text-sm"
+          className="font-semibold text-text-primary truncate text-sm"
          
         >
           {displayName}
         </div>
         <div
-          className="text-[var(--color-text-tertiary)] truncate text-xs"
+          className="text-text-tertiary truncate text-xs"
          
         >
           @{person.username}
@@ -79,7 +79,7 @@ export function PeoplePage() {
         description="Manage per-user environment configuration. Click anyone to set their base role, overrides, and trigger a closure rebuild."
       />
 
-      <div className="max-w-md mb-[var(--spacing-section)]">
+      <div className="max-w-md">
         <SearchInput
           value={search}
           onChange={setSearch}

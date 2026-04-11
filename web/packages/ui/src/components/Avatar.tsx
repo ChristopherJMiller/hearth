@@ -69,7 +69,7 @@ export function Avatar({
   const box = (
     <span
       className={`relative inline-flex items-center justify-center overflow-hidden rounded-full shrink-0 ${s.box} ${
-        ring ? "ring-2 ring-[var(--color-border-accent)] ring-offset-2 ring-offset-[var(--color-surface)]" : ""
+        ring ? "ring-2 ring-border-accent ring-offset-2 ring-offset-surface" : ""
       }`}
     >
       {content}

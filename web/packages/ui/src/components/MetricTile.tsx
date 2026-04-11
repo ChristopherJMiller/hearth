@@ -78,8 +78,8 @@ export function MetricTile({
   // `self-start` keeps the tile from being stretched to its grid row's height
   // — siblings with more content (e.g. a `sublabel`) used to drag every other
   // tile's height along with them, which read visually as "no padding".
-  const wrapperClass = `group self-start relative flex flex-col gap-3 text-left rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border-subtle)] overflow-hidden p-8 transition-all duration-200 ${
-    onClick ? "cursor-pointer hover:border-[var(--color-border-accent)] hover:bg-[var(--color-surface-raised)]" : ""
+  const wrapperClass = `group self-start relative flex flex-col gap-4 text-left rounded-md bg-surface border border-border-subtle overflow-hidden p-6 transition-all duration-200 ${
+    onClick ? "cursor-pointer hover:border-border-accent hover:bg-surface-raised" : ""
   } ${className}`;
   const inner = (
     <>
@@ -92,13 +92,13 @@ export function MetricTile({
 
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
-          <span className="uppercase font-semibold text-[var(--color-text-tertiary)] text-2xs tracking-wide">
+          <span className="uppercase font-semibold text-text-tertiary text-2xs tracking-wide">
             {label}
           </span>
         </div>
         {icon && (
           <span
-            className="shrink-0 w-10 h-10 rounded-[var(--radius-sm)] flex items-center justify-center"
+            className="shrink-0 w-10 h-10 rounded-sm flex items-center justify-center"
             style={{ background: toneGlow[tone], color }}
           >
             {icon}
@@ -107,14 +107,14 @@ export function MetricTile({
       </div>
 
       <div className="flex items-end justify-between gap-3">
-        <div className="font-semibold leading-none text-[var(--color-text-primary)] tabular-nums text-3xl tracking-tight">
+        <div className="font-semibold leading-none text-text-primary tabular-nums text-3xl tracking-tight">
           {value}
         </div>
         {sparkline && sparkline.length > 1 && <Sparkline data={sparkline} color={color} />}
       </div>
 
       {(sublabel || delta) && (
-        <div className="flex items-center gap-2 text-[var(--color-text-secondary)] text-xs">
+        <div className="flex items-center gap-2 text-text-secondary text-xs">
           {delta && (
             <span
               className="inline-flex items-center gap-1 font-medium"
@@ -129,7 +129,7 @@ export function MetricTile({
             >
               {delta.direction === "up" ? "▲" : delta.direction === "down" ? "▼" : "—"}
               {Math.abs(delta.value)}
-              {delta.period && <span className="text-[var(--color-text-tertiary)] ml-0.5">/{delta.period}</span>}
+              {delta.period && <span className="text-text-tertiary ml-0.5">/{delta.period}</span>}
             </span>
           )}
           {sublabel}

@@ -47,8 +47,11 @@ pub enum EvalError {
 pub async fn evaluate_flake(flake_ref: &str) -> Result<Vec<NixEvalResult>, EvalError> {
     info!(flake_ref, "starting nix-eval-jobs");
 
+    let mut args = super::nix_extra_args();
+    args.extend(["--flake".into(), flake_ref.into()]);
+
     let mut child = Command::new("nix-eval-jobs")
-        .args(["--flake", flake_ref])
+        .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -86,8 +89,11 @@ pub async fn evaluate_expr(expr_path: &str) -> Result<Vec<NixEvalResult>, EvalEr
 
     let expr = format!("import {expr_path}");
 
+    let mut args = super::nix_extra_args();
+    args.extend(["--expr".into(), expr]);
+
     let mut child = Command::new("nix-eval-jobs")
-        .args(["--expr", &expr])
+        .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

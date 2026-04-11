@@ -73,11 +73,11 @@ export function BuildJobDetailPage() {
         }
       />
 
-      <div className="flex flex-col gap-[var(--spacing-card-gap)]">
+      <div className="flex flex-col gap-card-gap">
         <Card>
           <div className="flex items-center gap-3 mb-5">
-            <LuHammer size={16} className="text-[var(--color-text-tertiary)]" />
-            <h2 className="font-semibold text-[var(--color-text-primary)] text-lg">
+            <LuHammer size={16} className="text-text-tertiary" />
+            <h2 className="font-semibold text-text-primary text-lg">
               Status
             </h2>
             <div className="ml-auto"><StatusChip status={job.status} /></div>
@@ -87,15 +87,15 @@ export function BuildJobDetailPage() {
             columns={2}
             items={[
               { label: 'Flake reference', value: <span className="font-mono break-all text-xs">{job.flake_ref}</span>, span: 2 },
-              { label: 'Closure', value: job.closure ? <span className="font-mono break-all text-xs">{job.closure}</span> : <span className="italic text-[var(--color-text-tertiary)]">not yet built</span>, span: 2 },
+              { label: 'Closure', value: job.closure ? <span className="font-mono break-all text-xs">{job.closure}</span> : <span className="italic text-text-tertiary">not yet built</span>, span: 2 },
               { label: 'Closures built', value: job.closures_built ?? '—' },
               { label: 'Closures pushed', value: job.closures_pushed ?? '—' },
               { label: 'Total machines', value: job.total_machines ?? '—' },
-              { label: 'Worker', value: job.worker_id ?? <span className="italic text-[var(--color-text-tertiary)]">unclaimed</span> },
+              { label: 'Worker', value: job.worker_id ?? <span className="italic text-text-tertiary">unclaimed</span> },
               { label: 'Canary', value: `${job.canary_size}` },
               { label: 'Batch', value: `${job.batch_size}` },
               { label: 'Failure threshold', value: `${(job.failure_threshold * 100).toFixed(0)}%` },
-              { label: 'Claimed at', value: job.claimed_at ? formatDateTime(job.claimed_at) : <span className="italic text-[var(--color-text-tertiary)]">never</span> },
+              { label: 'Claimed at', value: job.claimed_at ? formatDateTime(job.claimed_at) : <span className="italic text-text-tertiary">never</span> },
               { label: 'Created', value: formatDateTime(job.created_at) },
               { label: 'Updated', value: formatDateTime(job.updated_at) },
             ]}

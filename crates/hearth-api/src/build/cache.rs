@@ -13,9 +13,22 @@ pub enum CacheError {
     SpawnFailed(#[source] std::io::Error),
 }
 
+/// Sign a store path with the cache signing key (if configured).
+async fn sign_path(store_path: &str) {
+    if let Ok(key_file) = std::env::var("HEARTH_CACHE_SIGNING_KEY") {
+        let _ = Command::new("nix")
+            .args(["store", "sign", "--key-file", &key_file, store_path])
+            .output()
+            .await;
+    }
+}
+
 /// Push a single store path to the Attic cache.
 pub async fn push_to_cache(cache_name: &str, store_path: &str) -> Result<(), CacheError> {
     debug!(cache = cache_name, path = store_path, "pushing to Attic");
+
+    // Sign the path before pushing (if signing key is configured).
+    sign_path(store_path).await;
 
     let output = Command::new("attic")
         .args(["push", cache_name, store_path])

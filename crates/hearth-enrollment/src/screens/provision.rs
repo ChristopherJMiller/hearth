@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 use crate::app::EnrollmentData;
 use crate::ui;
 
-use hearth_common::api_client::ReqwestApiClient;
+use hearth_common::api_client::{HearthApiClient, ReqwestApiClient};
 
 #[derive(Debug)]
 struct BlockDevice {
@@ -84,7 +84,13 @@ impl ProvisionScreen {
             return;
         }
         self.started = true;
-        self.client = Some(ReqwestApiClient::new(data.server_url.clone()));
+        // Use the machine token (if available) for authenticated API calls
+        // (e.g., fetching fresh cache tokens). Fall back to user token or no auth.
+        self.client = Some(match (&data.machine_token, &data.user_token) {
+            (Some(token), _) => ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone()),
+            (_, Some(token)) => ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone()),
+            _ => ReqwestApiClient::new(data.server_url.clone()),
+        });
         self.machine_id = data.machine_id;
         // If the enrollment data already has a target closure (set during approval),
         // use it directly.
@@ -431,16 +437,19 @@ impl ProvisionScreen {
             "Running disko with config '{config_name}' on {dev}..."
         ));
 
-        // disko --mode format+mount partitions, formats, and mounts to /mnt.
-        // --arg-str passes the device path to the Nix function.
+        // disko [options] disk-config.nix — config file must be LAST.
+        // --argstr (no hyphen) passes a string argument to the Nix expression.
+        // --no-deps avoids fetching extra dependencies (use what's in the store).
         match Self::run_cmd(
             "disko",
             &[
                 "--mode",
-                "format+mount",
-                "--arg-str",
+                "format,mount",
+                "--argstr",
                 "device",
                 &dev,
+                "--yes-wipe-all-disks",
+                "--no-deps",
                 &config_path,
             ],
         )
@@ -492,14 +501,17 @@ impl ProvisionScreen {
     /// Write /etc/nix/netrc with bearer credentials for the cache server,
     /// enabling authenticated access during nixos-install.
     async fn write_netrc(&mut self, cache_url: &str, token: &str) -> Result<(), String> {
-        // Extract the hostname from the cache URL for the netrc machine field.
-        let host = cache_url
+        // Extract the hostname (without port) from the cache URL for the netrc
+        // machine field. Curl matches netrc entries by hostname only — including
+        // the port would cause a silent auth failure.
+        let host_port = cache_url
             .strip_prefix("http://")
             .or_else(|| cache_url.strip_prefix("https://"))
             .unwrap_or(cache_url)
             .split('/')
             .next()
             .unwrap_or(cache_url);
+        let host = host_port.split(':').next().unwrap_or(host_port);
 
         let netrc_content = format!("machine {host}\nlogin bearer\npassword {token}\n");
 
@@ -579,6 +591,21 @@ impl ProvisionScreen {
             progress: "Starting NixOS installation...".into(),
         };
         self.log(format!("Installing system closure: {closure}"));
+
+        // Fetch a fresh cache token from the API before nixos-install.
+        // The token from enrollment approval may have expired.
+        if let Some(client) = &self.client {
+            match client.get_cache_token().await {
+                Ok(creds) => {
+                    self.cache_url = Some(creds.cache_url);
+                    self.cache_token = Some(creds.cache_token);
+                    self.log("Obtained fresh cache credentials from API");
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to get cache token, using existing credentials");
+                }
+            }
+        }
 
         // If we have cache credentials, write netrc and configure substituters.
         let mut extra_args: Vec<String> = Vec::new();
@@ -669,7 +696,7 @@ impl ProvisionScreen {
                     return false;
                 }
 
-                // Poll every 3 seconds
+                // Poll the API every 3 seconds for the target closure.
                 let should_poll = match self.last_poll {
                     Some(last) => last.elapsed().as_secs() >= 3,
                     None => true,
@@ -677,9 +704,33 @@ impl ProvisionScreen {
 
                 if should_poll {
                     self.last_poll = Some(Instant::now());
-                    // Closure should have been set by the status screen.
-                    // If not, just keep waiting.
-                    self.log("Waiting for target closure...");
+
+                    if let (Some(client), Some(machine_id)) = (&self.client, self.machine_id) {
+                        match client.get_enrollment_status(machine_id).await {
+                            Ok(resp) => {
+                                if let Some(closure) = resp.target_closure {
+                                    info!(%closure, "received target closure from API");
+                                    self.target_closure = Some(closure);
+                                } else if resp.build_error.is_some() {
+                                    let err = resp.build_error.unwrap_or_default();
+                                    let status = resp.build_status.unwrap_or_default();
+                                    warn!(%status, %err, "build failed for this machine");
+                                    self.state = ProvisionState::Error {
+                                        step: "system build".into(),
+                                        message: format!("Build failed: {err}"),
+                                    };
+                                } else {
+                                    let status = resp.build_status.unwrap_or_else(|| "unknown".into());
+                                    self.log(format!("Building system image... (status: {status})"));
+                                }
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "failed to poll for closure");
+                            }
+                        }
+                    } else {
+                        self.log("Waiting for target closure...");
+                    }
                 }
             }
             // These states are driven by user input or are terminal
@@ -943,18 +994,17 @@ impl ProvisionScreen {
     }
 
     fn render_error(&self, frame: &mut Frame, area: Rect, step: &str, message: &str) {
-        // Wrap long error messages to fit in the area
-        let lines = vec![
+        let header = vec![
             Line::from(""),
             Line::from(Span::styled(
                 format!("  Error during: {step}"),
                 Style::default().fg(Color::Red).bold(),
             )),
             Line::from(""),
-            Line::from(Span::styled(
-                format!("  {message}"),
-                Style::default().fg(Color::Red),
-            )),
+        ];
+        let max_width = area.width.saturating_sub(4) as usize;
+        let err_lines = ui::textwrap_lines(message, max_width, Color::Red);
+        let footer = vec![
             Line::from(""),
             Line::from(""),
             Line::from(Span::styled(
@@ -962,7 +1012,12 @@ impl ProvisionScreen {
                 Style::default().fg(ui::MUTED),
             )),
         ];
-        frame.render_widget(Paragraph::new(lines), area);
+        let all: Vec<Line> = header
+            .into_iter()
+            .chain(err_lines)
+            .chain(footer)
+            .collect();
+        frame.render_widget(Paragraph::new(all), area);
     }
 
     fn render_log_lines(&self, frame: &mut Frame, area: Rect) {

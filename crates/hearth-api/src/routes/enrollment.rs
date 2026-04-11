@@ -132,6 +132,8 @@ pub async fn enroll(
         disko_config: None,
         headscale_preauth_key: None,
         headscale_url: None,
+        build_status: None,
+        build_error: None,
     };
 
     Ok((StatusCode::CREATED, Json(resp)))
@@ -218,8 +220,9 @@ async fn auto_approve_enrollment(
             );
 
             // Queue a build job for the machine.
-            let flake_ref = std::env::var("HEARTH_FLAKE_REF")
-                .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
+            let flake_ref = std::env::var("HEARTH_FLAKE_REF").map_err(|_| {
+                AppError::Internal("HEARTH_FLAKE_REF not configured on server".into())
+            })?;
             let machine_filter = serde_json::json!({ "machine_ids": [id.to_string()] });
             match repo::enqueue_build_job(&state.pool, &flake_ref, Some(&machine_filter), 1, 1, 1.0)
                 .await
@@ -254,6 +257,8 @@ async fn auto_approve_enrollment(
                     disko_config: resp_disko,
                     headscale_preauth_key: hs_key,
                     headscale_url: hs_url,
+                    build_status: Some("pending".into()),
+                    build_error: None,
                 }),
             ))
         }
@@ -274,6 +279,8 @@ async fn auto_approve_enrollment(
                     disko_config: None,
                     headscale_preauth_key: None,
                     headscale_url: None,
+                    build_status: None,
+                    build_error: None,
                 }),
             ))
         }
@@ -359,8 +366,9 @@ pub async fn approve(
             // Queue an async build job for the machine-specific closure.
             // The build worker will produce a closure incorporating the
             // device's hardware_config and instance data.
-            let flake_ref = std::env::var("HEARTH_FLAKE_REF")
-                .unwrap_or_else(|_| "github:myorg/fleet-config".to_string());
+            let flake_ref = std::env::var("HEARTH_FLAKE_REF").map_err(|_| {
+                AppError::Internal("HEARTH_FLAKE_REF not configured on server".into())
+            })?;
             let machine_filter = serde_json::json!({
                 "machine_ids": [id.to_string()]
             });
@@ -402,6 +410,8 @@ pub async fn approve(
                 disko_config: resp_disko,
                 headscale_preauth_key: hs_key,
                 headscale_url: hs_url,
+                build_status: Some("pending".into()),
+                build_error: None,
             }))
         }
         None => Err(AppError::NotFound(format!(
@@ -483,6 +493,17 @@ pub async fn enrollment_status(
                 (None, None, None, None, None, None)
             };
 
+            // Look up the latest build job for this machine so the enrollment
+            // client can see build progress or errors.
+            let (build_status, build_error) =
+                match repo::latest_build_job_for_machine(&state.pool, id).await {
+                    Ok(Some(job)) => {
+                        let status_str = format!("{:?}", job.status).to_lowercase();
+                        (Some(status_str), job.error_message)
+                    }
+                    _ => (None, None),
+                };
+
             Ok(Json(EnrollmentResponse {
                 machine_id: machine.id,
                 status: machine.enrollment_status,
@@ -495,6 +516,8 @@ pub async fn enrollment_status(
                 disko_config: resp_disko,
                 headscale_preauth_key: resp_hs_key,
                 headscale_url: resp_hs_url,
+                build_status,
+                build_error,
             }))
         }
         None => Err(AppError::NotFound(format!("machine {id} not found"))),

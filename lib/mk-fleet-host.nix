@@ -84,6 +84,7 @@ nixpkgs.lib.nixosSystem {
     ../modules/compliance/default.nix
     ../modules/secure-boot.nix
     ../modules/tpm-fde.nix
+    ../modules/services.nix
     ../modules/headscale-client.nix
     ../modules/chat.nix
     ../modules/nextcloud.nix
