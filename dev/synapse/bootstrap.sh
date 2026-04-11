@@ -85,10 +85,10 @@ register_user() {
             '{nonce: $nonce, username: $user, password: $pass, mac: $mac, admin: $admin}')")
 
     if echo "$response" | jq -e '.access_token' > /dev/null 2>&1; then
-        echo "    Created user '$username'"
+        echo "    Created user '$username'" >&2
         echo "$response" | jq -r '.access_token'
     elif echo "$response" | grep -q "User ID already taken"; then
-        echo "    User '$username' already exists"
+        echo "    User '$username' already exists" >&2
         # Login to get access token
         local login_resp
         login_resp=$(curl -s -X POST "$SYNAPSE_URL/_matrix/client/v3/login" \
@@ -99,7 +99,7 @@ register_user() {
                 '{type: "m.login.password", identifier: {type: "m.id.user", user: $user}, password: $pass}')")
         echo "$login_resp" | jq -r '.access_token // empty'
     else
-        echo "    ERROR registering '$username': $response"
+        echo "    ERROR registering '$username': $response" >&2
         return 1
     fi
 }
