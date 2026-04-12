@@ -54,7 +54,7 @@ pkgs.testers.nixosTest {
         })
       ];
 
-      services.kanidm.package = pkgs.kanidm_1_7;
+      # kanidm version pinned via Hearth overlay (pkgs.kanidm = kanidm_1_9)
 
       services.hearth.agent = {
         enable = true;

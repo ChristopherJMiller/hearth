@@ -24,7 +24,11 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ rust-overlay.overlays.default ];
+          overlays = [
+            rust-overlay.overlays.default
+            # Pin kanidm globally so all modules/tests use 1.9.
+            (final: prev: { kanidm = prev.kanidm_1_9; })
+          ];
         };
 
         # Use the stable toolchain specified in rust-toolchain.toml
@@ -181,11 +185,8 @@
 
         lib = pkgs.lib;
 
-        # pkgs with kanidm allowed (marked insecure in this nixpkgs)
-        kanidmPkgs = import nixpkgs {
-          inherit system;
-          config.permittedInsecurePackages = [ "kanidm-1.7.4" ];
-        };
+        # kanidm is pinned to 1.9 via the overlay — no separate pkgs needed.
+        kanidmPkgs = pkgs;
 
         # VM integration tests (Linux only)
         vmTests = lib.optionalAttrs pkgs.stdenv.isLinux {
@@ -318,6 +319,8 @@
         hearth-enrollment = self.packages.${prev.system}.hearth-enrollment;
         hearth-api = self.packages.${prev.system}.hearth-api;
         hearth-build-worker = self.packages.${prev.system}.hearth-build-worker;
+        # Pin kanidm version globally — all modules and tests use this.
+        kanidm = prev.kanidm_1_9;
       };
 
       # --- NixOS Modules ---

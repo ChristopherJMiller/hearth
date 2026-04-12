@@ -13,7 +13,7 @@
 #       imports = [ (kanidmTest.module {}) ];
 #     };
 #     nodes.client = {
-#       services.kanidm.package = pkgs.kanidm_1_7;
+#       services.kanidm.package = pkgs.kanidm;
 #       services.hearth.kanidmClient = {
 #         enable = true;
 #         uri = "https://kanidm:8443";
@@ -71,7 +71,7 @@ let
     set -euo pipefail
 
     KANIDM_URL="https://localhost:8443"
-    KANIDMD="${pkgs.kanidm_1_7}/bin/kanidmd"
+    KANIDMD="${pkgs.kanidm}/bin/kanidmd"
     C="curl -sk"
 
     echo "[bootstrap] Waiting for Kanidm..."
@@ -200,7 +200,7 @@ in
   # Usage: imports = [ (kanidmTest.module {}) ];
   module = { port ? 8443 }: { config, ... }: {
     services.kanidm = {
-      package = pkgs.kanidm_1_7;
+      package = pkgs.kanidm;
       server.enable = true;
       server.settings = {
         origin = "https://kanidm:${toString port}";

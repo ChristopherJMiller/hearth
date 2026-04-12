@@ -8,4 +8,4 @@ DB_URL="${DATABASE_URL:-postgres://hearth:hearth@localhost:5432/hearth}"
 echo "==> Seeding demo data..."
 psql "$DB_URL" -f "$SCRIPT_DIR/seed-demo-data.sql" --quiet
 echo "    Demo data seeded (18 catalog entries, 4 compliance policies)"
-echo "    Machines are not seeded — enroll a fleet VM (just fleet-vm) or run just enroll <name>"
+echo "    Run 'just fleet-vm' to boot a pre-enrolled fleet VM"

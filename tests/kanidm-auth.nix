@@ -33,7 +33,7 @@ pkgs.testers.nixosTest {
         ../modules/kanidm-client.nix
       ];
 
-      services.kanidm.package = pkgs.kanidm_1_7;
+      # kanidm version pinned via Hearth overlay (pkgs.kanidm = kanidm_1_9)
 
       services.hearth.pam = {
         enable = true;

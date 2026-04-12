@@ -265,9 +265,24 @@ destroy-vm name:
     rm -f dev/vms/{{name}}.qcow2
     @echo "Removed dev/vms/{{name}}.qcow2"
 
-# Run the pre-built fleet VM
+# Run a pre-enrolled fleet VM (requires `just demo` to be running)
 fleet-vm:
-    nix run .#fleet-vm
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DB_URL="${DATABASE_URL:-postgres://hearth:hearth@localhost:5432/hearth}"
+    MACHINE_ID=$(uuidgen)
+
+    echo "==> Registering fleet-vm as machine $MACHINE_ID..."
+    psql "$DB_URL" --quiet -c "
+        INSERT INTO machines (id, hostname, enrollment_status, role, tags, hardware_fingerprint)
+        VALUES ('$MACHINE_ID', 'hearth-fleet-vm', 'active', 'developer', '{}', 'fleet-vm-$(date +%s)')
+    "
+
+    echo "==> Building and booting fleet VM..."
+    echo "    Machine ID: $MACHINE_ID"
+    echo "    Login with: testadmin / test-demo-enrollment"
+    echo ""
+    HEARTH_FLEET_VM_MACHINE_ID="$MACHINE_ID" nix run --impure .#fleet-vm
 
 # Run all checks (clippy, fmt, tests)
 check:

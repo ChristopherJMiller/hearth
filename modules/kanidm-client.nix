@@ -67,6 +67,7 @@ in
     services.kanidm = {
       client.enable = true;
       unix.enable = true;
+      # Uses pkgs.kanidm which is pinned to 1.9 via the Hearth overlay.
 
       client.settings = {
         uri = cfg.uri;
