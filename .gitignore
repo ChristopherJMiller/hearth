@@ -27,6 +27,7 @@ result-*
 dev/*.qcow2
 dev/*.img
 dev/vms/
+dev/fleet-vm-logs/
 dev/kanidm/.env
 # Only ignore the private key — the cert is public and needed by the enrollment ISO
 dev/kanidm/key.pem

@@ -278,9 +278,14 @@ fleet-vm:
         VALUES ('$MACHINE_ID', 'hearth-fleet-vm', 'active', 'developer', '{}', 'fleet-vm-$(date +%s)')
     "
 
+    # Create log directory for 9p shared mount
+    export FLEET_VM_LOGS="$(pwd)/dev/fleet-vm-logs"
+    mkdir -p "$FLEET_VM_LOGS"
+
     echo "==> Building and booting fleet VM..."
     echo "    Machine ID: $MACHINE_ID"
     echo "    Login with: testadmin / test-demo-enrollment"
+    echo "    Logs will appear in: dev/fleet-vm-logs/"
     echo ""
     HEARTH_FLEET_VM_MACHINE_ID="$MACHINE_ID" nix run --impure .#fleet-vm
 

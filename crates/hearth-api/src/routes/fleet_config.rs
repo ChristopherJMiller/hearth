@@ -1,8 +1,8 @@
 use axum::body::Body;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use std::path::{Path, PathBuf};
 
 use crate::error::AppError;

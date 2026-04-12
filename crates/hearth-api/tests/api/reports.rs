@@ -26,9 +26,14 @@ async fn compliance_report_empty() {
 async fn compliance_report_with_machines() {
     let (app, _db) = test_app().await;
 
-    // Create machines — they'll have no target so should count as no_target
+    // Create machines and mark them active — compliance report only counts active machines
     for name in ["comp-a", "comp-b"] {
         create_machine_http(&app, name).await;
+        sqlx::query("UPDATE machines SET enrollment_status = 'active' WHERE hostname = $1")
+            .bind(name)
+            .execute(&_db.pool)
+            .await
+            .unwrap();
     }
 
     let (status, report): (_, Value) =

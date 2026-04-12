@@ -193,9 +193,7 @@ pub async fn authenticate_with_credentials(
             .get("ConsentRequested")
             .and_then(|cr| cr.get("consent_token"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                format!("unexpected authorize response: {body}")
-            })?;
+            .ok_or_else(|| format!("unexpected authorize response: {body}"))?;
 
         debug!("approving OAuth2 consent");
 

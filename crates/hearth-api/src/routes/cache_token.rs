@@ -32,6 +32,8 @@ pub async fn get_cache_token(
         Ok(None) => Err(AppError::Internal(
             "binary cache not configured (HEARTH_ATTIC_TOKEN_SECRET not set)".into(),
         )),
-        Err(e) => Err(AppError::Internal(format!("failed to mint cache token: {e}"))),
+        Err(e) => Err(AppError::Internal(format!(
+            "failed to mint cache token: {e}"
+        ))),
     }
 }

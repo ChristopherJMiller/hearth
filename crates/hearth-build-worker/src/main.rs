@@ -220,7 +220,8 @@ async fn execute_user_env_job(pool: &sqlx::PgPool, job: &hearth_api::db::UserEnv
         Ok(r) => r,
         Err(_) => {
             error!(job_id = %job.id, "HEARTH_FLAKE_REF not set — cannot build user env");
-            let _ = repo::fail_user_env_build(pool, job.id, "HEARTH_FLAKE_REF not configured").await;
+            let _ =
+                repo::fail_user_env_build(pool, job.id, "HEARTH_FLAKE_REF not configured").await;
             return;
         }
     };

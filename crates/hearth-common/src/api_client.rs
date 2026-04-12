@@ -85,9 +85,7 @@ pub trait HearthApiClient: Send + Sync {
     ) -> impl Future<Output = Result<UserEnvClosureResponse, ApiError>> + Send;
 
     /// Request a fresh binary cache token from the API.
-    fn get_cache_token(
-        &self,
-    ) -> impl Future<Output = Result<CacheTokenResponse, ApiError>> + Send;
+    fn get_cache_token(&self) -> impl Future<Output = Result<CacheTokenResponse, ApiError>> + Send;
 
     /// Update the bearer token at runtime (e.g. after a refresh from heartbeat).
     /// Default implementation is a no-op for test mocks.

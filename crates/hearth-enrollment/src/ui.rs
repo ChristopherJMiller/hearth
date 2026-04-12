@@ -101,9 +101,7 @@ pub fn textwrap_lines(msg: &str, max_width: usize, color: Color) -> Vec<Line<'st
         }
 
         // Find a word boundary to break at.
-        let break_at = remaining[..width]
-            .rfind(' ')
-            .unwrap_or(width);
+        let break_at = remaining[..width].rfind(' ').unwrap_or(width);
         let (chunk, rest) = remaining.split_at(break_at);
         lines.push(Line::from(Span::styled(
             format!("  {chunk}"),

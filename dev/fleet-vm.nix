@@ -49,6 +49,13 @@ self.lib.mkFleetHost {
           "-device" "virtio-vga-gl"
           "-display" "gtk,gl=on"
         ];
+
+        # Share a host directory for extracting logs from the VM.
+        # Logs appear at dev/fleet-vm-logs/ on the host.
+        sharedDirectories.logs = {
+          source = "\"$FLEET_VM_LOGS\"";
+          target = "/var/log/hearth-vm";
+        };
       };
 
       # --- Network: resolve *.hearth.local to QEMU host gateway ---
@@ -80,6 +87,33 @@ self.lib.mkFleetHost {
         extraGroups = [ "wheel" "hearth" "networkmanager" ];
       };
       security.sudo.wheelNeedsPassword = lib.mkForce false;
+
+      # --- Log export: dump Hearth service logs to the shared directory ---
+      systemd.services.hearth-log-export = {
+        description = "Export Hearth logs to shared directory for host debugging";
+        after = [ "var-log-hearth\\x2dvm.mount" ];
+        requires = [ "var-log-hearth\\x2dvm.mount" ];
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+        # On start, begin tailing all hearth-related journals to files.
+        # ExecStartPost spawns background journalctl processes.
+        script = ''
+          mkdir -p /var/log/hearth-vm
+
+          # Export full journal continuously
+          ${pkgs.systemd}/bin/journalctl -f -o short-iso \
+            > /var/log/hearth-vm/journal.log 2>&1 &
+
+          # Export hearth-specific units
+          for unit in hearth-agent hearth-greeter greetd; do
+            ${pkgs.systemd}/bin/journalctl -f -u "$unit" -o short-iso \
+              > "/var/log/hearth-vm/$unit.log" 2>&1 &
+          done
+        '';
+      };
 
       # --- Development utilities ---
       environment.systemPackages = with pkgs; [

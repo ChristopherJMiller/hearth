@@ -146,8 +146,16 @@ impl LoginScreen {
                 };
                 let cursor_on = "▎";
                 let cursor_off = " ";
-                let u_cursor = if *focused == Field::Username { cursor_on } else { cursor_off };
-                let p_cursor = if *focused == Field::Password { cursor_on } else { cursor_off };
+                let u_cursor = if *focused == Field::Username {
+                    cursor_on
+                } else {
+                    cursor_off
+                };
+                let p_cursor = if *focused == Field::Password {
+                    cursor_on
+                } else {
+                    cursor_off
+                };
                 let masked: String = "•".repeat(password.len());
 
                 let mut lines = vec![
@@ -245,11 +253,7 @@ impl LoginScreen {
                         Style::default().fg(ui::MUTED),
                     )),
                 ];
-                let all: Vec<Line> = items
-                    .into_iter()
-                    .chain(err_lines)
-                    .chain(footer)
-                    .collect();
+                let all: Vec<Line> = items.into_iter().chain(err_lines).chain(footer).collect();
                 frame.render_widget(Paragraph::new(all), inner);
             }
         }
@@ -358,7 +362,13 @@ impl LoginScreen {
                 let kanidm_url = self.kanidm_url.clone();
                 let client_id = self.client_id.clone();
                 info!(username = %username, "starting direct credential auth against Kanidm");
-                match oauth::authenticate_with_credentials(&kanidm_url, &client_id, &username, &password).await
+                match oauth::authenticate_with_credentials(
+                    &kanidm_url,
+                    &client_id,
+                    &username,
+                    &password,
+                )
+                .await
                 {
                     Ok(token) => {
                         let display_name = extract_username_from_jwt(&token.access_token)

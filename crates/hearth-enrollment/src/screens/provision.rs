@@ -87,8 +87,12 @@ impl ProvisionScreen {
         // Use the machine token (if available) for authenticated API calls
         // (e.g., fetching fresh cache tokens). Fall back to user token or no auth.
         self.client = Some(match (&data.machine_token, &data.user_token) {
-            (Some(token), _) => ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone()),
-            (_, Some(token)) => ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone()),
+            (Some(token), _) => {
+                ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone())
+            }
+            (_, Some(token)) => {
+                ReqwestApiClient::new_with_token(data.server_url.clone(), token.clone())
+            }
             _ => ReqwestApiClient::new(data.server_url.clone()),
         });
         self.machine_id = data.machine_id;
@@ -720,8 +724,11 @@ impl ProvisionScreen {
                                         message: format!("Build failed: {err}"),
                                     };
                                 } else {
-                                    let status = resp.build_status.unwrap_or_else(|| "unknown".into());
-                                    self.log(format!("Building system image... (status: {status})"));
+                                    let status =
+                                        resp.build_status.unwrap_or_else(|| "unknown".into());
+                                    self.log(format!(
+                                        "Building system image... (status: {status})"
+                                    ));
                                 }
                             }
                             Err(e) => {
@@ -1012,11 +1019,7 @@ impl ProvisionScreen {
                 Style::default().fg(ui::MUTED),
             )),
         ];
-        let all: Vec<Line> = header
-            .into_iter()
-            .chain(err_lines)
-            .chain(footer)
-            .collect();
+        let all: Vec<Line> = header.into_iter().chain(err_lines).chain(footer).collect();
         frame.render_widget(Paragraph::new(all), area);
     }
 

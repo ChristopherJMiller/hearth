@@ -21,11 +21,7 @@ pub fn nix_extra_args() -> Vec<String> {
         "0".into(),
     ];
     if let Ok(url) = std::env::var("ATTIC_CACHE_URL") {
-        args.extend([
-            "--option".into(),
-            "extra-substituters".into(),
-            url,
-        ]);
+        args.extend(["--option".into(), "extra-substituters".into(), url]);
     }
     args
 }

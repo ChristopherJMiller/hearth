@@ -43,9 +43,7 @@ pub async fn list_people(
         .map(|s| s.url.as_str());
     let people: Vec<DirectoryPerson> = rows
         .into_iter()
-        .map(|row| {
-            build_directory_person(row, state.matrix_server_name.as_deref(), nextcloud_url)
-        })
+        .map(|row| build_directory_person(row, state.matrix_server_name.as_deref(), nextcloud_url))
         .collect();
     Ok(Json(people))
 }

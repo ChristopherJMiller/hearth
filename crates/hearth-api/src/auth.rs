@@ -469,10 +469,23 @@ impl FromRequestParts<AppState> for MachineIdentity {
         let token = extract_bearer(parts)
             .ok_or_else(|| AuthError(StatusCode::UNAUTHORIZED, "missing Bearer token".into()))?;
 
-        let machine_id = validate_machine_token(token, secret)
-            .map_err(|e| AuthError(StatusCode::UNAUTHORIZED, e))?;
-
-        Ok(MachineIdentity(machine_id))
+        match validate_machine_token(token, secret) {
+            Ok(machine_id) => Ok(MachineIdentity(machine_id)),
+            Err(e) => {
+                // If the token is a valid user JWT, return 403 (wrong token type)
+                // rather than 401 (unauthenticated).
+                if let Ok(keyset) = get_jwks(&state.auth_config).await
+                    && validate_user_token(token, &keyset, &state.auth_config.oidc_audiences)
+                        .is_ok()
+                {
+                    return Err(AuthError(
+                        StatusCode::FORBIDDEN,
+                        "this endpoint requires machine identity".into(),
+                    ));
+                }
+                Err(AuthError(StatusCode::UNAUTHORIZED, e))
+            }
+        }
     }
 }
 

@@ -326,6 +326,11 @@ async fn handle_login(
     // --- Step 1: Authenticate with greetd ---
     let mut greetd = GreetdClient::connect().await?;
 
+    // Cancel any stale session left over from a previous failed attempt or
+    // greeter restart. greetd returns an error if there is no session to
+    // cancel, which we intentionally ignore.
+    let _ = greetd.cancel_session().await;
+
     let resp = greetd.create_session(username).await?;
     match handle_auth_flow(&mut greetd, resp, password).await? {
         AuthOutcome::Success => {
@@ -355,14 +360,13 @@ async fn handle_login(
     let session_cmd = match prepare_environment(config, update_tx, username, groups).await {
         Ok(()) => config.session.command.clone(),
         Err(e) => {
-            warn!(%e, "environment preparation failed, offering fallback");
+            warn!(%e, "environment preparation failed, cancelling greetd session");
+            let _ = greetd.cancel_session().await;
             let _ = update_tx
                 .send(UiUpdate::PrepError(format!(
                     "Environment preparation failed: {e}. You can use the fallback session."
                 )))
                 .await;
-            // Don't return an error — we want the user to be able to click fallback.
-            // We wait for fallback click in the outer loop.
             return Err(GreeterError::Other(
                 "environment preparation failed".to_string(),
             ));

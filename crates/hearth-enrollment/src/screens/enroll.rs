@@ -133,11 +133,7 @@ impl EnrollScreen {
                         Style::default().fg(ui::MUTED),
                     )),
                 ];
-                let all: Vec<Line> = items
-                    .into_iter()
-                    .chain(err_lines)
-                    .chain(footer)
-                    .collect();
+                let all: Vec<Line> = items.into_iter().chain(err_lines).chain(footer).collect();
                 frame.render_widget(Paragraph::new(all), inner);
             }
         }

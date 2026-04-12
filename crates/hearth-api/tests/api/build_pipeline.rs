@@ -27,25 +27,15 @@ async fn config_gen_includes_approved_machines() {
     let machine_id = machine.id;
 
     // Set enrollment status to Approved.
-    hearth_api::repo::approve_enrollment(
-        &db.pool,
-        machine_id,
-        "default",
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    hearth_api::repo::approve_enrollment(&db.pool, machine_id, "default", None, None, None)
+        .await
+        .unwrap();
 
     // Generate fleet config with a target filter for this machine.
     let filter = json!({"machine_ids": [machine_id.to_string()]});
-    let fleet = hearth_api::build::config_gen::generate_fleet_config(
-        &db.pool,
-        Some(&filter),
-    )
-    .await
-    .unwrap();
+    let fleet = hearth_api::build::config_gen::generate_fleet_config(&db.pool, Some(&filter))
+        .await
+        .unwrap();
 
     assert_eq!(
         fleet.machines.len(),
@@ -73,12 +63,9 @@ async fn config_gen_excludes_pending_machines() {
     let machine: hearth_common::api_types::Machine = row.into();
 
     let filter = json!({"machine_ids": [machine.id.to_string()]});
-    let fleet = hearth_api::build::config_gen::generate_fleet_config(
-        &db.pool,
-        Some(&filter),
-    )
-    .await
-    .unwrap();
+    let fleet = hearth_api::build::config_gen::generate_fleet_config(&db.pool, Some(&filter))
+        .await
+        .unwrap();
 
     assert_eq!(
         fleet.machines.len(),
@@ -168,10 +155,7 @@ async fn enrollment_status_shows_build_error() {
     .unwrap();
 
     // Poll enrollment status — should include the build error.
-    let status_uri = format!(
-        "/api/v1/machines/{}/enrollment-status",
-        resp.machine_id
-    );
+    let status_uri = format!("/api/v1/machines/{}/enrollment-status", resp.machine_id);
     let (status, check): (_, EnrollmentResponse) =
         send_json(&app, "GET", &status_uri, None, None).await;
     assert_eq!(status, 200);
@@ -211,10 +195,7 @@ async fn enrollment_status_shows_pending_build() {
     assert_eq!(resp.status, EnrollmentStatus::Approved);
 
     // Poll status — build should be pending.
-    let status_uri = format!(
-        "/api/v1/machines/{}/enrollment-status",
-        resp.machine_id
-    );
+    let status_uri = format!("/api/v1/machines/{}/enrollment-status", resp.machine_id);
     let (status, check): (_, EnrollmentResponse) =
         send_json(&app, "GET", &status_uri, None, None).await;
     assert_eq!(status, 200);
@@ -374,16 +355,9 @@ async fn latest_build_job_for_machine_query() {
     assert!(result.is_none());
 
     // Create a job targeting this machine.
-    let job = hearth_api::repo::enqueue_build_job(
-        &db.pool,
-        "path:/test",
-        Some(&filter),
-        1,
-        1,
-        1.0,
-    )
-    .await
-    .unwrap();
+    let job = hearth_api::repo::enqueue_build_job(&db.pool, "path:/test", Some(&filter), 1, 1, 1.0)
+        .await
+        .unwrap();
 
     // Should find it.
     let result = hearth_api::repo::latest_build_job_for_machine(&db.pool, machine_id)
@@ -393,16 +367,10 @@ async fn latest_build_job_for_machine_query() {
     assert_eq!(result.unwrap().id, job.id);
 
     // Create a second job — should return the newer one.
-    let job2 = hearth_api::repo::enqueue_build_job(
-        &db.pool,
-        "path:/test-v2",
-        Some(&filter),
-        1,
-        1,
-        1.0,
-    )
-    .await
-    .unwrap();
+    let job2 =
+        hearth_api::repo::enqueue_build_job(&db.pool, "path:/test-v2", Some(&filter), 1, 1, 1.0)
+            .await
+            .unwrap();
 
     let result = hearth_api::repo::latest_build_job_for_machine(&db.pool, machine_id)
         .await

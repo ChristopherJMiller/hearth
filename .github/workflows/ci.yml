@@ -81,6 +81,9 @@ jobs:
       - name: pnpm install
         run: nix develop --command bash -c "cd web && pnpm install --frozen-lockfile"
 
+      - name: build ui types
+        run: nix develop --command bash -c "cd web && pnpm --filter @hearth/ui build"
+
       - name: typecheck
         run: nix develop --command bash -c "cd web && pnpm typecheck"
 
