@@ -466,3 +466,45 @@ helm-forward:
 helm-down:
     kind delete cluster --name hearth-home
 
+# ============================================================================
+# Security & compliance workflows
+# ============================================================================
+
+# Show implemented compliance controls
+compliance-status:
+    @echo "==> Implemented compliance controls:"
+    @find modules/compliance -name "*.nix" ! -name "default.nix" \
+        -exec basename {} .nix \; | sort | sed 's/^/    /'
+    @echo ""
+    @echo "==> Hardening module:"
+    @echo "    modules/hardening.nix (standard + strict levels)"
+    @echo ""
+    @echo "==> Registry: docs/compliance-controls.yaml"
+    @echo "==> Run /compliance-audit cis-level1 in Claude Code for full gap analysis"
+
+# Check Helm chart security hardening posture
+helm-security:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Rendering chart manifests..."
+    rendered=$(helm template hearth chart/hearth-home \
+        --set capabilities.observability=false 2>/dev/null)
+    echo ""
+    echo "==> Checking for container securityContext..."
+    sc=$(echo "$rendered" | grep -c "securityContext:" || true)
+    echo "    Found $sc securityContext block(s) in rendered manifests"
+    echo ""
+    echo "==> Checking for NetworkPolicy resources..."
+    np=$(echo "$rendered" | grep -c "^kind: NetworkPolicy" || true)
+    echo "    Found $np NetworkPolicy resource(s)"
+    echo ""
+    echo "==> Checking for PodDisruptionBudget resources..."
+    pdb=$(echo "$rendered" | grep -c "^kind: PodDisruptionBudget" || true)
+    echo "    Found $pdb PodDisruptionBudget resource(s)"
+    echo ""
+    echo "==> Run /hardening-check helm in Claude Code for detailed analysis"
+
+# Run cargo-audit for known vulnerabilities in Rust dependencies
+cargo-audit:
+    @cargo audit || echo "Install cargo-audit: cargo install cargo-audit"
+

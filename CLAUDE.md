@@ -121,3 +121,85 @@ PostgreSQL with migration files in `migrations/`. Key tables: `machines`, `user_
 - **Rust edition:** 2024
 - **Logging:** `tracing` crate with `RUST_LOG` env var (default: `info`)
 - **CI checks:** clippy with `--deny warnings`, cargo fmt, sqlx prepare --check, pnpm typecheck + build
+
+## Security Development Guidelines
+
+Hearth ships security/compliance tooling — see `SECURITY.md`,
+`docs/threat-model.md`, and `docs/compliance-registry.md`. When making
+changes that affect security, follow these rules.
+
+### Auth requirements
+
+- Every new API route MUST use one of the 5 auth extractors from
+  `crates/hearth-api/src/auth.rs`: `UserIdentity`, `MachineIdentity`,
+  `OptionalIdentity`, `OperatorIdentity`, or `AdminIdentity`.
+- Write operations on fleet state (deployments, approvals, policies)
+  use `AdminIdentity` or `OperatorIdentity`, not `UserIdentity`.
+- Intentionally unauthenticated routes must have a comment explaining
+  why (e.g., `/health`, `/metrics`, the enrollment polling endpoint).
+- Dev mode grants a dev-admin identity when `KANIDM_OIDC_ISSUER` is
+  unset. Never deploy to production without this env var set.
+
+### Input validation and safety
+
+- Use `sqlx` compile-time checked queries (`query!`, `query_as!`).
+  Never construct SQL strings manually.
+- Validate file paths to prevent directory traversal — follow the
+  pattern in `crates/hearth-api/src/routes/compliance.rs` (`serve_sbom_file`).
+- Avoid `.unwrap()` / `.expect()` in request handlers — panics are DoS
+  vectors. `.expect()` at startup on required config is fine.
+- New endpoints that accept JSON should set a body size limit via
+  `axum::extract::DefaultBodyLimit`.
+
+### Secret management
+
+- Secrets come from environment variables in production, never
+  hardcoded.
+- In Helm: use `existingSecret` references for production; the chart
+  supports auto-generated secrets for dev.
+- Machine tokens are HS256 JWTs whose SHA-256 hash is stored in the
+  `machines.machine_token_hash` column for revocation.
+- The `.danger_accept_invalid_certs(true)` pattern is for dev
+  self-signed Kanidm certs only — do not extend it to new call sites.
+
+### Compliance controls
+
+- New NixOS compliance controls go in `modules/compliance/` following
+  the `cis-1-1-1.nix` template (`enable` option + read-only `meta`
+  attribute with `{id, title, severity, description, family,
+  benchmark}`).
+- Wire new controls into `modules/compliance/default.nix` under both
+  `imports` and the appropriate profile's `mkIf` block.
+- Update `docs/compliance-controls.yaml` when adding, changing, or
+  promoting controls.
+- Run `/compliance-audit cis-level1` in Claude Code to check framework
+  coverage.
+
+### Helm chart security
+
+- All new Deployment / StatefulSet / Job templates MUST include a
+  container-level `securityContext` with: `allowPrivilegeEscalation:
+  false`, `readOnlyRootFilesystem: true`, `runAsNonRoot: true`,
+  `capabilities: { drop: [ALL] }`, and `seccompProfile: { type:
+  RuntimeDefault }`.
+- Secrets must never appear in ConfigMaps — use `Secret` +
+  `secretKeyRef` or `envFrom.secretRef`.
+- New services should ship with a corresponding `NetworkPolicy`
+  template.
+
+### Using the security agents and skills
+
+Claude Code agents live in `.claude/agents/` and slash commands in
+`.claude/commands/`. Use them as part of the dev loop:
+
+- `/security-review` — before submitting PRs that touch auth,
+  enrollment, routes, or infrastructure
+- `/compliance-audit <framework>` — when adding controls or checking
+  posture (`cis-level1` is the primary target)
+- `/threat-model <component>` — when adding new data flows, trust
+  boundary crossings, or handlers with significant attack surface
+- `/hardening-check <scope>` — when modifying Helm templates or NixOS
+  modules
+
+Known accepted risks are tracked in `docs/threat-model.md` — consult
+it before re-flagging them.

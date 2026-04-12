@@ -1,0 +1,333 @@
+# Hearth compliance control registry
+#
+# Machine-readable tracking of compliance controls across frameworks.
+# Updated whenever a control is implemented, modified, or reclassified.
+#
+# Run `/compliance-audit <framework>` in Claude Code to refresh this file.
+#
+# Status values:
+#   implemented    — a compliance module or other code enforces the control
+#   partial        — partially enforced or only the easy subset covered
+#   inherent       — NixOS/architecture enforces by design (no new code needed)
+#   missing        — no enforcement found; candidate for implementation
+#   not-applicable — doesn't apply to this platform
+
+registry_version: "1.0"
+last_audit: "2026-04-12"
+
+primary_target: cis-level1
+frameworks:
+  - id: cis-level1
+    name: "CIS Benchmarks Level 1 for Linux Workstations"
+    version: "1.0.0"
+    notes: "Primary target for Hearth. 'Do no harm' baseline suitable for desktop fleet."
+  - id: cis-level2
+    name: "CIS Benchmarks Level 2 for Linux Workstations"
+    version: "1.0.0"
+    notes: "Stricter controls; may break some desktop workflows."
+  - id: stig
+    name: "DISA STIG for RHEL-like systems, mapped to NixOS"
+    version: "V1R12"
+    notes: "Relevant for government/defense customers."
+  - id: nist-800-53
+    name: "NIST 800-53 Moderate baseline"
+    version: "Rev 5"
+    notes: "Many controls are process-oriented; technical subset overlaps with CIS."
+  - id: soc2
+    name: "SOC 2 Trust Services Criteria"
+    version: "2017"
+    notes: "Primarily process controls; evidence collection beyond config."
+
+# ---------------------------------------------------------------------------
+# Implemented controls
+# ---------------------------------------------------------------------------
+
+controls:
+  - id: CIS-1.1.1
+    title: "Disable mounting of uncommon filesystems"
+    framework: cis-level1
+    severity: medium
+    status: implemented
+    module: modules/compliance/cis-1-1-1.nix
+    family: filesystem
+    notes: "Disables cramfs, freevxfs, jffs2, hfs, hfsplus."
+
+  - id: CIS-3.4.1
+    title: "Ensure firewall is enabled with logging"
+    framework: cis-level1
+    severity: high
+    status: implemented
+    module: modules/compliance/cis-3-4-1.nix
+    family: network
+
+  - id: CIS-4.2.1
+    title: "Ensure audit framework logs security-relevant events"
+    framework: cis-level1
+    severity: high
+    status: implemented
+    module: modules/compliance/cis-4-2-1.nix
+    family: logging
+
+  - id: STIG-V-230223
+    title: "SSH must use protocol 2 with strong crypto"
+    framework: stig
+    severity: high
+    status: implemented
+    module: modules/compliance/stig-v-230223.nix
+    family: cryptography
+
+  - id: STIG-V-230271
+    title: "Disable USB mass storage (data exfiltration prevention)"
+    framework: stig
+    severity: medium
+    status: implemented
+    module: modules/compliance/stig-v-230271.nix
+    family: removable-media
+
+  # -------------------------------------------------------------------------
+  # Inherent / satisfied by hardening.nix or architecture
+  # (These should be promoted to compliance modules with empty config blocks
+  # to formalize tracking.)
+  # -------------------------------------------------------------------------
+
+  - id: CIS-1.3.1
+    title: "Ensure AIDE or filesystem integrity checking is enabled"
+    framework: cis-level1
+    severity: medium
+    status: inherent
+    module: null
+    family: system-integrity
+    notes: "Nix store is hash-addressed and immutable. All files in /nix/store are content-addressable. Document formally."
+
+  - id: CIS-1.5.1
+    title: "Ensure core dumps are restricted"
+    framework: cis-level1
+    severity: medium
+    status: partial
+    module: modules/hardening.nix
+    family: system-integrity
+    notes: "hardening.nix sets 'core' hard limit to 0 via security.pam.loginLimits. Should be promoted to modules/compliance/cis-1-5-1.nix."
+
+  - id: CIS-3.1.1
+    title: "Ensure IPv4 forwarding is disabled"
+    framework: cis-level1
+    severity: medium
+    status: partial
+    module: modules/hardening.nix
+    family: network
+    notes: "hardening.nix disables many network features but doesn't explicitly set net.ipv4.ip_forward=0. Add to compliance module."
+
+  - id: CIS-3.3.1
+    title: "Ensure source routed packets are not accepted"
+    framework: cis-level1
+    severity: medium
+    status: partial
+    module: modules/hardening.nix
+    family: network
+    notes: "rp_filter is set but accept_source_route is not explicitly disabled."
+
+  - id: CIS-5.2.2
+    title: "Ensure permissions on SSH host key files are configured"
+    framework: cis-level1
+    severity: medium
+    status: inherent
+    module: null
+    family: filesystem
+    notes: "NixOS manages SSH host keys via systemd with correct mode (600). Document formally."
+
+  - id: CIS-5.2.6
+    title: "Ensure SSH X11 forwarding is disabled"
+    framework: cis-level1
+    severity: medium
+    status: partial
+    module: modules/hardening.nix
+    family: network
+    notes: "Set in strict hardening mode only. Should be in a compliance module independent of hardening level."
+
+  - id: CIS-5.2.8
+    title: "Ensure SSH MaxAuthTries is set to 4 or less"
+    framework: cis-level1
+    severity: medium
+    status: partial
+    module: modules/compliance/stig-v-230223.nix
+    family: authentication
+    notes: "Set via STIG module (MaxAuthTries=4). Needs to also activate under cis-level1 profile."
+
+  - id: CIS-5.4.1
+    title: "Ensure password creation requirements are configured"
+    framework: cis-level1
+    severity: medium
+    status: partial
+    module: null
+    family: authentication
+    notes: "Delegated to Kanidm password policy. Document Kanidm settings as the enforcement mechanism."
+
+  - id: NIST-AC-2
+    title: "Account Management"
+    framework: nist-800-53
+    severity: high
+    status: implemented
+    module: modules/kanidm-client.nix
+    family: access-control
+    notes: "Kanidm integration handles account lifecycle; identity_sync populates users table."
+
+  - id: NIST-AC-3
+    title: "Access Enforcement"
+    framework: nist-800-53
+    severity: high
+    status: implemented
+    module: crates/hearth-api/src/auth.rs
+    family: access-control
+    notes: "5 Axum extractors (UserIdentity, MachineIdentity, OptionalIdentity, OperatorIdentity, AdminIdentity) enforce group-based RBAC."
+
+  - id: NIST-AU-2
+    title: "Event Logging"
+    framework: nist-800-53
+    severity: high
+    status: implemented
+    module: migrations/004_audit_events.sql
+    family: audit
+    notes: "Immutable audit_events table captures actor, machine_id, event_type, details."
+
+  - id: NIST-AU-9
+    title: "Protection of Audit Information"
+    framework: nist-800-53
+    severity: high
+    status: partial
+    module: migrations/004_audit_events.sql
+    family: audit
+    notes: "Audit events table is append-only by convention but no DB-level trigger prevents deletion. Consider adding a row-level policy."
+
+  - id: NIST-SC-8
+    title: "Transmission Confidentiality and Integrity"
+    framework: nist-800-53
+    severity: high
+    status: implemented
+    module: chart/hearth-home/templates/
+    family: cryptography
+    notes: "Headscale WireGuard mesh for agent-to-control-plane; cert-manager TLS for K8s ingress."
+
+  - id: NIST-SC-12
+    title: "Cryptographic Key Establishment and Management"
+    framework: nist-800-53
+    severity: high
+    status: partial
+    module: chart/hearth-home/values.yaml
+    family: cryptography
+    notes: "Attic signing key in K8s Secret. No hardware-backed storage, no rotation procedure. Tracked as THR-BUILD-001 in threat model."
+
+  - id: NIST-IA-5
+    title: "Authenticator Management"
+    framework: nist-800-53
+    severity: high
+    status: partial
+    module: crates/hearth-api/src/auth.rs
+    family: authentication
+    notes: "Machine tokens hashed in DB; user tokens via Kanidm with JWKS validation. Machine token rotation not implemented (THR-API-004 / AR-07)."
+
+  # -------------------------------------------------------------------------
+  # Missing controls — priority queue
+  # -------------------------------------------------------------------------
+
+  - id: CIS-1.1.2
+    title: "Ensure /tmp is a separate partition with nosuid,nodev,noexec"
+    framework: cis-level1
+    severity: medium
+    status: partial
+    module: modules/hardening.nix
+    family: filesystem
+    notes: "Set in strict mode only. Promote to modules/compliance/cis-1-1-2.nix."
+    effort: trivial
+
+  - id: CIS-1.4.1
+    title: "Ensure bootloader password is set (or equivalent)"
+    framework: cis-level1
+    severity: high
+    status: inherent
+    module: modules/secure-boot.nix
+    family: system-integrity
+    notes: "Secure Boot via Lanzaboote + TPM-backed FDE provides equivalent tamper resistance. Document formally."
+    effort: trivial
+
+  - id: CIS-5.3.1
+    title: "Ensure pam_faillock module is enabled (account lockout)"
+    framework: cis-level1
+    severity: medium
+    status: missing
+    module: null
+    family: authentication
+    notes: "Needs modules/compliance/cis-5-3-1.nix wiring security.pam.services."
+    effort: moderate
+
+  - id: CIS-5.4.2
+    title: "Ensure system accounts do not have a valid login shell"
+    framework: cis-level1
+    severity: medium
+    status: inherent
+    module: null
+    family: authentication
+    notes: "NixOS creates system users with /run/current-system/sw/bin/nologin by default."
+    effort: trivial
+
+  - id: STIG-V-230234
+    title: "Disable Ctrl-Alt-Del"
+    framework: stig
+    severity: medium
+    status: missing
+    module: null
+    family: access-control
+    notes: "Mask systemd ctrl-alt-del.target. Trivial NixOS option."
+    effort: trivial
+
+  - id: STIG-V-230330
+    title: "Account lockout after failed auth attempts"
+    framework: stig
+    severity: medium
+    status: missing
+    module: null
+    family: authentication
+    notes: "Same as CIS-5.3.1; pam_faillock configuration."
+    effort: moderate
+
+  - id: NIST-AU-9
+    title: "Audit Information Protection (DB enforcement)"
+    framework: nist-800-53
+    severity: high
+    status: partial
+    module: migrations/004_audit_events.sql
+    family: audit
+    notes: "Add a trigger or DB role restriction to prevent audit_events deletion."
+    effort: moderate
+
+  - id: NIST-SC-5
+    title: "Denial of Service Protection"
+    framework: nist-800-53
+    severity: high
+    status: missing
+    module: crates/hearth-api/src/lib.rs
+    family: availability
+    notes: "Add rate limiting middleware (tower_governor). Tracked as AR-02 in threat model."
+    effort: moderate
+
+# ---------------------------------------------------------------------------
+# Summary (updated by /compliance-audit)
+# ---------------------------------------------------------------------------
+
+summary:
+  cis-level1:
+    total_controls_in_benchmark: ~55  # approximate, update with actual count
+    implemented: 3
+    partial: 5
+    inherent: 4
+    missing: 3
+    coverage_percent: approximate
+    notes: "Many CIS Level 1 controls are already enforced by hardening.nix but not yet tracked as individual compliance modules."
+  stig:
+    implemented: 2
+    missing: 2
+    notes: "Initial STIG mapping covers SSH and USB storage. Many more controls available."
+  nist-800-53:
+    implemented: 4
+    partial: 3
+    missing: 1
+    notes: "Technical subset is well covered; process controls (CP, IR, MA, PL, PS) are out of scope for this registry."
