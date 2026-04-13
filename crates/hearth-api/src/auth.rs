@@ -630,7 +630,10 @@ mod tests {
         // Test fixtures and dev-mode bypass use short names directly — must
         // remain unchanged so existing tests and dev flows keep working.
         let raw = vec!["hearth-admins".to_string(), "hearth-users".to_string()];
-        assert_eq!(normalize_groups(&raw), vec!["hearth-admins", "hearth-users"]);
+        assert_eq!(
+            normalize_groups(&raw),
+            vec!["hearth-admins", "hearth-users"]
+        );
     }
 
     #[test]
@@ -642,6 +645,9 @@ mod tests {
             "hearth-users@kanidm.hearth.local".to_string(),
             "hearth-users".to_string(),
         ];
-        assert_eq!(normalize_groups(&raw), vec!["hearth-admins", "hearth-users"]);
+        assert_eq!(
+            normalize_groups(&raw),
+            vec!["hearth-admins", "hearth-users"]
+        );
     }
 }

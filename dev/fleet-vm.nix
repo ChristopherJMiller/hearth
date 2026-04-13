@@ -30,6 +30,13 @@ self.lib.mkFleetHost {
   kanidmUrl = "https://kanidm.hearth.local:8443";
   kanidmCaCert = ../dev/kanidm/cert.pem;
   binaryCacheUrl = "http://cache.hearth.local:8080/hearth";
+  homeFlakeRef = "path:${self}";
+  roleMapping = [
+    { group = "hearth-admins"; role = "admin"; }
+    { group = "hearth-developers"; role = "developer"; }
+    { group = "hearth-designers"; role = "designer"; }
+  ];
+  defaultRole = "default";
   enableDesktop = true;
   matrixUrl = "http://chat.hearth.local";
   matrixServerName = "hearth.local";
@@ -46,9 +53,15 @@ self.lib.mkFleetHost {
         memorySize = 4096;
         cores = 2;
         graphics = true;
+        diskSize = 32768; # 32GB — room for NixOS system, home-manager profiles, flatpaks, and dev tools
+        resolution = { x = 1920; y = 1080; };
         qemu.options = [
-          "-device" "virtio-vga-gl"
+          "-device" "virtio-vga-gl,xres=1920,yres=1080"
           "-display" "gtk,gl=on"
+          "-device" "virtio-tablet-pci"    # absolute pointing — no mouse grab
+          "-audiodev" "pipewire,id=audio0" # audio passthrough to host
+          "-device" "intel-hda"
+          "-device" "hda-duplex,audiodev=audio0"
         ];
 
         # Share a host directory for extracting logs from the VM.
@@ -83,8 +96,24 @@ self.lib.mkFleetHost {
         echo "${machineToken}" > /var/lib/hearth/machine-token
       '';
 
-      # --- Fix inverted mouse cursor under QEMU virtio-vga-gl ---
+      # --- Fix inverted/offset mouse cursor under QEMU virtio-vga-gl ---
+      # Set via multiple paths to ensure it reaches Mutter regardless of
+      # how the session is launched (greetd, login shell, systemd user).
       environment.sessionVariables.MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR = "1";
+      environment.variables.MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR = "1";
+      # Also set for the greeter's cage session and the user's GNOME session
+      systemd.services.greetd.environment.MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR = "1";
+      environment.etc."profile.d/qemu-cursor-fix.sh".text = ''
+        export MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR=1
+      '';
+
+      # Use virtio-tablet for absolute positioning (already in qemu.options)
+      # and disable hardware cursors in the kernel framebuffer.
+      boot.kernelParams = [ "vt.global_cursor_default=0" ];
+
+      # --- QEMU guest services ---
+      services.qemuGuest.enable = true;
+      services.spice-vdagentd.enable = true;
 
       # --- Dev user (fallback for when Kanidm is unavailable) ---
       users.users.dev = {
@@ -124,6 +153,7 @@ self.lib.mkFleetHost {
       # --- Development utilities ---
       environment.systemPackages = with pkgs; [
         curl jq htop vim tmux
+        spice-vdagent
       ];
 
       system.stateVersion = lib.mkForce "25.05";

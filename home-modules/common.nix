@@ -182,11 +182,11 @@
     components = [ "secrets" "ssh" ];
   };
 
-  # --- Environment variables ---
+  # --- Environment variables (defaults — role profiles can override) ---
   home.sessionVariables = {
-    EDITOR = "nano";
-    VISUAL = "nano";
-    PAGER = "less";
-    LESS = "-R";
+    EDITOR = lib.mkDefault "nano";
+    VISUAL = lib.mkDefault "nano";
+    PAGER = lib.mkDefault "less";
+    LESS = lib.mkDefault "-R";
   };
 }

@@ -366,13 +366,14 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
     let user = username.to_string();
     tokio::spawn(async move {
         // Single lock acquisition to extract everything we need.
-        let (role, client, machine_id, flake_ref) = {
+        let (role, client, machine_id, flake_ref, local_cache_url) = {
             let st = state_bg.lock().await;
             let role = resolve_role(&groups, &st.config);
             let client = Arc::clone(&st.client);
             let machine_id = st.machine_id;
             let flake_ref = st.config.home.as_ref().map(|h| h.flake_ref.clone());
-            (role, client, machine_id, flake_ref)
+            let local_cache_url = st.config.cache.as_ref().and_then(|c| c.url.clone());
+            (role, client, machine_id, flake_ref, local_cache_url)
         };
         info!(%user, %role, "resolved role for user");
 
@@ -405,7 +406,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
         // If not, fall back to role template activation via home-manager switch.
         let activation_result = {
             // Step 1: Check for pre-built closure.
-            let prebuilt = match client.get_user_env_closure(&user).await {
+            let prebuilt = match client.get_user_env_closure(&user, Some(&role)).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     debug!(error = %e, "failed to query per-user closure, falling back to role template");
@@ -435,10 +436,24 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                     })
                     .await;
 
-                // Pull closure from binary cache if a cache URL is provided.
-                if let Some(cache_url) = &prebuilt.cache_url {
+                // Pull closure from binary cache. Prefer the agent's locally
+                // configured cache URL (reachable from this machine's network)
+                // over the API-provided one (which may be a localhost address
+                // from the control plane's perspective).
+                let effective_cache_url =
+                    local_cache_url.as_deref().or(prebuilt.cache_url.as_deref());
+                if let Some(cache_url) = effective_cache_url {
+                    let mut nix_args = vec!["copy", "--from", cache_url, closure];
+                    let netrc = std::path::Path::new("/run/hearth/netrc");
+                    if netrc.exists() {
+                        nix_args.extend_from_slice(&[
+                            "--option",
+                            "netrc-file",
+                            "/run/hearth/netrc",
+                        ]);
+                    }
                     let copy_result = tokio::process::Command::new("nix")
-                        .args(["copy", "--from", cache_url, closure])
+                        .args(&nix_args)
                         .output()
                         .await;
                     if let Err(e) = &copy_result {
@@ -481,11 +496,12 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                     })
                     .await;
 
-                run_as_user(
+                run_as_user_with_progress(
                     &user,
                     hm_str,
                     &["switch", "--flake", &flake_target],
                     &bg_shutdown,
+                    Some((&event_tx, &user)),
                 )
                 .await
             } else {
@@ -514,6 +530,15 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             }
             Err(msg) => {
                 error!(%user, error = %msg, "user environment activation failed");
+
+                // Enrich the error with disk usage info when space is the issue.
+                let error_msg = if msg.contains("No space left on device") {
+                    let disk_info = get_disk_usage_summary().await;
+                    format!("No space left on device.\n\nDisk usage:\n{disk_info}")
+                } else {
+                    msg
+                };
+
                 if let Err(e) = client
                     .report_user_env(machine_id, &user, &role, UserEnvStatus::Failed)
                     .await
@@ -523,12 +548,12 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
                 let mut st = state_bg.lock().await;
                 st.prepare_status
-                    .insert(user.clone(), PrepareStatus::Error(msg.clone()));
+                    .insert(user.clone(), PrepareStatus::Error(error_msg.clone()));
 
                 let _ = event_tx
                     .send(AgentEvent::Error {
                         username: user,
-                        message: msg,
+                        message: error_msg,
                     })
                     .await;
             }
@@ -603,25 +628,189 @@ async fn run_as_user(
     args: &[&str],
     shutdown: &CancellationToken,
 ) -> Result<(), String> {
+    run_as_user_with_progress(username, command, args, shutdown, None).await
+}
+
+/// Run a command as a specific user via `runuser`, streaming stderr lines
+/// as progress events to the greeter when `progress_tx` is provided.
+async fn run_as_user_with_progress(
+    username: &str,
+    command: &str,
+    args: &[&str],
+    shutdown: &CancellationToken,
+    progress_tx: Option<(&mpsc::Sender<AgentEvent>, &str)>,
+) -> Result<(), String> {
     let mut cmd_args = vec!["-u", username, "--", command];
     cmd_args.extend(args);
 
+    let mut child = tokio::process::Command::new("runuser")
+        .args(&cmd_args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to run {command}: {e}"))?;
+
+    // Stream stderr for progress updates if a channel is provided.
+    let stderr = child.stderr.take();
+    let progress_user = progress_tx.as_ref().map(|(_, u)| u.to_string());
+    let progress_sender = progress_tx.map(|(tx, _)| tx.clone());
+
+    let stderr_task = tokio::spawn(async move {
+        let mut collected = String::new();
+        let Some(stderr) = stderr else {
+            return collected;
+        };
+        let reader = tokio::io::BufReader::new(stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            collected.push_str(&line);
+            collected.push('\n');
+            if let (Some(tx), Some(user)) = (&progress_sender, &progress_user)
+                && let Some(msg) = parse_nix_progress(&line)
+            {
+                let _ = tx
+                    .send(AgentEvent::Progress {
+                        username: user.clone(),
+                        percent: 50,
+                        message: msg,
+                    })
+                    .await;
+            }
+        }
+        collected
+    });
+
     tokio::select! {
-        output = tokio::process::Command::new("runuser")
-            .args(&cmd_args)
-            .output() => {
-            match output {
-                Ok(out) if out.status.success() => Ok(()),
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    Err(format!("{command} failed: {stderr}"))
-                }
-                Err(e) => Err(format!("failed to run {command}: {e}")),
+        status = child.wait() => {
+            let stderr_output = stderr_task.await.unwrap_or_default();
+            match status {
+                Ok(s) if s.success() => Ok(()),
+                Ok(_) => Err(format!("{command} failed: {stderr_output}")),
+                Err(e) => Err(format!("failed to wait on {command}: {e}")),
             }
         }
         () = shutdown.cancelled() => {
+            let _ = child.kill().await;
             Err("shutdown during preparation".into())
         }
+    }
+}
+
+/// Collect disk usage summary via `df -h` for diagnostics.
+async fn get_disk_usage_summary() -> String {
+    match tokio::process::Command::new("df")
+        .args(["-h", "/", "/nix/store", "/tmp"])
+        .output()
+        .await
+    {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            // Deduplicate lines (/ and /nix/store are often the same mount)
+            let mut seen = std::collections::HashSet::new();
+            stdout
+                .lines()
+                .filter(|l| seen.insert(l.to_string()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        Err(e) => format!("(failed to run df: {e})"),
+    }
+}
+
+/// Parse a line of nix stderr output into a human-friendly progress message.
+fn parse_nix_progress(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.starts_with("copying path '") {
+        // "copying path '/nix/store/abc123hash-name-1.0' from 'https://...'"
+        let path = line.strip_prefix("copying path '")?.split('\'').next()?;
+        // Store paths: /nix/store/<32-char-hash>-<name>
+        let basename = path.rsplit('/').next().unwrap_or(path);
+        // Skip the hash prefix (32 hex chars + dash)
+        let name = if basename.len() > 33 {
+            &basename[33..]
+        } else {
+            basename
+        };
+        Some(format!("fetching {name}"))
+    } else if line.starts_with("building '/nix/store/") {
+        let path = line
+            .strip_prefix("building '/nix/store/")?
+            .split('\'')
+            .next()?;
+        // path is like "abc123hash-name.drv" — skip the 32-char hash prefix
+        let name = if path.len() > 33 { &path[33..] } else { path };
+        let name = name.strip_suffix(".drv").unwrap_or(name);
+        Some(format!("building {name}"))
+    } else if line.starts_with("these ") && line.contains("will be built") {
+        // "these 42 derivations will be built:"
+        let count = line.split_whitespace().nth(1)?;
+        Some(format!("{count} derivations to build"))
+    } else if line.starts_with("these ") && line.contains("will be fetched") {
+        let count = line.split_whitespace().nth(1)?;
+        Some(format!("{count} paths to fetch"))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_nix_progress;
+
+    #[test]
+    fn test_copying_path() {
+        let line = "copying path '/nix/store/aaaabbbbccccddddeeeeffffgggghhhh-hello-2.12.1' from 'https://cache.nixos.org'...";
+        assert_eq!(
+            parse_nix_progress(line),
+            Some("fetching hello-2.12.1".into())
+        );
+    }
+
+    #[test]
+    fn test_copying_path_no_source() {
+        let line = "copying path '/nix/store/aaaabbbbccccddddeeeeffffgggghhhh-glibc-2.40'";
+        assert_eq!(parse_nix_progress(line), Some("fetching glibc-2.40".into()));
+    }
+
+    #[test]
+    fn test_building_derivation() {
+        let line =
+            "building '/nix/store/aaaabbbbccccddddeeeeffffgggghhhh-home-manager-path.drv'...";
+        assert_eq!(
+            parse_nix_progress(line),
+            Some("building home-manager-path".into())
+        );
+    }
+
+    #[test]
+    fn test_building_multi_hyphen() {
+        let line = "building '/nix/store/aaaabbbbccccddddeeeeffffgggghhhh-my-cool-package-1.0.drv'";
+        assert_eq!(
+            parse_nix_progress(line),
+            Some("building my-cool-package-1.0".into())
+        );
+    }
+
+    #[test]
+    fn test_derivations_to_build() {
+        let line = "these 42 derivations will be built:";
+        assert_eq!(
+            parse_nix_progress(line),
+            Some("42 derivations to build".into())
+        );
+    }
+
+    #[test]
+    fn test_paths_to_fetch() {
+        let line = "these 157 paths will be fetched (312.50 MiB download, 1024.00 MiB unpacked):";
+        assert_eq!(parse_nix_progress(line), Some("157 paths to fetch".into()));
+    }
+
+    #[test]
+    fn test_irrelevant_line() {
+        assert_eq!(parse_nix_progress("evaluating derivation..."), None);
+        assert_eq!(parse_nix_progress(""), None);
+        assert_eq!(parse_nix_progress("warning: Git tree is dirty"), None);
     }
 }
 

@@ -60,4 +60,23 @@ VALUES
 
 ON CONFLICT (name) DO NOTHING;
 
+-- ============================================================================
+-- User Environment Configs (triggers build pipeline for per-user closures)
+-- ============================================================================
+-- Seed configs for the demo Kanidm users so the build worker can produce
+-- per-user home-manager closures before first login.
+-- config_hash = sha256(base_role || '|' || overrides_json) matches the Rust
+-- compute_user_config_hash() function in repo.rs.
+
+INSERT INTO user_configs (username, base_role, overrides, config_hash, build_status)
+VALUES
+  ('testadmin',    'admin',     '{}', encode(sha256(convert_to('admin|{}',     'UTF8')), 'hex'), 'pending'),
+  ('testdev',      'developer', '{}', encode(sha256(convert_to('developer|{}', 'UTF8')), 'hex'), 'pending'),
+  ('testdesigner', 'designer',  '{}', encode(sha256(convert_to('designer|{}',  'UTF8')), 'hex'), 'pending'),
+  ('testuser',     'default',   '{}', encode(sha256(convert_to('default|{}',   'UTF8')), 'hex'), 'pending')
+ON CONFLICT (username) DO UPDATE SET
+  build_status = 'pending',
+  build_error = NULL,
+  updated_at = now();
+
 COMMIT;

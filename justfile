@@ -193,6 +193,7 @@ dev-full:
     (cd web && pnpm dev) &
     WEB_PID=$!
     # Start build worker in background so build jobs are automatically claimed.
+    export ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-hearth}"
     cargo run -p hearth-build-worker &
     WORKER_PID=$!
     trap "kill $WEB_PID $WORKER_PID 2>/dev/null || true" EXIT INT TERM
@@ -230,6 +231,7 @@ dev-watch:
 worker:
     HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}" \
     ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}" \
+    ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-hearth}" \
     HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}" \
     cargo run -p hearth-build-worker
 
@@ -417,6 +419,54 @@ push-cache:
         attic push hearth "$path" 2>/dev/null || true
     done
     echo "Packages pushed to Attic cache"
+
+# Validate home-manager role profiles evaluate successfully
+check-home:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Evaluating home-manager role profiles..."
+    failed=0
+    for role in default developer designer admin; do
+        printf "  %-12s" "$role"
+        if nix eval --no-eval-cache --impure --expr \
+          "let flake = builtins.getFlake \"path:$(pwd)\"; in flake.homeConfigurations.$role.activationPackage" \
+          > /dev/null 2>&1; then
+            echo "✓"
+        else
+            echo "✗ FAILED"
+            # Re-run to show the error
+            nix eval --no-eval-cache --impure --expr \
+              "let flake = builtins.getFlake \"path:$(pwd)\"; in flake.homeConfigurations.$role.activationPackage" \
+              2>&1 | tail -20
+            failed=1
+        fi
+    done
+    echo ""
+    echo "Evaluating buildUserEnv with empty overrides..."
+    for role in default developer designer admin; do
+        printf "  %-12s" "$role"
+        cfg=$(mktemp)
+        echo "{\"username\":\"check\",\"base_role\":\"$role\",\"overrides\":{}}" > "$cfg"
+        if nix build --no-link --no-eval-cache --impure --expr \
+          "let flake = builtins.getFlake \"path:$(pwd)\"; in flake.lib.buildUserEnv { userConfigPath = \"$cfg\"; }" \
+          > /dev/null 2>&1; then
+            echo "✓"
+        else
+            echo "✗ FAILED"
+            nix build --no-link --no-eval-cache --impure --expr \
+              "let flake = builtins.getFlake \"path:$(pwd)\"; in flake.lib.buildUserEnv { userConfigPath = \"$cfg\"; }" \
+              2>&1 | tail -20
+            failed=1
+        fi
+        rm -f "$cfg"
+    done
+    if [ "$failed" -eq 1 ]; then
+        echo ""
+        echo "Some profiles failed evaluation!"
+        exit 1
+    fi
+    echo ""
+    echo "All home-manager profiles OK"
 
 # Validate that the fleet config evaluates successfully (catches module errors early)
 check-fleet:

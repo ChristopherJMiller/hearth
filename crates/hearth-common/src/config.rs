@@ -205,16 +205,12 @@ pub struct BrandingConfig {
 pub struct AgentConnectionConfig {
     #[serde(default = "default_socket_path")]
     pub socket_path: String,
-    #[serde(default = "default_timeout_secs")]
-    pub timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionConfig {
     #[serde(default = "default_session_command")]
     pub command: String,
-    #[serde(default = "default_session_command")]
-    pub fallback_command: String,
 }
 
 fn default_true() -> bool {
@@ -222,9 +218,6 @@ fn default_true() -> bool {
 }
 fn default_org_name() -> String {
     "Your Organization".to_string()
-}
-fn default_timeout_secs() -> u64 {
-    120
 }
 fn default_session_command() -> String {
     "gnome-session".to_string()

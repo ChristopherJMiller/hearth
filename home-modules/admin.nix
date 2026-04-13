@@ -216,7 +216,7 @@
     bottom
     iotop
     sysstat
-    dstat
+    dool
 
     # Network diagnostics
     nmap

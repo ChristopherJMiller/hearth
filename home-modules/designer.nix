@@ -86,9 +86,6 @@
     inkscape
     krita
 
-    # Vector and diagram tools
-    drawio
-
     # Font management
     fontforge
     gnome-font-viewer
@@ -104,7 +101,7 @@
 
     # PDF tools
     evince
-    poppler_utils
+    poppler-utils
 
     # Screenshot and screen recording
     gnome-screenshot
@@ -122,7 +119,7 @@
     liberation_ttf
     noto-fonts
     noto-fonts-cjk-sans
-    noto-fonts-emoji
+    noto-fonts-color-emoji
     font-awesome
 
     # Office suite for presentations

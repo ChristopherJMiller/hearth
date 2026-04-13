@@ -109,10 +109,16 @@ in
     );
 
     // Push to Attic cache if configured. Uses the existing cache module.
-    if let Some(cache_name) = cache_name
-        && let Err(e) = cache::push_to_cache(cache_name, &closure).await
-    {
-        tracing::warn!(%closure, error = %e, "failed to push per-user closure to cache");
+    if let Some(cache_name) = cache_name {
+        tracing::info!(%closure, cache = cache_name, "pushing per-user closure to cache");
+        match cache::push_to_cache(cache_name, &closure).await {
+            Ok(()) => tracing::info!(%closure, "per-user closure pushed to cache"),
+            Err(e) => {
+                tracing::error!(%closure, error = %e, "FAILED to push per-user closure to cache — VMs will not be able to pull this closure")
+            }
+        }
+    } else {
+        tracing::warn!(%closure, "ATTIC_CACHE_NAME not set — per-user closure was NOT pushed to cache");
     }
 
     Ok(closure)

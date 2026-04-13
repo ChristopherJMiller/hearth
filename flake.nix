@@ -442,12 +442,14 @@
           roleModule = self.homeModules.${cfg.base_role} or self.homeModules.default;
 
           # Build an override module from structured JSON fields.
-          overrideModule = { config, lib, pkgs, ... }: {
-            programs.git = lib.mkIf (cfg.overrides ? git) (
-              lib.optionalAttrs (cfg.overrides.git ? user_name) {
-                userName = cfg.overrides.git.user_name;
-              } // lib.optionalAttrs (cfg.overrides.git ? user_email) {
-                userEmail = cfg.overrides.git.user_email;
+          overrideModule = { config, lib, pkgs, ... }: let
+            gitOverrides = cfg.overrides.git or {};
+          in {
+            programs.git = lib.mkIf (gitOverrides != {}) (
+              lib.optionalAttrs (gitOverrides ? user_name) {
+                userName = gitOverrides.user_name;
+              } // lib.optionalAttrs (gitOverrides ? user_email) {
+                userEmail = gitOverrides.user_email;
               }
             );
 

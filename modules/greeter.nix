@@ -23,11 +23,9 @@ let
     };
     agent = {
       socket_path = config.services.hearth.agent.socketPath;
-      timeout_secs = cfg.agentTimeout;
     };
     session = {
       command = cfg.sessionCommand;
-      fallback_command = cfg.fallbackSessionCommand;
     };
   };
 in
@@ -69,18 +67,6 @@ in
       description = "Desktop session command to launch after successful login and environment preparation.";
     };
 
-    fallbackSessionCommand = lib.mkOption {
-      type = lib.types.str;
-      default = "${pkgs.gnome-shell}/bin/gnome-shell --wayland";
-      defaultText = lib.literalExpression ''"''${pkgs.gnome-shell}/bin/gnome-shell --wayland"'';
-      description = "Fallback session command if agent-based preparation fails.";
-    };
-
-    agentTimeout = lib.mkOption {
-      type = lib.types.int;
-      default = 120;
-      description = "Timeout in seconds for agent environment preparation before offering fallback.";
-    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -116,8 +102,18 @@ in
     # seatd provides seat/DRM access for the cage compositor.
     services.seatd.enable = true;
 
-    # Ensure greetd starts after the agent socket and seatd are available
-    systemd.services.greetd.after = [ "hearth-agent.socket" "seatd.service" ];
+    # Ensure greetd starts after the agent socket, seatd, and identity
+    # provider are available. Without kanidm-unixd, PAM can't resolve
+    # Kanidm users and the greeter socket lookup fails on startup.
+    systemd.services.greetd.after = [
+      "hearth-agent.socket"
+      "seatd.service"
+    ] ++ lib.optionals (config.services.hearth.kanidmClient.enable or false) [
+      "kanidm-unixd.service"
+    ];
+    systemd.services.greetd.wants = lib.optionals (config.services.hearth.kanidmClient.enable or false) [
+      "kanidm-unixd.service"
+    ];
 
     # Allow cage to run without input devices (common in VMs).
     systemd.services.greetd.environment.WLR_LIBINPUT_NO_DEVICES = "1";

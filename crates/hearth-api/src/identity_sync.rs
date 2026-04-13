@@ -44,7 +44,10 @@ impl KanidmEntry {
     }
 
     fn first(&self, attr: &str) -> Option<&str> {
-        self.attrs.get(attr).and_then(|v| v.first()).map(|s| s.as_str())
+        self.attrs
+            .get(attr)
+            .and_then(|v| v.first())
+            .map(|s| s.as_str())
     }
 
     fn list(&self, attr: &str) -> &[String] {
@@ -121,9 +124,7 @@ impl KanidmClient {
 
     /// Parse a Kanidm response. Returns `None` if the response body is `"null"` or
     /// a JSON string (error like `"accessdenied"`).
-    async fn parse_entry(
-        resp: reqwest::Response,
-    ) -> Result<Option<KanidmEntry>, reqwest::Error> {
+    async fn parse_entry(resp: reqwest::Response) -> Result<Option<KanidmEntry>, reqwest::Error> {
         let text = resp.text().await?;
         if text == "null" || text.starts_with('"') {
             return Ok(None);
@@ -181,7 +182,9 @@ pub async fn run(pool: PgPool, auth_config: AuthConfig, cancel: CancellationToke
     let token = match std::env::var("HEARTH_API_SVC_TOKEN") {
         Ok(t) if !t.is_empty() => t,
         _ => {
-            warn!("HEARTH_API_SVC_TOKEN not set — POSIX provisioning disabled, running read-only sync");
+            warn!(
+                "HEARTH_API_SVC_TOKEN not set — POSIX provisioning disabled, running read-only sync"
+            );
             String::new()
         }
     };
@@ -279,10 +282,7 @@ async fn run_sync_cycle(
 
     info!(
         members = members.len(),
-        provisioned,
-        upserted,
-        errors,
-        "identity sync cycle complete"
+        provisioned, upserted, errors, "identity sync cycle complete"
     );
 
     Ok(())

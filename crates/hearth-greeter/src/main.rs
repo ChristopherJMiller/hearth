@@ -8,7 +8,6 @@
 //! 4. Asks hearth-agent to prepare the user's environment (home-manager profile, etc.).
 //! 5. Shows progress while the agent works.
 //! 6. Starts the desktop session via greetd when the environment is ready.
-//! 7. Offers a fallback session if preparation fails or times out.
 
 mod agent_client;
 mod greetd;
@@ -21,7 +20,6 @@ use greetd::{GreetdClient, Response as GreetdResponse};
 use gtk4::prelude::*;
 use hearth_common::config::GreeterConfig;
 use hearth_common::ipc::{AgentEvent, AgentRequest};
-use std::time::Duration;
 use thiserror::Error;
 use tracing::{error, info, warn};
 use ui::{UiAction, UiUpdate};
@@ -297,19 +295,8 @@ async fn orchestrate(
                     Err(e) => {
                         warn!(%e, "login flow failed");
                         // The individual handler already sent error updates to the UI.
-                        // Continue the loop so the user can try again or use fallback.
+                        // Continue the loop so the user can try again.
                     }
-                }
-            }
-            UiAction::FallbackClicked => {
-                info!("user requested fallback session");
-                if let Err(e) = start_fallback_session(&config).await {
-                    error!(%e, "fallback session failed");
-                    let _ = update_tx
-                        .send(UiUpdate::PrepError(format!("Fallback session failed: {e}")))
-                        .await;
-                } else {
-                    return;
                 }
             }
         }
@@ -364,7 +351,7 @@ async fn handle_login(
             let _ = greetd.cancel_session().await;
             let _ = update_tx
                 .send(UiUpdate::PrepError(format!(
-                    "Environment preparation failed: {e}. You can use the fallback session."
+                    "Environment preparation failed: {e}"
                 )))
                 .await;
             return Err(GreeterError::Other(
@@ -446,14 +433,18 @@ async fn handle_auth_flow(
 
 /// Connect to the agent, request environment preparation, and relay progress
 /// back to the UI. Returns `Ok(())` when the agent reports `Ready`.
+///
+/// There is no timeout — the agent is expected to always respond (either
+/// `Ready` or `Error`). If the agent process dies, the socket EOF will
+/// surface as a read error. The greeter waits as long as it takes because
+/// first-login builds can be slow, and offering a fallback session would
+/// let users bypass environment policy.
 async fn prepare_environment(
     config: &GreeterConfig,
     update_tx: &async_channel::Sender<UiUpdate>,
     username: &str,
     groups: Vec<String>,
 ) -> Result<(), GreeterError> {
-    let timeout = Duration::from_secs(config.agent.timeout_secs);
-
     let mut agent = AgentClient::connect(&config.agent.socket_path).await?;
 
     agent
@@ -470,80 +461,45 @@ async fn prepare_environment(
         })
         .await;
 
-    // Listen for events with a timeout.
-    let result = tokio::time::timeout(timeout, async {
-        loop {
-            let event = agent.recv().await?;
-            match event {
-                AgentEvent::Preparing {
-                    username: _,
-                    message,
-                } => {
-                    info!(%message, "agent preparing");
-                    let _ = update_tx
-                        .send(UiUpdate::PrepProgress {
-                            percent: 5,
-                            message,
-                        })
-                        .await;
-                }
-                AgentEvent::Progress {
-                    username: _,
-                    percent,
-                    message,
-                } => {
-                    info!(percent, %message, "agent progress");
-                    let _ = update_tx
-                        .send(UiUpdate::PrepProgress { percent, message })
-                        .await;
-                }
-                AgentEvent::Ready { username: _ } => {
-                    info!("agent reports environment ready");
-                    return Ok::<(), GreeterError>(());
-                }
-                AgentEvent::Error {
-                    username: _,
-                    message,
-                } => {
-                    return Err(GreeterError::Other(message));
-                }
-                AgentEvent::Pong => {
-                    // Unexpected but harmless.
-                }
+    // Listen for agent events until Ready or Error.
+    loop {
+        let event = agent.recv().await?;
+        match event {
+            AgentEvent::Preparing {
+                username: _,
+                message,
+            } => {
+                info!(%message, "agent preparing");
+                let _ = update_tx
+                    .send(UiUpdate::PrepProgress {
+                        percent: 5,
+                        message,
+                    })
+                    .await;
+            }
+            AgentEvent::Progress {
+                username: _,
+                percent,
+                message,
+            } => {
+                info!(percent, %message, "agent progress");
+                let _ = update_tx
+                    .send(UiUpdate::PrepProgress { percent, message })
+                    .await;
+            }
+            AgentEvent::Ready { username: _ } => {
+                info!("agent reports environment ready");
+                return Ok(());
+            }
+            AgentEvent::Error {
+                username: _,
+                message,
+            } => {
+                return Err(GreeterError::Other(message));
+            }
+            AgentEvent::Pong => {
+                // Unexpected but harmless.
             }
         }
-    })
-    .await;
-
-    match result {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(e),
-        Err(_elapsed) => Err(GreeterError::Other(format!(
-            "agent did not respond within {} seconds",
-            config.agent.timeout_secs
-        ))),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Fallback session
-// ---------------------------------------------------------------------------
-
-/// Start the fallback session directly via greetd, skipping agent preparation.
-async fn start_fallback_session(config: &GreeterConfig) -> Result<(), GreeterError> {
-    let mut greetd = GreetdClient::connect().await?;
-    let cmd_parts: Vec<&str> = config.session.fallback_command.split_whitespace().collect();
-    let resp = greetd.start_session(&cmd_parts).await?;
-    match resp {
-        GreetdResponse::Success => {
-            info!("fallback session started");
-            Ok(())
-        }
-        GreetdResponse::Error { description } => Err(GreeterError::Other(format!(
-            "greetd refused fallback session: {description}"
-        ))),
-        other => Err(GreeterError::Other(format!(
-            "unexpected greetd response: {other:?}"
-        ))),
     }
 }

@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use hearth_common::api_types::{
     UpsertUserConfigRequest, UserConfig, UserEnvBuildJob, UserEnvClosureResponse,
 };
+use serde::Deserialize;
 
 use crate::AppState;
 use crate::auth::{AdminIdentity, MachineIdentity};
@@ -93,12 +94,23 @@ pub async fn trigger_build(
     Ok((StatusCode::CREATED, Json(job.into())))
 }
 
+/// Query parameters for the env-closure endpoint.
+#[derive(Debug, Deserialize)]
+pub struct EnvClosureQuery {
+    /// The agent-resolved role for this user. When provided and no `user_config`
+    /// exists yet, the API auto-provisions one so the build pipeline can produce
+    /// a per-user closure for subsequent logins.
+    pub role: Option<String>,
+}
+
 /// GET /api/v1/users/{username}/env-closure — agent looks up pre-built closure.
 /// Returns the user's latest closure (if built) and fallback role for template activation.
+/// Auto-provisions a `user_config` on first contact so the build pipeline kicks in.
 pub async fn get_env_closure(
     _machine: MachineIdentity,
     State(state): State<AppState>,
     Path(username): Path<String>,
+    Query(query): Query<EnvClosureQuery>,
 ) -> Result<Json<UserEnvClosureResponse>, AppError> {
     let config = repo::get_user_config(&state.pool, &username).await?;
     match config {
@@ -107,10 +119,18 @@ pub async fn get_env_closure(
             cache_url: state.cache_url.clone(),
             fallback_role: row.base_role,
         })),
-        None => Ok(Json(UserEnvClosureResponse {
-            closure: None,
-            cache_url: state.cache_url.clone(),
-            fallback_role: "default".to_string(),
-        })),
+        None => {
+            // Auto-provision: create a user_config with the agent-resolved role
+            // so the background build task enqueues a closure build.
+            let base_role = query.role.as_deref().unwrap_or("default");
+            let overrides = serde_json::Value::Object(Default::default());
+            let _ = repo::upsert_user_config(&state.pool, &username, base_role, &overrides).await?;
+            tracing::info!(%username, %base_role, "auto-provisioned user config on first login");
+            Ok(Json(UserEnvClosureResponse {
+                closure: None,
+                cache_url: state.cache_url.clone(),
+                fallback_role: base_role.to_string(),
+            }))
+        }
     }
 }

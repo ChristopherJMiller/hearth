@@ -37,14 +37,22 @@ pub async fn identity_sync_run(pool: PgPool, auth_config: AuthConfig, cancel: Ca
 
 /// Sweep pending user env configs and enqueue build jobs.
 pub async fn user_env_build_sweep_run(pool: PgPool, cancel: CancellationToken) {
-    let interval = std::time::Duration::from_secs(60);
+    let interval = std::time::Duration::from_secs(30);
+    // Run the first sweep immediately so seeded configs are picked up on startup.
+    let mut first_run = true;
     loop {
         tokio::select! {
             () = cancel.cancelled() => {
                 tracing::info!("user env build sweep shutting down");
                 break;
             }
-            () = tokio::time::sleep(interval) => {
+            () = async {
+                if first_run {
+                    first_run = false;
+                } else {
+                    tokio::time::sleep(interval).await;
+                }
+            } => {
                 match repo::get_pending_user_config_builds(&pool, 20).await {
                     Ok(configs) => {
                         for config in configs {

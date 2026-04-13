@@ -159,6 +159,7 @@ async fn async_main() {
     let poll_interval = Duration::from_secs(cfg.agent.poll_interval_secs);
     let poll_queue = Arc::clone(&offline_queue);
     let poll_token_path = std::path::PathBuf::from(&cfg.agent.machine_token_path);
+    let poll_local_cache_url = cfg.cache.as_ref().and_then(|c| c.url.clone());
     let poll_handle = tokio::spawn(async move {
         poller::run_poll_loop(
             poll_client,
@@ -166,6 +167,7 @@ async fn async_main() {
             poll_interval,
             poll_queue,
             poll_token_path,
+            poll_local_cache_url,
             poll_shutdown,
         )
         .await;

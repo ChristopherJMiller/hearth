@@ -226,7 +226,7 @@ in
         HEARTH_METRICS_PATH = cfg.metricsPath;
       };
 
-      path = [ pkgs.nix pkgs.util-linux pkgs.glibc.bin ]
+      path = [ pkgs.nix pkgs.util-linux pkgs.glibc.bin pkgs.getent ]
         ++ lib.optional (cfg.homeFlakeRef != null) pkgs.home-manager
         ++ lib.optional cfg.headscale.enable pkgs.tailscale;
 

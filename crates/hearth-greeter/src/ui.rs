@@ -21,8 +21,6 @@ use std::rc::Rc;
 pub enum UiAction {
     /// User clicked the login button.
     LoginClicked { username: String, password: String },
-    /// User clicked the fallback session button.
-    FallbackClicked,
 }
 
 /// Messages sent from the async orchestration layer to update the UI.
@@ -52,7 +50,6 @@ struct Widgets {
     status_label: gtk4::Label,
     progress_bar: gtk4::ProgressBar,
     progress_box: gtk4::Box,
-    fallback_button: gtk4::Button,
     error_label: gtk4::Label,
 }
 
@@ -139,18 +136,6 @@ fn load_base_css() {
         .error-label {
             color: #f87171;
             font-size: 14px;
-        }
-        .fallback-button {
-            background-color: transparent;
-            color: #94a3b8;
-            border: 1px solid #394068;
-            border-radius: 8px;
-            padding: 8px 16px;
-            font-size: 13px;
-        }
-        .fallback-button:hover {
-            border-color: #e94560;
-            color: #e2e8f0;
         }
         progressbar trough {
             background-color: #232946;
@@ -295,12 +280,6 @@ pub fn build_ui(
 
     card.append(&progress_box);
 
-    // Fallback button (hidden initially).
-    let fallback_button = gtk4::Button::with_label("Use fallback session");
-    fallback_button.add_css_class("fallback-button");
-    fallback_button.set_visible(false);
-    card.append(&fallback_button);
-
     outer_box.append(&card);
     window.set_child(Some(&outer_box));
 
@@ -312,7 +291,6 @@ pub fn build_ui(
         status_label,
         progress_bar,
         progress_box,
-        fallback_button: fallback_button.clone(),
         error_label,
     }));
 
@@ -347,17 +325,9 @@ pub fn build_ui(
         });
     }
 
-    // --- Fallback button click ---
-    {
-        let tx = action_tx;
-        fallback_button.connect_clicked(move |_| {
-            let _ = tx.try_send(UiAction::FallbackClicked);
-        });
-    }
-
     // --- Handle updates from async layer via glib::spawn_local ---
     {
-        let w = widgets;
+        let w = widgets.clone();
         glib::spawn_future_local(async move {
             while let Ok(msg) = update_rx.recv().await {
                 let w = w.borrow();
@@ -381,14 +351,13 @@ pub fn build_ui(
                         w.error_label.set_text(msg);
                         w.error_label.set_visible(true);
                         w.progress_box.set_visible(false);
-                        w.fallback_button.set_visible(false);
                     }
                     UiUpdate::PrepProgress {
-                        percent,
+                        percent: _,
                         ref message,
                     } => {
                         w.progress_box.set_visible(true);
-                        w.progress_bar.set_fraction(f64::from(percent) / 100.0);
+                        w.progress_bar.pulse();
                         w.status_label.set_text(message);
                     }
                     UiUpdate::PrepReady => {
@@ -397,14 +366,33 @@ pub fn build_ui(
                             .set_text("Environment ready. Starting session...");
                     }
                     UiUpdate::PrepError(ref msg) => {
-                        w.status_label.set_text(&format!("Error: {msg}"));
-                        w.error_label.set_text(msg);
+                        // Extract only the last meaningful error line
+                        // from potentially verbose nix build output.
+                        let short = extract_error_summary(msg);
+                        w.status_label.set_text("Environment preparation failed");
+                        w.error_label.set_text(&short);
                         w.error_label.set_visible(true);
-                        w.fallback_button.set_visible(true);
+                        w.login_button.set_sensitive(true);
+                        w.username_entry.set_sensitive(true);
+                        w.password_entry.set_sensitive(true);
                         w.progress_bar.set_fraction(0.0);
                     }
                 }
             }
+        });
+    }
+
+    // --- Periodic pulse timer for the progress bar ---
+    // GTK4 pulse() must be called repeatedly to animate. Without this,
+    // the bar freezes between agent progress events.
+    {
+        let w = widgets;
+        glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+            let w = w.borrow();
+            if w.progress_box.is_visible() && w.progress_bar.fraction() < 1.0 {
+                w.progress_bar.pulse();
+            }
+            glib::ControlFlow::Continue
         });
     }
 
@@ -414,4 +402,38 @@ pub fn build_ui(
     username_entry.grab_focus();
 
     (update_tx, action_rx)
+}
+
+/// Extract a short, user-friendly error summary from potentially verbose
+/// nix build output. Looks for the last `error:` line, falling back to
+/// truncation if the message is too long.
+fn extract_error_summary(msg: &str) -> String {
+    // Find the last line starting with "error:" — that's usually the root cause.
+    let last_error = msg
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with("error:"))
+        .map(|l| l.trim().to_string());
+
+    if let Some(err) = last_error {
+        // Cap at 200 chars to fit the greeter UI
+        if err.len() > 200 {
+            format!("{}…", &err[..197])
+        } else {
+            err
+        }
+    } else {
+        // No "error:" line found — take the last non-empty line, truncated
+        let last_line = msg
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or(msg)
+            .trim();
+        if last_line.len() > 200 {
+            format!("{}…", &last_line[..197])
+        } else {
+            last_line.to_string()
+        }
+    }
 }

@@ -79,9 +79,12 @@ pub trait HearthApiClient: Send + Sync {
     ) -> impl Future<Output = Result<(), ApiError>> + Send;
 
     /// Look up a user's pre-built environment closure from the control plane.
+    /// When `role` is provided the API will auto-provision a `user_config` if
+    /// none exists yet, triggering a background build for subsequent logins.
     fn get_user_env_closure(
         &self,
         username: &str,
+        role: Option<&str>,
     ) -> impl Future<Output = Result<UserEnvClosureResponse, ApiError>> + Send;
 
     /// Request a fresh binary cache token from the API.
@@ -342,11 +345,13 @@ impl HearthApiClient for ReqwestApiClient {
     async fn get_user_env_closure(
         &self,
         username: &str,
+        role: Option<&str>,
     ) -> Result<UserEnvClosureResponse, ApiError> {
-        let resp = self
-            .authed_get(self.url(&format!("/api/v1/users/{username}/env-closure")))
-            .send()
-            .await?;
+        let mut url = self.url(&format!("/api/v1/users/{username}/env-closure"));
+        if let Some(r) = role {
+            url = format!("{url}?role={r}");
+        }
+        let resp = self.authed_get(url).send().await?;
         let resp = self.check_response(resp).await?;
         let body = resp.json::<UserEnvClosureResponse>().await?;
         Ok(body)
