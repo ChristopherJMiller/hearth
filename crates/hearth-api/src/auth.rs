@@ -289,14 +289,14 @@ struct OidcClaims {
 ///
 /// Note: this assumes a single Kanidm realm per deployment. Federating
 /// multiple realms with overlapping group names would need to revisit this.
-fn normalize_groups(raw: Vec<String>) -> Vec<String> {
+pub(crate) fn normalize_groups(raw: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    raw.into_iter()
+    raw.iter()
         .filter(|g| Uuid::parse_str(g).is_err())
         .map(|g| {
             g.split_once('@')
                 .map(|(name, _)| name.to_string())
-                .unwrap_or(g)
+                .unwrap_or_else(|| g.clone())
         })
         .filter(|g| seen.insert(g.clone()))
         .collect()
@@ -348,7 +348,7 @@ fn validate_user_token(
 
     let mut groups = data.claims.groups;
     groups.extend(data.claims.scoped_groups);
-    let groups = normalize_groups(groups);
+    let groups = normalize_groups(&groups);
 
     info!(
         sub = %data.claims.sub,
@@ -611,7 +611,7 @@ mod tests {
             "hearth-admins@kanidm.hearth.local".to_string(),
         ];
         assert_eq!(
-            normalize_groups(raw),
+            normalize_groups(&raw),
             vec!["idm_all_persons", "hearth-users", "hearth-admins"],
         );
     }
@@ -622,7 +622,7 @@ mod tests {
             "00000000-0000-0000-0000-000000000035".to_string(),
             "47cab1f8-fe2e-47f5-b993-f41bb31dfaab".to_string(),
         ];
-        assert!(normalize_groups(raw).is_empty());
+        assert!(normalize_groups(&raw).is_empty());
     }
 
     #[test]
@@ -630,7 +630,7 @@ mod tests {
         // Test fixtures and dev-mode bypass use short names directly — must
         // remain unchanged so existing tests and dev flows keep working.
         let raw = vec!["hearth-admins".to_string(), "hearth-users".to_string()];
-        assert_eq!(normalize_groups(raw), vec!["hearth-admins", "hearth-users"]);
+        assert_eq!(normalize_groups(&raw), vec!["hearth-admins", "hearth-users"]);
     }
 
     #[test]
@@ -642,6 +642,6 @@ mod tests {
             "hearth-users@kanidm.hearth.local".to_string(),
             "hearth-users".to_string(),
         ];
-        assert_eq!(normalize_groups(raw), vec!["hearth-admins", "hearth-users"]);
+        assert_eq!(normalize_groups(&raw), vec!["hearth-admins", "hearth-users"]);
     }
 }

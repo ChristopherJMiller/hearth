@@ -64,13 +64,15 @@ in
 
     sessionCommand = lib.mkOption {
       type = lib.types.str;
-      default = "gnome-session";
+      default = "${pkgs.gnome-shell}/bin/gnome-shell --wayland";
+      defaultText = lib.literalExpression ''"''${pkgs.gnome-shell}/bin/gnome-shell --wayland"'';
       description = "Desktop session command to launch after successful login and environment preparation.";
     };
 
     fallbackSessionCommand = lib.mkOption {
       type = lib.types.str;
-      default = "gnome-session";
+      default = "${pkgs.gnome-shell}/bin/gnome-shell --wayland";
+      defaultText = lib.literalExpression ''"''${pkgs.gnome-shell}/bin/gnome-shell --wayland"'';
       description = "Fallback session command if agent-based preparation fails.";
     };
 
@@ -119,6 +121,9 @@ in
 
     # Allow cage to run without input devices (common in VMs).
     systemd.services.greetd.environment.WLR_LIBINPUT_NO_DEVICES = "1";
+
+    # Tell gnome-shell to start as a Wayland compositor.
+    systemd.services.greetd.environment.XDG_SESSION_TYPE = "wayland";
 
     # Disable GDM since we use greetd
     services.displayManager.gdm.enable = lib.mkForce false;

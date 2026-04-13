@@ -25,6 +25,7 @@ base64.workspace = true
 reqwest.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
+rand = "0.8"
 sha2 = "0.10"
 tempfile = "3"
 tar = "0.4"

@@ -18,12 +18,10 @@ let
       socket_path = cfg.socketPath;
       machine_token_path = cfg.machineTokenPath;
     };
-    cache = lib.optionalAttrs (cfg.binaryCacheUrl != null) {
-      url = cfg.binaryCacheUrl;
-    };
-    home = lib.optionalAttrs (cfg.homeFlakeRef != null) {
-      flake_ref = cfg.homeFlakeRef;
-    };
+  } // lib.optionalAttrs (cfg.binaryCacheUrl != null) {
+    cache.url = cfg.binaryCacheUrl;
+  } // lib.optionalAttrs (cfg.homeFlakeRef != null) {
+    home.flake_ref = cfg.homeFlakeRef;
   } // lib.optionalAttrs (cfg.roleMapping != []) {
     role_mapping = {
       mappings = cfg.roleMapping;
@@ -228,7 +226,7 @@ in
         HEARTH_METRICS_PATH = cfg.metricsPath;
       };
 
-      path = [ pkgs.nix pkgs.util-linux ]
+      path = [ pkgs.nix pkgs.util-linux pkgs.glibc.bin ]
         ++ lib.optional (cfg.homeFlakeRef != null) pkgs.home-manager
         ++ lib.optional cfg.headscale.enable pkgs.tailscale;
 

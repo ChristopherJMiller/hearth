@@ -12,6 +12,21 @@ setup:
     # Synapse reads /data/oidc_client_secret at startup — the real value is
     # written later by dev/synapse/bootstrap.sh after Kanidm is ready.
     [ -f dev/synapse/oidc_client_secret ] || echo -n "placeholder-will-be-replaced" > dev/synapse/oidc_client_secret
+    # Kanidm TLS cert must exist as a file before docker compose bind-mounts it,
+    # otherwise Docker creates a directory placeholder that Kanidm can't read.
+    if [ ! -f dev/kanidm/cert.pem ] || [ ! -f dev/kanidm/key.pem ]; then
+        # Clean up directory placeholders left by Docker if cert was deleted while running
+        [ -d dev/kanidm/cert.pem ] && rmdir dev/kanidm/cert.pem
+        [ -d dev/kanidm/key.pem ] && rmdir dev/kanidm/key.pem
+        echo "    Generating Kanidm self-signed TLS certificate..."
+        openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+            -keyout dev/kanidm/key.pem \
+            -out dev/kanidm/cert.pem \
+            -subj "/CN=kanidm.hearth.local" \
+            -addext "basicConstraints=critical,CA:FALSE" \
+            -addext "subjectAltName=DNS:kanidm.hearth.local,DNS:localhost,IP:127.0.0.1,IP:10.0.2.2,IP:::1" \
+            2>/dev/null
+    fi
     echo "==> Starting infrastructure..."
     docker compose up -d
     echo "==> Waiting for services..."
@@ -272,10 +287,42 @@ fleet-vm:
     DB_URL="${DATABASE_URL:-postgres://hearth:hearth@localhost:5432/hearth}"
     MACHINE_ID=$(uuidgen)
 
+    # Load dev env for machine token secret
+    if [ -f dev/kanidm/.env ]; then
+        set -a; source dev/kanidm/.env; set +a
+    fi
+
+    if [ -z "${HEARTH_MACHINE_TOKEN_SECRET:-}" ]; then
+        echo "ERROR: HEARTH_MACHINE_TOKEN_SECRET not set. Run 'just setup' first."
+        exit 1
+    fi
+
+    # Mint a machine token (HS256 JWT) and compute its SHA-256 hash for the DB.
+    JWT_OUTPUT=$(MACHINE_ID="$MACHINE_ID" SECRET="$HEARTH_MACHINE_TOKEN_SECRET" node -e '
+        const crypto = require("crypto");
+        const secret = Buffer.from(process.env.SECRET, "base64");
+        const machineId = process.env.MACHINE_ID;
+        const now = Math.floor(Date.now() / 1000);
+        const header = Buffer.from(JSON.stringify({alg:"HS256",typ:"JWT"})).toString("base64url");
+        const payload = Buffer.from(JSON.stringify({
+            sub: "machine:" + machineId,
+            machine_id: machineId,
+            iat: now,
+            exp: now + 90*24*3600
+        })).toString("base64url");
+        const sig = crypto.createHmac("sha256", secret)
+            .update(header+"."+payload).digest("base64url");
+        const token = header+"."+payload+"."+sig;
+        const hash = crypto.createHash("sha256").update(token).digest("hex");
+        process.stdout.write(token + " " + hash);
+    ')
+    MACHINE_TOKEN="${JWT_OUTPUT% *}"
+    TOKEN_HASH="${JWT_OUTPUT#* }"
+
     echo "==> Registering fleet-vm as machine $MACHINE_ID..."
     psql "$DB_URL" --quiet -c "
-        INSERT INTO machines (id, hostname, enrollment_status, role, tags, hardware_fingerprint)
-        VALUES ('$MACHINE_ID', 'hearth-fleet-vm', 'active', 'developer', '{}', 'fleet-vm-$(date +%s)')
+        INSERT INTO machines (id, hostname, enrollment_status, role, tags, hardware_fingerprint, machine_token_hash)
+        VALUES ('$MACHINE_ID', 'hearth-fleet-vm', 'active', 'developer', '{}', 'fleet-vm-$(date +%s)', '$TOKEN_HASH')
     "
 
     # Create log directory for 9p shared mount
@@ -287,7 +334,22 @@ fleet-vm:
     echo "    Login with: testadmin / test-demo-enrollment"
     echo "    Logs will appear in: dev/fleet-vm-logs/"
     echo ""
-    HEARTH_FLEET_VM_MACHINE_ID="$MACHINE_ID" nix run --impure .#fleet-vm
+    HEARTH_FLEET_VM_MACHINE_ID="$MACHINE_ID" \
+    HEARTH_FLEET_VM_MACHINE_TOKEN="$MACHINE_TOKEN" \
+        nix run --impure .#fleet-vm
+
+# Clean up fleet VM state (disk images, DB rows, logs)
+fleet-vm-clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DB_URL="${DATABASE_URL:-postgres://hearth:hearth@localhost:5432/hearth}"
+    echo "==> Removing fleet-vm machine rows from DB..."
+    psql "$DB_URL" --quiet -c "DELETE FROM machines WHERE hostname = 'hearth-fleet-vm'" 2>/dev/null || true
+    echo "==> Removing fleet VM disk image..."
+    rm -f hearth-fleet-vm.qcow2
+    echo "==> Clearing fleet VM logs..."
+    rm -rf dev/fleet-vm-logs/*
+    echo "==> Done. Run 'just fleet-vm' to start fresh."
 
 # Run all checks (clippy, fmt, tests)
 check:

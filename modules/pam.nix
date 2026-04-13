@@ -30,9 +30,10 @@ in
       default = true;
       description = ''
         Whether to enable pam_mkhomedir for automatic home directory creation.
-        This acts as a safety net — the hearth-agent creates home directories
-        as its primary mechanism, but pam_mkhomedir ensures a bare home
-        directory exists even if the agent path fails.
+        When using Kanidm, this is force-disabled because kanidm-unixd-tasks
+        manages home directories using UUID-based paths with SPN symlinks.
+        pam_mkhomedir would create a real directory at the SPN path,
+        preventing the symlink from being created.
       '';
     };
 
@@ -52,6 +53,11 @@ in
         sshd.makeHomeDir = cfg.enableMkhomedir;
       };
     }
+
+    # kanidm-unixd-tasks manages home dirs; pam_mkhomedir would conflict.
+    (lib.mkIf useKanidm {
+      services.hearth.pam.enableMkhomedir = lib.mkDefault false;
+    })
 
     # --- SSSD integration (legacy backend) ---
     (lib.mkIf useSssd {

@@ -17,9 +17,10 @@
 { self, nixpkgs, system ? "x86_64-linux" }:
 
 let
-  # Read machine ID from env var (set by `just fleet-vm`) or use a default.
+  # Read machine ID and token from env vars (set by `just fleet-vm`).
   machineId = builtins.getEnv "HEARTH_FLEET_VM_MACHINE_ID";
   effectiveId = if machineId != "" then machineId else "00000000-0000-0000-0000-000000000001";
+  machineToken = builtins.getEnv "HEARTH_FLEET_VM_MACHINE_TOKEN";
 in
 self.lib.mkFleetHost {
   hostname = "hearth-fleet-vm";
@@ -78,7 +79,12 @@ self.lib.mkFleetHost {
       system.activationScripts.hearth-identity = ''
         mkdir -p /var/lib/hearth
         echo "${effectiveId}" > /var/lib/hearth/machine-id
+      '' + lib.optionalString (machineToken != "") ''
+        echo "${machineToken}" > /var/lib/hearth/machine-token
       '';
+
+      # --- Fix inverted mouse cursor under QEMU virtio-vga-gl ---
+      environment.sessionVariables.MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR = "1";
 
       # --- Dev user (fallback for when Kanidm is unavailable) ---
       users.users.dev = {
