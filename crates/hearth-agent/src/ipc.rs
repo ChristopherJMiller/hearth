@@ -366,14 +366,12 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
     let user = username.to_string();
     tokio::spawn(async move {
         // Single lock acquisition to extract everything we need.
-        let (role, client, machine_id, flake_ref, local_cache_url) = {
+        let (role, client, machine_id) = {
             let st = state_bg.lock().await;
             let role = resolve_role(&groups, &st.config);
             let client = Arc::clone(&st.client);
             let machine_id = st.machine_id;
-            let flake_ref = st.config.home.as_ref().map(|h| h.flake_ref.clone());
-            let local_cache_url = st.config.cache.as_ref().and_then(|c| c.url.clone());
-            (role, client, machine_id, flake_ref, local_cache_url)
+            (role, client, machine_id)
         };
         info!(%user, %role, "resolved role for user");
 
@@ -414,6 +412,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                         closure: None,
                         cache_url: None,
                         fallback_role: role.clone(),
+                        build_status: None,
                     }
                 }
             };
@@ -436,77 +435,154 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                     })
                     .await;
 
-                // Pull closure from binary cache. Prefer the agent's locally
-                // configured cache URL (reachable from this machine's network)
-                // over the API-provided one (which may be a localhost address
-                // from the control plane's perspective).
-                let effective_cache_url =
-                    local_cache_url.as_deref().or(prebuilt.cache_url.as_deref());
-                if let Some(cache_url) = effective_cache_url {
-                    let mut nix_args = vec!["copy", "--from", cache_url, closure];
-                    let netrc = std::path::Path::new("/run/hearth/netrc");
-                    if netrc.exists() {
-                        nix_args.extend_from_slice(&[
-                            "--option",
-                            "netrc-file",
-                            "/run/hearth/netrc",
-                        ]);
+                // Realise the closure using the system's configured substituters.
+                // This pulls Hearth-specific paths from the Attic binary cache
+                // and standard nixpkgs paths from cache.nixos.org, avoiding the
+                // need for Attic to store the entire nixpkgs closure.
+                let realise_result = tokio::process::Command::new("nix-store")
+                    .args(["--realise", closure])
+                    .output()
+                    .await;
+                let copy_err = match realise_result {
+                    Err(e) => {
+                        error!(%user, %closure, error = %e, "nix-store --realise failed to start");
+                        Some(format!("nix-store --realise failed to start: {e}"))
                     }
-                    let copy_result = tokio::process::Command::new("nix")
-                        .args(&nix_args)
-                        .output()
-                        .await;
-                    if let Err(e) = &copy_result {
-                        warn!(error = %e, "nix copy from cache failed, closure may already be local");
-                    } else if let Ok(out) = &copy_result
-                        && !out.status.success()
-                    {
+                    Ok(out) if !out.status.success() => {
                         let stderr = String::from_utf8_lossy(&out.stderr);
-                        warn!(%stderr, "nix copy returned non-zero, continuing anyway");
+                        error!(%user, %closure, %stderr, "nix-store --realise failed");
+                        Some(format!("nix-store --realise failed: {stderr}"))
+                    }
+                    Ok(_) => {
+                        info!(%user, %closure, "closure realised from substituters");
+                        None
+                    }
+                };
+
+                if let Some(msg) = copy_err {
+                    // Report the broken closure so the server can trigger a rebuild.
+                    let _ = client.report_closure_failure(&user, closure, &msg).await;
+                    Err(msg)
+                } else {
+                    let _ = event_tx
+                        .send(AgentEvent::Progress {
+                            username: user.clone(),
+                            percent: 60,
+                            message: "activating per-user environment".into(),
+                        })
+                        .await;
+
+                    // Activate the home-manager generation.
+                    let activate_path = format!("{closure}/activate");
+                    run_as_user(&user, &activate_path, &[], &bg_shutdown).await
+                }
+            } else {
+                // No pre-built closure yet — the build may be in progress.
+                // Poll the API for the closure to become available.
+                info!(%user, %role, "no pre-built closure yet, waiting for build");
+
+                const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+                const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
+                let start = std::time::Instant::now();
+                let mut closure_path: Option<String> = None;
+
+                while start.elapsed() < MAX_WAIT {
+                    if bg_shutdown.is_cancelled() {
+                        break;
+                    }
+
+                    let elapsed_pct =
+                        (start.elapsed().as_secs() * 50 / MAX_WAIT.as_secs()).min(50) as u8;
+                    let _ = event_tx
+                        .send(AgentEvent::Progress {
+                            username: user.clone(),
+                            percent: 10 + elapsed_pct,
+                            message: "waiting for environment build to complete...".into(),
+                        })
+                        .await;
+
+                    tokio::time::sleep(POLL_INTERVAL).await;
+
+                    match client.get_user_env_closure(&user, Some(&role)).await {
+                        Ok(resp) if resp.closure.is_some() => {
+                            closure_path = resp.closure;
+                            break;
+                        }
+                        Ok(resp) => {
+                            use hearth_common::api_types::UserEnvBuildStatus;
+                            let status_msg = match resp.build_status {
+                                Some(UserEnvBuildStatus::Pending) => "environment build queued...",
+                                Some(UserEnvBuildStatus::Building) => {
+                                    "environment is being built..."
+                                }
+                                Some(UserEnvBuildStatus::Failed) => {
+                                    "environment build failed, retrying..."
+                                }
+                                _ => "waiting for environment build...",
+                            };
+                            let _ = event_tx
+                                .send(AgentEvent::Progress {
+                                    username: user.clone(),
+                                    percent: 10 + elapsed_pct,
+                                    message: status_msg.into(),
+                                })
+                                .await;
+                            debug!(%user, ?resp.build_status, "closure still not ready, polling...");
+                        }
+                        Err(e) => {
+                            debug!(%user, error = %e, "failed to poll for closure");
+                        }
                     }
                 }
 
-                let _ = event_tx
-                    .send(AgentEvent::Progress {
-                        username: user.clone(),
-                        percent: 60,
-                        message: "activating per-user environment".into(),
-                    })
-                    .await;
+                if let Some(closure) = &closure_path {
+                    if !hearth_common::nix_store::is_valid_store_path(closure) {
+                        Err(format!("invalid closure path: {closure}"))
+                    } else {
+                        info!(%user, %closure, "closure became available, realising");
+                        let _ = event_tx
+                            .send(AgentEvent::Progress {
+                                username: user.clone(),
+                                percent: 60,
+                                message: "pulling environment from cache".into(),
+                            })
+                            .await;
 
-                // Activate the home-manager generation.
-                let activate_path = format!("{closure}/activate");
-                run_as_user(&user, &activate_path, &[], &bg_shutdown).await
-            } else if let Some(flake_ref) = flake_ref {
-                // No pre-built closure — fall back to role template via home-manager switch.
-                let flake_target = format!("{flake_ref}#{role}");
-                info!(%user, %flake_target, "no pre-built closure, falling back to role template");
-
-                // Resolve the home-manager binary from the agent's own PATH.
-                // runuser runs the command in the target user's env which may
-                // not have home-manager, so we pass the absolute path.
-                let hm_bin = which("home-manager").unwrap_or_else(|| "home-manager".into());
-                let hm_str = hm_bin.to_str().unwrap_or("home-manager");
-
-                let _ = event_tx
-                    .send(AgentEvent::Progress {
-                        username: user.clone(),
-                        percent: 30,
-                        message: format!("activating role template: {role}"),
-                    })
-                    .await;
-
-                run_as_user_with_progress(
-                    &user,
-                    hm_str,
-                    &["switch", "--flake", &flake_target],
-                    &bg_shutdown,
-                    Some((&event_tx, &user)),
-                )
-                .await
-            } else {
-                info!(%user, %role, "no pre-built closure and no home_flake_ref configured, skipping activation");
-                Ok(())
+                        let realise_result = tokio::process::Command::new("nix-store")
+                            .args(["--realise", closure])
+                            .output()
+                            .await;
+                        match realise_result {
+                            Err(e) => {
+                                let msg = format!("nix-store --realise failed: {e}");
+                                let _ = client.report_closure_failure(&user, closure, &msg).await;
+                                Err(msg)
+                            }
+                            Ok(out) if !out.status.success() => {
+                                let stderr = String::from_utf8_lossy(&out.stderr);
+                                let msg = format!("nix-store --realise failed: {stderr}");
+                                let _ = client.report_closure_failure(&user, closure, &msg).await;
+                                Err(msg)
+                            }
+                            Ok(_) => {
+                                let _ = event_tx
+                                    .send(AgentEvent::Progress {
+                                        username: user.clone(),
+                                        percent: 80,
+                                        message: "activating per-user environment".into(),
+                                    })
+                                    .await;
+                                let activate_path = format!("{closure}/activate");
+                                run_as_user(&user, &activate_path, &[], &bg_shutdown).await
+                            }
+                        }
+                    }
+                } else {
+                    Err(
+                        "still bootstrapping your environment — please try again in a few minutes"
+                            .into(),
+                    )
+                }
             }
         };
 
@@ -559,16 +635,6 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             }
         }
     });
-}
-
-/// Find a binary in the current process's PATH.
-fn which(name: &str) -> Option<std::path::PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let full = dir.join(name);
-            if full.is_file() { Some(full) } else { None }
-        })
-    })
 }
 
 /// Ensure a user's home directory exists before environment activation.

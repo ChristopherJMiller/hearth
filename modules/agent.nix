@@ -230,6 +230,14 @@ in
         ++ lib.optional (cfg.homeFlakeRef != null) pkgs.home-manager
         ++ lib.optional cfg.headscale.enable pkgs.tailscale;
 
+      # Ensure the netrc file exists before the agent starts so the Nix
+      # daemon's netrc-file setting doesn't reference a missing path.
+      # The agent will overwrite it with real credentials on first heartbeat.
+      preStart = ''
+        touch /run/hearth/netrc
+        chmod 0600 /run/hearth/netrc
+      '';
+
       serviceConfig = {
         Type = "notify";
         ExecStart = "${cfg.package}/bin/hearth-agent";

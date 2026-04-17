@@ -87,6 +87,14 @@ pub trait HearthApiClient: Send + Sync {
         role: Option<&str>,
     ) -> impl Future<Output = Result<UserEnvClosureResponse, ApiError>> + Send;
 
+    /// Report a broken closure to the server so it can trigger a rebuild.
+    fn report_closure_failure(
+        &self,
+        username: &str,
+        closure: &str,
+        error: &str,
+    ) -> impl Future<Output = Result<ReportClosureFailureResponse, ApiError>> + Send;
+
     /// Request a fresh binary cache token from the API.
     fn get_cache_token(&self) -> impl Future<Output = Result<CacheTokenResponse, ApiError>> + Send;
 
@@ -355,6 +363,27 @@ impl HearthApiClient for ReqwestApiClient {
         let resp = self.check_response(resp).await?;
         let body = resp.json::<UserEnvClosureResponse>().await?;
         Ok(body)
+    }
+
+    async fn report_closure_failure(
+        &self,
+        username: &str,
+        closure: &str,
+        error: &str,
+    ) -> Result<ReportClosureFailureResponse, ApiError> {
+        let body = crate::api_types::ReportClosureFailureRequest {
+            closure: closure.to_string(),
+            error: error.to_string(),
+        };
+        let resp = self
+            .authed_post(self.url(&format!(
+                "/api/v1/users/{username}/env-closure/report-failure"
+            )))
+            .json(&body)
+            .send()
+            .await?;
+        let resp = self.check_response(resp).await?;
+        Ok(resp.json::<ReportClosureFailureResponse>().await?)
     }
 
     async fn get_cache_token(&self) -> Result<CacheTokenResponse, ApiError> {

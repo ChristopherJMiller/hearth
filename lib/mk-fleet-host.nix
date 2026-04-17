@@ -29,6 +29,7 @@
 , hardware ? null
 , stateVersion ? "25.05"
 , binaryCacheUrl ? null
+, cachePublicKey ? null
 , homeFlakeRef ? null
 , roleMapping ? [ ]
 , defaultRole ? "default"
@@ -210,6 +211,21 @@ nixpkgs.lib.nixosSystem {
         settings = {
           experimental-features = [ "nix-command" "flakes" ];
           auto-optimise-store = true;
+          # Binary cache (Attic) — allow fleet hosts to pull closures.
+          substituters = lib.mkForce (
+            lib.optional (binaryCacheUrl != null) binaryCacheUrl
+            ++ [ "https://cache.nixos.org" ]
+          );
+          trusted-public-keys = lib.optional (cachePublicKey != null) cachePublicKey
+            ++ [ "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" ];
+          trusted-users = [ "root" ];
+          # The agent writes a netrc file with a fresh Attic cache token on
+          # each heartbeat. Point the Nix daemon at it so substituter fetches
+          # from the private Attic cache are authenticated.
+          netrc-file = "/run/hearth/netrc";
+          # Dev Attic caches may not have signing keys; allow unsigned paths.
+          # Production builds should set cachePublicKey and remove this.
+          require-sigs = cachePublicKey != null;
         };
         gc = {
           automatic = true;

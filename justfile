@@ -46,6 +46,16 @@ setup:
     if [ -n "$TOKEN" ]; then
         attic login dev http://localhost:8080 "$TOKEN" 2>/dev/null
         attic cache create hearth 2>/dev/null || true
+        # Save Attic's own public key — this is what narinfo responses are signed
+        # with, and what fleet VMs need in trusted-public-keys.
+        ATTIC_PUB=$(attic cache info hearth 2>/dev/null | grep 'Public Key' | awk '{print $NF}' || true)
+        if [ -n "$ATTIC_PUB" ]; then
+            echo "$ATTIC_PUB" > dev/attic/cache-public-key
+            echo "    Attic cache public key: $ATTIC_PUB"
+        else
+            echo "    WARNING: Could not read Attic cache public key"
+            echo "    Run 'attic cache info hearth' to debug"
+        fi
         echo "    Attic cache 'hearth' ready"
     else
         echo "    WARNING: Could not create Attic token (is atticd running?)"
@@ -153,10 +163,12 @@ dev:
     export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}"
     # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
     export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
-    # Cache signing public key for signature verification.
-    if [ -f dev/attic/signing-key.pub ]; then
-        export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/signing-key.pub)"
+    # Cache public key for signature verification.
+    if [ ! -f dev/attic/cache-public-key ]; then
+        echo "ERROR: dev/attic/cache-public-key not found. Run 'just setup' first."
+        exit 1
     fi
+    export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/cache-public-key)"
     echo ""
     echo "NOTE: 'just dev' only runs the API server (serves pre-built web/dist)."
     echo "  For live frontend HMR, run 'just dev-full' instead, or 'just web-dev' in a second terminal."
@@ -187,9 +199,11 @@ dev-full:
     # Cache signing key for the build worker.
     export HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}"
     # Cache public key for enrolled machines.
-    if [ -f dev/attic/signing-key.pub ]; then
-        export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/signing-key.pub)"
+    if [ ! -f dev/attic/cache-public-key ]; then
+        echo "ERROR: dev/attic/cache-public-key not found. Run 'just setup' first."
+        exit 1
     fi
+    export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/cache-public-key)"
     (cd web && pnpm dev) &
     WEB_PID=$!
     # Start build worker in background so build jobs are automatically claimed.
@@ -330,6 +344,13 @@ fleet-vm:
     # Create log directory for 9p shared mount
     export FLEET_VM_LOGS="$(pwd)/dev/fleet-vm-logs"
     mkdir -p "$FLEET_VM_LOGS"
+
+    # Export cache public key so the VM's Nix daemon trusts the Attic cache.
+    if [ ! -f dev/attic/cache-public-key ]; then
+        echo "ERROR: dev/attic/cache-public-key not found. Run 'just setup' first."
+        exit 1
+    fi
+    export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/cache-public-key)"
 
     echo "==> Building and booting fleet VM..."
     echo "    Machine ID: $MACHINE_ID"

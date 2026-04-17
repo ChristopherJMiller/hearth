@@ -277,47 +277,33 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                         closure = %user_env.target_closure,
                         "pre-staging user environment closure"
                     );
-                    if let Some(cache_url) = &user_env.cache_url {
-                        let mut nix_args = vec![
-                            "copy".to_string(),
-                            "--from".to_string(),
-                            cache_url.clone(),
-                            user_env.target_closure.clone(),
-                        ];
-                        let netrc = std::path::Path::new("/run/hearth/netrc");
-                        if netrc.exists() {
-                            nix_args.extend_from_slice(&[
-                                "--option".to_string(),
-                                "netrc-file".to_string(),
-                                "/run/hearth/netrc".to_string(),
-                            ]);
+                    // Use nix-store --realise to pull from all configured
+                    // substituters (Attic + cache.nixos.org).
+                    let result = tokio::process::Command::new("nix-store")
+                        .args(["--realise", &user_env.target_closure])
+                        .output()
+                        .await;
+                    match result {
+                        Ok(out) if out.status.success() => {
+                            info!(
+                                username = %user_env.username,
+                                "pre-staged user env closure"
+                            );
                         }
-                        let result = tokio::process::Command::new("nix")
-                            .args(&nix_args)
-                            .output()
-                            .await;
-                        match result {
-                            Ok(out) if out.status.success() => {
-                                info!(
-                                    username = %user_env.username,
-                                    "pre-staged user env closure"
-                                );
-                            }
-                            Ok(out) => {
-                                let stderr = String::from_utf8_lossy(&out.stderr);
-                                warn!(
-                                    username = %user_env.username,
-                                    %stderr,
-                                    "nix copy for user env pre-staging failed"
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    username = %user_env.username,
-                                    error = %e,
-                                    "failed to run nix copy for user env pre-staging"
-                                );
-                            }
+                        Ok(out) => {
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            warn!(
+                                username = %user_env.username,
+                                %stderr,
+                                "nix-store --realise for user env pre-staging failed"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                username = %user_env.username,
+                                error = %e,
+                                "failed to run nix-store --realise for user env pre-staging"
+                            );
                         }
                     }
                 }

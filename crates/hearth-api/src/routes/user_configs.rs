@@ -4,7 +4,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use hearth_common::api_types::{
-    UpsertUserConfigRequest, UserConfig, UserEnvBuildJob, UserEnvClosureResponse,
+    ReportClosureFailureRequest, ReportClosureFailureResponse, UpsertUserConfigRequest, UserConfig,
+    UserEnvBuildJob, UserEnvClosureResponse,
 };
 use serde::Deserialize;
 
@@ -114,11 +115,16 @@ pub async fn get_env_closure(
 ) -> Result<Json<UserEnvClosureResponse>, AppError> {
     let config = repo::get_user_config(&state.pool, &username).await?;
     match config {
-        Some(row) => Ok(Json(UserEnvClosureResponse {
-            closure: row.latest_closure,
-            cache_url: state.cache_url.clone(),
-            fallback_role: row.base_role,
-        })),
+        Some(row) => {
+            let build_status: hearth_common::api_types::UserEnvBuildStatus =
+                row.build_status.into();
+            Ok(Json(UserEnvClosureResponse {
+                closure: row.latest_closure,
+                cache_url: state.cache_url.clone(),
+                fallback_role: row.base_role,
+                build_status: Some(build_status),
+            }))
+        }
         None => {
             // Auto-provision: create a user_config with the agent-resolved role
             // so the background build task enqueues a closure build.
@@ -130,7 +136,35 @@ pub async fn get_env_closure(
                 closure: None,
                 cache_url: state.cache_url.clone(),
                 fallback_role: base_role.to_string(),
+                build_status: Some(hearth_common::api_types::UserEnvBuildStatus::Pending),
             }))
         }
     }
+}
+
+/// POST /api/v1/users/{username}/env-closure/report-failure — agent reports a broken closure.
+///
+/// If the reported closure matches the current `latest_closure`, invalidates it
+/// and enqueues a rebuild. Prevents duplicate rebuilds if one is already in progress.
+pub async fn report_closure_failure(
+    _machine: MachineIdentity,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    Json(req): Json<ReportClosureFailureRequest>,
+) -> Result<Json<ReportClosureFailureResponse>, AppError> {
+    tracing::warn!(
+        %username,
+        closure = %req.closure,
+        error = %req.error,
+        "agent reported closure failure"
+    );
+
+    let rebuild_queued =
+        repo::invalidate_user_closure(&state.pool, &username, &req.closure).await?;
+
+    if rebuild_queued {
+        tracing::info!(%username, "rebuild enqueued after closure failure report");
+    }
+
+    Ok(Json(ReportClosureFailureResponse { rebuild_queued }))
 }

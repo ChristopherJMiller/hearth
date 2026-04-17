@@ -21,6 +21,7 @@ let
   machineId = builtins.getEnv "HEARTH_FLEET_VM_MACHINE_ID";
   effectiveId = if machineId != "" then machineId else "00000000-0000-0000-0000-000000000001";
   machineToken = builtins.getEnv "HEARTH_FLEET_VM_MACHINE_TOKEN";
+  cacheKey = builtins.getEnv "HEARTH_CACHE_PUBLIC_KEY";
 in
 self.lib.mkFleetHost {
   hostname = "hearth-fleet-vm";
@@ -30,6 +31,7 @@ self.lib.mkFleetHost {
   kanidmUrl = "https://kanidm.hearth.local:8443";
   kanidmCaCert = ../dev/kanidm/cert.pem;
   binaryCacheUrl = "http://cache.hearth.local:8080/hearth";
+  cachePublicKey = if cacheKey != "" then cacheKey else null;
   homeFlakeRef = "path:${self}";
   roleMapping = [
     { group = "hearth-admins"; role = "admin"; }

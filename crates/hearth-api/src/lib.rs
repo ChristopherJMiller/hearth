@@ -230,6 +230,10 @@ pub fn user_config_routes() -> Router<AppState> {
             "/{username}/env-closure",
             get(routes::user_configs::get_env_closure),
         )
+        .route(
+            "/{username}/env-closure/report-failure",
+            post(routes::user_configs::report_closure_failure),
+        )
 }
 
 pub fn auth_me_route() -> Router<AppState> {

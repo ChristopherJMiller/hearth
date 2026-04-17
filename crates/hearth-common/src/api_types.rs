@@ -651,6 +651,25 @@ pub struct UserEnvClosureResponse {
     pub cache_url: Option<String>,
     /// Role template to fall back to if no pre-built closure exists.
     pub fallback_role: String,
+    /// Build pipeline status for this user's closure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_status: Option<UserEnvBuildStatus>,
+}
+
+/// Request body for reporting a broken closure from the agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportClosureFailureRequest {
+    /// The closure store path that failed.
+    pub closure: String,
+    /// Error message describing the failure.
+    pub error: String,
+}
+
+/// Response after reporting a closure failure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportClosureFailureResponse {
+    /// Whether a rebuild was enqueued.
+    pub rebuild_queued: bool,
 }
 
 /// A per-user environment build job.

@@ -1874,6 +1874,70 @@ pub async fn enqueue_user_env_build(
     .await
 }
 
+/// Invalidate a broken closure and enqueue a rebuild.
+///
+/// Only acts if `latest_closure` still matches the reported closure (prevents
+/// stale reports). Returns `true` if a rebuild was enqueued, `false` if the
+/// closure has already changed or a build is already in progress.
+pub async fn invalidate_user_closure(
+    pool: &PgPool,
+    username: &str,
+    closure: &str,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    // Only invalidate if the closure matches what the agent saw.
+    let rows = sqlx::query(
+        "UPDATE user_configs
+         SET latest_closure = NULL, build_status = 'pending', updated_at = now()
+         WHERE username = $1 AND latest_closure = $2",
+    )
+    .bind(username)
+    .bind(closure)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if rows == 0 {
+        // Closure already changed or no matching config — no rebuild needed.
+        tx.commit().await?;
+        return Ok(false);
+    }
+
+    // Check if there's already a pending/building job to avoid duplicates.
+    let existing: Option<(i64,)> = sqlx::query_as(
+        "SELECT COUNT(*) FROM user_env_build_jobs
+         WHERE username = $1 AND status IN ('pending', 'building')",
+    )
+    .bind(username)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if existing.is_some_and(|(count,)| count > 0) {
+        tx.commit().await?;
+        return Ok(false);
+    }
+
+    let config_hash: Option<String> =
+        sqlx::query_scalar("SELECT config_hash FROM user_configs WHERE username = $1")
+            .bind(username)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let hash = config_hash.unwrap_or_default();
+    sqlx::query(
+        "INSERT INTO user_env_build_jobs (username, config_hash)
+         VALUES ($1, $2)",
+    )
+    .bind(username)
+    .bind(&hash)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(true)
+}
+
 /// Compute a deterministic hash for a user config (base_role + overrides).
 fn compute_user_config_hash(base_role: &str, overrides: &serde_json::Value) -> String {
     use sha2::{Digest, Sha256};
