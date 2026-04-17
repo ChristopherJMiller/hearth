@@ -16,7 +16,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use hearth_common::api_client::HearthApiClient;
-use hearth_common::api_types::UserEnvStatus;
+use hearth_common::api_types::{DesktopPreferences, SyncDesktopPrefsRequest, UserEnvStatus};
 use hearth_common::config::AgentConfig;
 use hearth_common::ipc::{AgentEvent, AgentRequest};
 
@@ -585,6 +585,14 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                     warn!(error = %e, "failed to report user login");
                 }
 
+                // Sync observed desktop preferences back to the control plane.
+                // Run in a spawned task to avoid delaying the Ready signal.
+                let sync_client = client.clone();
+                let sync_user = api_user.to_string();
+                tokio::spawn(async move {
+                    sync_user_desktop_prefs(&*sync_client, machine_id, &sync_user).await;
+                });
+
                 let mut st = state_bg.lock().await;
                 st.prepare_status.insert(user.clone(), PrepareStatus::Ready);
 
@@ -883,9 +891,119 @@ fn parse_nix_progress(line: &str) -> Option<String> {
     }
 }
 
+/// Read a single dconf key as a specific user via `runuser`.
+///
+/// Returns `None` if the key is unset or the command fails.
+async fn read_dconf_as_user(username: &str, key: &str) -> Option<String> {
+    let output = tokio::process::Command::new("runuser")
+        .args(["-u", username, "--", "dconf", "read", key])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let val = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if val.is_empty() || val == "@as []" {
+        None
+    } else {
+        Some(val)
+    }
+}
+
+/// Read the curated set of desktop preferences from dconf for a user.
+async fn read_desktop_prefs(username: &str) -> DesktopPreferences {
+    let favorite_apps = read_dconf_as_user(username, "/org/gnome/shell/favorite-apps")
+        .await
+        .and_then(|v| parse_dconf_string_array(&v));
+
+    let wallpaper_uri =
+        read_dconf_as_user(username, "/org/gnome/desktop/background/picture-uri-dark")
+            .await
+            .or(
+                read_dconf_as_user(username, "/org/gnome/desktop/background/picture-uri").await,
+            )
+            .map(|v| strip_dconf_string(&v));
+
+    let wallpaper_color =
+        read_dconf_as_user(username, "/org/gnome/desktop/background/primary-color")
+            .await
+            .map(|v| strip_dconf_string(&v));
+
+    let dark_mode =
+        read_dconf_as_user(username, "/org/gnome/desktop/interface/color-scheme")
+            .await
+            .map(|v| v.contains("prefer-dark"));
+
+    DesktopPreferences {
+        favorite_apps,
+        wallpaper_uri,
+        wallpaper_color,
+        dark_mode,
+    }
+}
+
+/// Parse a dconf string array like `['firefox.desktop', 'org.gnome.Nautilus.desktop']`
+/// into a `Vec<String>`.
+fn parse_dconf_string_array(val: &str) -> Option<Vec<String>> {
+    let trimmed = val.trim();
+    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+        return None;
+    }
+    let inner = &trimmed[1..trimmed.len() - 1];
+    if inner.trim().is_empty() {
+        return Some(Vec::new());
+    }
+    let items: Vec<String> = inner
+        .split(',')
+        .map(|s| strip_dconf_string(s.trim()))
+        .collect();
+    Some(items)
+}
+
+/// Strip surrounding single quotes from a dconf string value.
+fn strip_dconf_string(val: &str) -> String {
+    val.trim()
+        .trim_start_matches('\'')
+        .trim_end_matches('\'')
+        .to_string()
+}
+
+/// Sync observed desktop preferences back to the control plane for a user.
+///
+/// Reads the curated dconf keys from the user's session and sends them to
+/// the machine-scoped desktop prefs endpoint.
+pub async fn sync_user_desktop_prefs<C: HearthApiClient>(
+    client: &C,
+    machine_id: Uuid,
+    username: &str,
+) {
+    let prefs = read_desktop_prefs(username).await;
+
+    // Only sync if we got at least one meaningful value.
+    if prefs.favorite_apps.is_none()
+        && prefs.wallpaper_uri.is_none()
+        && prefs.wallpaper_color.is_none()
+        && prefs.dark_mode.is_none()
+    {
+        debug!(%username, "no desktop preferences to sync");
+        return;
+    }
+
+    let req = SyncDesktopPrefsRequest { desktop: prefs };
+    match client.sync_desktop_prefs(machine_id, username, &req).await {
+        Ok(()) => {
+            info!(%username, "synced desktop preferences to control plane");
+        }
+        Err(e) => {
+            warn!(%username, error = %e, "failed to sync desktop preferences");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_nix_progress;
+    use super::{parse_dconf_string_array, parse_nix_progress, strip_dconf_string};
 
     #[test]
     fn test_copying_path() {
@@ -941,6 +1059,110 @@ mod tests {
         assert_eq!(parse_nix_progress("evaluating derivation..."), None);
         assert_eq!(parse_nix_progress(""), None);
         assert_eq!(parse_nix_progress("warning: Git tree is dirty"), None);
+    }
+
+    // --- dconf parsing tests ---
+
+    #[test]
+    fn test_parse_dconf_string_array_typical() {
+        let val = "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'kitty.desktop']";
+        let result = parse_dconf_string_array(val).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                "firefox.desktop",
+                "org.gnome.Nautilus.desktop",
+                "kitty.desktop"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_dconf_string_array_empty() {
+        assert_eq!(parse_dconf_string_array("[]"), Some(vec![]));
+        assert_eq!(parse_dconf_string_array("[  ]"), Some(vec![]));
+    }
+
+    #[test]
+    fn test_parse_dconf_string_array_single() {
+        let val = "['firefox.desktop']";
+        assert_eq!(
+            parse_dconf_string_array(val),
+            Some(vec!["firefox.desktop".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_dconf_string_array_invalid() {
+        assert_eq!(parse_dconf_string_array("not-an-array"), None);
+        assert_eq!(parse_dconf_string_array(""), None);
+        assert_eq!(parse_dconf_string_array("@as []"), None);
+    }
+
+    #[test]
+    fn test_strip_dconf_string() {
+        assert_eq!(strip_dconf_string("'hello'"), "hello");
+        assert_eq!(strip_dconf_string("  'spaced'  "), "spaced");
+        assert_eq!(strip_dconf_string("no-quotes"), "no-quotes");
+        assert_eq!(strip_dconf_string("'prefer-dark'"), "prefer-dark");
+    }
+
+    #[test]
+    fn test_desktop_preferences_serialization_roundtrip() {
+        use hearth_common::api_types::DesktopPreferences;
+
+        let prefs = DesktopPreferences {
+            favorite_apps: Some(vec![
+                "firefox.desktop".into(),
+                "org.gnome.Nautilus.desktop".into(),
+            ]),
+            wallpaper_uri: Some("file:///usr/share/backgrounds/gnome/blobs-l.svg".into()),
+            wallpaper_color: Some("#1e1e2e".into()),
+            dark_mode: Some(true),
+        };
+
+        let json = serde_json::to_string(&prefs).unwrap();
+        let deserialized: DesktopPreferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(prefs, deserialized);
+    }
+
+    #[test]
+    fn test_desktop_preferences_partial_serialization() {
+        use hearth_common::api_types::DesktopPreferences;
+
+        // Only favorite_apps set — others should be absent in JSON.
+        let prefs = DesktopPreferences {
+            favorite_apps: Some(vec!["firefox.desktop".into()]),
+            wallpaper_uri: None,
+            wallpaper_color: None,
+            dark_mode: None,
+        };
+
+        let json = serde_json::to_string(&prefs).unwrap();
+        assert!(!json.contains("wallpaper_uri"));
+        assert!(!json.contains("wallpaper_color"));
+        assert!(!json.contains("dark_mode"));
+
+        let deserialized: DesktopPreferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(prefs, deserialized);
+    }
+
+    #[test]
+    fn test_desktop_preferences_empty_roundtrip() {
+        use hearth_common::api_types::DesktopPreferences;
+
+        let prefs = DesktopPreferences {
+            favorite_apps: None,
+            wallpaper_uri: None,
+            wallpaper_color: None,
+            dark_mode: None,
+        };
+
+        let json = serde_json::to_string(&prefs).unwrap();
+        assert_eq!(json, "{}");
+
+        let deserialized: DesktopPreferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(prefs, deserialized);
     }
 }
 

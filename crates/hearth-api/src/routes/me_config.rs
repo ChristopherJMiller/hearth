@@ -86,6 +86,9 @@ pub async fn update_my_config(
     if let Some(ref vars) = req.session_variables {
         obj.insert("session_variables".into(), json!(vars));
     }
+    if let Some(ref desktop) = req.desktop {
+        obj.insert("desktop".into(), json!(desktop));
+    }
 
     let row = repo::upsert_user_config(&state.pool, username, &base_role, &overrides).await?;
     Ok((StatusCode::OK, Json(row.into())))

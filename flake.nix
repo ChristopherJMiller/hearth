@@ -445,6 +445,7 @@
           # Build an override module from structured JSON fields.
           overrideModule = { config, lib, pkgs, ... }: let
             gitOverrides = cfg.overrides.git or {};
+            desktop = cfg.overrides.desktop or {};
           in {
             programs.git = lib.mkIf (gitOverrides != {}) (
               lib.optionalAttrs (gitOverrides ? user_name) {
@@ -470,6 +471,29 @@
               }) // (cfg.overrides.session_variables or {});
 
             programs.bash.shellAliases = cfg.overrides.shell_aliases or {};
+
+            # Desktop personalization: user-owned dconf settings synced back
+            # from the device. Applied with mkForce so they override role defaults.
+            dconf.settings = lib.mkIf (desktop != {}) {
+              "org/gnome/shell" = lib.optionalAttrs (desktop ? favorite_apps) {
+                favorite-apps = lib.mkForce desktop.favorite_apps;
+              };
+              "org/gnome/desktop/background" = lib.mkMerge [
+                (lib.optionalAttrs (desktop ? wallpaper_uri) {
+                  picture-uri = lib.mkForce desktop.wallpaper_uri;
+                  picture-uri-dark = lib.mkForce desktop.wallpaper_uri;
+                  picture-options = "zoom";
+                })
+                (lib.optionalAttrs (desktop ? wallpaper_color) {
+                  primary-color = lib.mkForce desktop.wallpaper_color;
+                })
+              ];
+              "org/gnome/desktop/interface" = lib.optionalAttrs (desktop ? dark_mode) {
+                color-scheme = lib.mkForce (
+                  if desktop.dark_mode then "prefer-dark" else "default"
+                );
+              };
+            };
           };
         in home-manager.lib.homeManagerConfiguration {
           inherit pkgs;

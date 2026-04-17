@@ -95,6 +95,15 @@ pub trait HearthApiClient: Send + Sync {
         error: &str,
     ) -> impl Future<Output = Result<ReportClosureFailureResponse, ApiError>> + Send;
 
+    /// Sync observed desktop preferences back to the control plane on behalf
+    /// of a logged-in user. Uses the machine-scoped endpoint.
+    fn sync_desktop_prefs(
+        &self,
+        machine_id: Uuid,
+        username: &str,
+        prefs: &SyncDesktopPrefsRequest,
+    ) -> impl Future<Output = Result<(), ApiError>> + Send;
+
     /// Request a fresh binary cache token from the API.
     fn get_cache_token(&self) -> impl Future<Output = Result<CacheTokenResponse, ApiError>> + Send;
 
@@ -384,6 +393,23 @@ impl HearthApiClient for ReqwestApiClient {
             .await?;
         let resp = self.check_response(resp).await?;
         Ok(resp.json::<ReportClosureFailureResponse>().await?)
+    }
+
+    async fn sync_desktop_prefs(
+        &self,
+        machine_id: Uuid,
+        username: &str,
+        prefs: &SyncDesktopPrefsRequest,
+    ) -> Result<(), ApiError> {
+        let resp = self
+            .authed_put(self.url(&format!(
+                "/api/v1/machines/{machine_id}/users/{username}/desktop-prefs"
+            )))
+            .json(prefs)
+            .send()
+            .await?;
+        self.check_response(resp).await?;
+        Ok(())
     }
 
     async fn get_cache_token(&self) -> Result<CacheTokenResponse, ApiError> {

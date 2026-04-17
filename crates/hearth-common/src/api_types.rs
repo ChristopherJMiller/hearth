@@ -640,6 +640,37 @@ pub struct UpdateMyConfigRequest {
     pub editor: Option<String>,
     pub shell_aliases: Option<std::collections::HashMap<String, String>>,
     pub session_variables: Option<std::collections::HashMap<String, String>>,
+    pub desktop: Option<DesktopPreferences>,
+}
+
+/// User-customizable desktop preferences.
+///
+/// These are the curated set of GNOME dconf keys that users are allowed to
+/// personalize. The agent reads these from dconf on the device and syncs
+/// them back to the control plane; the build pipeline applies them as
+/// overrides on top of the role defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DesktopPreferences {
+    /// Pinned apps on the dash/taskbar (e.g. `["firefox.desktop", "org.gnome.Nautilus.desktop"]`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub favorite_apps: Option<Vec<String>>,
+    /// Wallpaper image URI (e.g. `file:///usr/share/backgrounds/gnome/blobs-l.svg`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallpaper_uri: Option<String>,
+    /// Solid background color when no wallpaper is set (e.g. `#1e1e2e`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallpaper_color: Option<String>,
+    /// Whether to use dark mode (`prefer-dark`) or light mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dark_mode: Option<bool>,
+}
+
+/// Request body for the machine-scoped desktop preferences sync endpoint.
+///
+/// Used by the agent to sync observed dconf values back on behalf of a user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncDesktopPrefsRequest {
+    pub desktop: DesktopPreferences,
 }
 
 /// Response from the agent's env-closure lookup endpoint.

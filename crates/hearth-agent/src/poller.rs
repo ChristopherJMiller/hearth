@@ -62,6 +62,11 @@ pub async fn run_poll_loop<C: HearthApiClient>(
     // Cache last-known services to avoid redundant disk writes.
     let mut last_services: Vec<hearth_common::api_types::ServiceInfo> = Vec::new();
 
+    // Desktop preferences sync: track last sync time per user (sync every 30 minutes).
+    let mut last_desktop_sync: std::collections::HashMap<String, std::time::Instant> =
+        std::collections::HashMap::new();
+    const DESKTOP_SYNC_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
     loop {
         // --- Drain offline queue ---
         match queue.drain() {
@@ -314,6 +319,26 @@ pub async fn run_poll_loop<C: HearthApiClient>(
                     last_services = resp.services.clone();
                 }
 
+                // --- Periodic desktop preferences sync ---
+                // Detect active graphical sessions and sync desktop prefs for
+                // users whose last sync was more than DESKTOP_SYNC_INTERVAL ago.
+                if let Ok(active_users) = detect_active_sessions().await {
+                    let now = std::time::Instant::now();
+                    for session_user in &active_users {
+                        let should_sync = last_desktop_sync
+                            .get(session_user)
+                            .is_none_or(|last| now.duration_since(*last) >= DESKTOP_SYNC_INTERVAL);
+                        if should_sync {
+                            debug!(username = %session_user, "periodic desktop preferences sync");
+                            crate::ipc::sync_user_desktop_prefs(&*client, machine_id, session_user)
+                                .await;
+                            last_desktop_sync.insert(session_user.clone(), now);
+                        }
+                    }
+                    // Clean up entries for users no longer logged in.
+                    last_desktop_sync.retain(|u, _| active_users.contains(u));
+                }
+
                 // Track user env count from response for metrics
                 user_env_count = resp.pending_user_envs.len() as u64;
             }
@@ -476,4 +501,38 @@ async fn replay_event<C: HearthApiClient>(
             Ok(())
         }
     }
+}
+
+/// Detect active graphical user sessions via `loginctl`.
+///
+/// Returns the usernames of users with active sessions, filtering out
+/// system users (UID < 1000) and the `root` user.
+async fn detect_active_sessions() -> Result<Vec<String>, String> {
+    let output = tokio::process::Command::new("loginctl")
+        .args(["list-users", "--no-legend", "--no-pager"])
+        .output()
+        .await
+        .map_err(|e| format!("loginctl failed: {e}"))?;
+
+    if !output.status.success() {
+        return Err("loginctl returned non-zero".into());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let users: Vec<String> = stdout
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 2 {
+                let uid: u32 = fields[0].parse().ok()?;
+                let username = fields[1].to_string();
+                // Skip system users and root.
+                if uid >= 1000 && username != "root" {
+                    return Some(username);
+                }
+            }
+            None
+        })
+        .collect();
+    Ok(users)
 }

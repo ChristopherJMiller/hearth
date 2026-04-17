@@ -338,6 +338,14 @@ pub fn build_services_from_env() -> Vec<hearth_common::api_types::ServiceInfo> {
             "Account management and single sign-on",
             "shield",
         ),
+        (
+            "HEARTH_GRAFANA_URL",
+            "monitoring",
+            "Monitoring",
+            ServiceCategory::Infrastructure,
+            "Fleet monitoring dashboards (Grafana)",
+            "activity",
+        ),
     ];
 
     let services: Vec<ServiceInfo> = definitions
@@ -395,6 +403,10 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
         .nest(
             "/api/v1/machines/{machine_id}/environments",
             environments_routes(),
+        )
+        .route(
+            "/api/v1/machines/{machine_id}/users/{username}/desktop-prefs",
+            put(routes::user_configs::sync_desktop_prefs),
         )
         .nest("/api/v1/users", user_config_routes())
         .nest("/api/v1/services", services_routes())

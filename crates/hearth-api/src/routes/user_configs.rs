@@ -4,8 +4,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use hearth_common::api_types::{
-    ReportClosureFailureRequest, ReportClosureFailureResponse, UpsertUserConfigRequest, UserConfig,
-    UserEnvBuildJob, UserEnvClosureResponse,
+    ReportClosureFailureRequest, ReportClosureFailureResponse, SyncDesktopPrefsRequest,
+    UpsertUserConfigRequest, UserConfig, UserEnvBuildJob, UserEnvClosureResponse,
 };
 use serde::Deserialize;
 
@@ -167,4 +167,68 @@ pub async fn report_closure_failure(
     }
 
     Ok(Json(ReportClosureFailureResponse { rebuild_queued }))
+}
+
+/// Path parameters for the machine-scoped desktop prefs endpoint.
+#[derive(Debug, Deserialize)]
+pub struct DesktopPrefsPath {
+    pub machine_id: uuid::Uuid,
+    pub username: String,
+}
+
+/// PUT /api/v1/machines/{machine_id}/users/{username}/desktop-prefs
+///
+/// The agent syncs observed dconf desktop preferences back to the control plane
+/// on behalf of a logged-in user. Merges the preferences into the user's
+/// `overrides.desktop` JSONB field and triggers a rebuild only if the config
+/// actually changed (via config_hash comparison in `upsert_user_config`).
+pub async fn sync_desktop_prefs(
+    machine: MachineIdentity,
+    State(state): State<AppState>,
+    Path(path): Path<DesktopPrefsPath>,
+    Json(req): Json<SyncDesktopPrefsRequest>,
+) -> Result<StatusCode, AppError> {
+    // Verify the machine token matches the path machine_id.
+    if machine.0 != path.machine_id {
+        return Err(AppError::Forbidden(
+            "machine_id mismatch: token does not match path".into(),
+        ));
+    }
+
+    let username = &path.username;
+
+    // Load existing config or start from defaults.
+    let existing = repo::get_user_config(&state.pool, username).await?;
+    let (base_role, mut overrides) = match existing {
+        Some(row) => {
+            let role = row.base_role;
+            let ovr = if row.overrides.is_object() {
+                row.overrides
+            } else {
+                serde_json::json!({})
+            };
+            (role, ovr)
+        }
+        None => ("default".to_string(), serde_json::json!({})),
+    };
+
+    let obj = overrides
+        .as_object_mut()
+        .ok_or_else(|| AppError::Internal("overrides is not a JSON object".into()))?;
+
+    obj.insert(
+        "desktop".into(),
+        serde_json::to_value(&req.desktop)
+            .map_err(|e| AppError::Internal(format!("failed to serialize desktop prefs: {e}")))?,
+    );
+
+    repo::upsert_user_config(&state.pool, username, &base_role, &overrides).await?;
+
+    tracing::info!(
+        %username,
+        machine_id = %path.machine_id,
+        "synced desktop preferences from agent"
+    );
+
+    Ok(StatusCode::NO_CONTENT)
 }
