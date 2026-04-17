@@ -88,6 +88,9 @@ in
       gnome-tweaks
       file-roller
 
+      # GNOME extensions
+      gnomeExtensions.dash-to-panel
+
       # Fonts
       noto-fonts
       noto-fonts-cjk-sans

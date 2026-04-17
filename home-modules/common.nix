@@ -126,6 +126,25 @@
 
   # --- dconf settings for GNOME ---
   dconf.settings = {
+    # --- Dash to Panel: traditional bottom taskbar ---
+    "org/gnome/shell" = {
+      enabled-extensions = [
+        "dash-to-panel@jderose9.github.com"
+      ];
+    };
+
+    "org/gnome/shell/extensions/dash-to-panel" = {
+      panel-positions = ''{"0":"BOTTOM"}'';
+      panel-sizes = ''{"0":42}'';
+      appicon-margin = 4;
+      dot-style-focused = "DASHES";
+      dot-style-unfocused = "DOTS";
+      animate-appicon-hover = true;
+      intellihide = false;
+      trans-use-custom-opacity = false;
+      show-apps-icon-file = "";
+    };
+
     "org/gnome/desktop/interface" = {
       color-scheme = "prefer-dark";
       font-name = "Cantarell 11";
