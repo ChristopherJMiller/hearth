@@ -85,5 +85,29 @@ in
         hsm_type = cfg.hsmType;
       };
     };
+
+    # Ensure kanidm-unixd restarts on failure (e.g., if the Kanidm server
+    # isn't reachable during early boot). The upstream NixOS module doesn't
+    # set restart policy, so the daemon dies permanently on first failure.
+    systemd.services.kanidm-unixd = {
+      after = [ "network-online.target" "nss-lookup.target" ];
+      wants = [ "network-online.target" ];
+      serviceConfig = {
+        Restart = "on-failure";
+        RestartSec = 5;
+        # Give the network time to come up on first boot.
+        StartLimitIntervalSec = 120;
+        StartLimitBurst = 10;
+      };
+    };
+
+    systemd.services.kanidm-unixd-tasks = {
+      serviceConfig = {
+        Restart = "on-failure";
+        RestartSec = 5;
+        StartLimitIntervalSec = 120;
+        StartLimitBurst = 10;
+      };
+    };
   };
 }
