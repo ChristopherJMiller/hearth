@@ -58,8 +58,8 @@ self.lib.mkFleetHost {
         diskSize = 32768; # 32GB — room for NixOS system, home-manager profiles, flatpaks, and dev tools
         resolution = { x = 1920; y = 1080; };
         qemu.options = [
-          "-device" "virtio-vga-gl,xres=1920,yres=1080"
-          "-display" "gtk,gl=on"
+          "-device" "virtio-vga,xres=1920,yres=1080"
+          "-display" "gtk"
           "-device" "virtio-tablet-pci"    # absolute pointing — no mouse grab
           "-audiodev" "pipewire,id=audio0" # audio passthrough to host
           "-device" "intel-hda"
@@ -98,12 +98,9 @@ self.lib.mkFleetHost {
         echo "${machineToken}" > /var/lib/hearth/machine-token
       '';
 
-      # --- Fix inverted/offset mouse cursor under QEMU virtio-vga-gl ---
-      # Set via multiple paths to ensure it reaches Mutter regardless of
-      # how the session is launched (greetd, login shell, systemd user).
+      # --- Cursor fix for QEMU virtio-vga ---
       environment.sessionVariables.MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR = "1";
       environment.variables.MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR = "1";
-      # Also set for the greeter's cage session and the user's GNOME session
       systemd.services.greetd.environment.MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR = "1";
       environment.etc."profile.d/qemu-cursor-fix.sh".text = ''
         export MUTTER_DEBUG_FORCE_SOFTWARE_CURSOR=1
@@ -117,11 +114,23 @@ self.lib.mkFleetHost {
       services.qemuGuest.enable = true;
       services.spice-vdagentd.enable = true;
 
+      # --- SSH access for fleet-exec/fleet-ssh ---
+      virtualisation.forwardPorts = [
+        { from = "host"; host.port = 2222; guest.port = 22; }
+      ];
+      services.openssh = {
+        enable = true;
+        settings.PermitRootLogin = "no";
+      };
+
       # --- Dev user (fallback for when Kanidm is unavailable) ---
       users.users.dev = {
         isNormalUser = true;
         password = "dev";
         extraGroups = [ "wheel" "hearth" "networkmanager" ];
+        openssh.authorizedKeys.keys =
+          let keyFile = builtins.getEnv "HEARTH_FLEET_SSH_PUBKEY"; in
+          lib.optional (keyFile != "") keyFile;
       };
       security.sudo.wheelNeedsPassword = lib.mkForce false;
 
@@ -156,6 +165,7 @@ self.lib.mkFleetHost {
       environment.systemPackages = with pkgs; [
         curl jq htop vim tmux
         spice-vdagent
+        mesa  # Software rendering (llvmpipe) for GNOME in QEMU
       ];
 
       system.stateVersion = lib.mkForce "25.05";

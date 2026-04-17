@@ -78,6 +78,14 @@ setup:
     fi
     CACHE_PUBLIC_KEY=$(cat dev/attic/signing-key.pub)
     echo "    Public key: $CACHE_PUBLIC_KEY"
+    echo "==> Generating fleet VM SSH key..."
+    if [ ! -f dev/ssh/fleet-vm ]; then
+        mkdir -p dev/ssh
+        ssh-keygen -t ed25519 -f dev/ssh/fleet-vm -N "" -C "hearth-fleet-vm-dev" -q
+        echo "    Generated SSH key-pair in dev/ssh/"
+    else
+        echo "    Fleet VM SSH key already exists"
+    fi
     echo "==> Bootstrapping Kanidm identity provider..."
     bash dev/kanidm/bootstrap.sh
     echo "==> Waiting for Synapse..."
@@ -360,10 +368,16 @@ fleet-vm:
     fi
     export HEARTH_CACHE_PUBLIC_KEY="$(cat dev/attic/cache-public-key)"
 
+    # Export SSH public key so the VM accepts key-based auth for fleet-exec.
+    if [ -f dev/ssh/fleet-vm.pub ]; then
+        export HEARTH_FLEET_SSH_PUBKEY="$(cat dev/ssh/fleet-vm.pub)"
+    fi
+
     echo "==> Building and booting fleet VM..."
     echo "    Machine ID: $MACHINE_ID"
     echo "    Login with: testadmin / test-demo-enrollment"
-    echo "    Logs will appear in: dev/fleet-vm-logs/"
+    echo "    SSH:        ssh -p 2222 -i dev/ssh/fleet-vm dev@localhost"
+    echo "    Logs:       dev/fleet-vm-logs/"
     echo ""
     HEARTH_FLEET_VM_MACHINE_ID="$MACHINE_ID" \
     HEARTH_FLEET_VM_MACHINE_TOKEN="$MACHINE_TOKEN" \
@@ -381,6 +395,30 @@ fleet-vm-clean:
     echo "==> Clearing fleet VM logs..."
     rm -rf dev/fleet-vm-logs/*
     echo "==> Done. Run 'just fleet-vm' to start fresh."
+
+# Execute a command on the running fleet VM via SSH
+fleet-exec +cmd:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f dev/ssh/fleet-vm ]; then
+        echo "ERROR: dev/ssh/fleet-vm key not found. Run 'just setup' first."
+        exit 1
+    fi
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR -i dev/ssh/fleet-vm \
+        -p 2222 dev@localhost -- {{cmd}}
+
+# Open an interactive SSH session to the running fleet VM
+fleet-ssh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f dev/ssh/fleet-vm ]; then
+        echo "ERROR: dev/ssh/fleet-vm key not found. Run 'just setup' first."
+        exit 1
+    fi
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -i dev/ssh/fleet-vm \
+        -p 2222 dev@localhost
 
 # Run all checks (clippy, fmt, tests)
 check:

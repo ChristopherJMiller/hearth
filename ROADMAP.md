@@ -334,7 +334,15 @@ Role templates are initial seeds; each user gets a managed per-user closure that
 - [ ] **Closure pre-warming:** When a machine enrolls or changes role, the control plane enumerates likely users (from Kanidm group membership for the assigned role) and queues pre-builds of their per-user closures. Reduces first-login latency from "1–3 minute build" to "15–60 second cache pull."
 - [ ] **WiFi/802.1X certificate distribution:** The control plane provisions 802.1X machine certificates as part of enrollment secrets. The NixOS module configures `wpa_supplicant` or `iwd` with the certificate and network profile. Certificates rotate via the control plane's secret management.
 
-### 5F: Scale (Future)
+### 5F: Secure Remote Access (Future)
+
+Production-grade remote access to fleet devices for IT operations and debugging. Dev environments use direct SSH over QEMU port forwarding (`just fleet-exec`); production needs audit-logged, time-limited access with proper authentication.
+
+- [ ] **On-demand SSH via Headscale mesh:** SSH enabled on fleet devices but only reachable over the Headscale VPN. Access requires being authenticated on the mesh. Short-lived SSH certificates issued by the control plane (similar to Teleport/Smallstep) replace long-lived keys. Certificate TTL configurable per-role (e.g., 8h for operators, 1h for developers). All sessions audit-logged.
+- [ ] **Break-glass emergency access:** SSH disabled by default on fleet devices. An admin can trigger an "enable SSH" remote action via the console that temporarily opens SSH access with a one-time key, auto-disables after a configurable timeout (default 30 minutes). Requires `AdminIdentity` auth. Creates an audit event with the admin's identity and justification.
+- [ ] **Enhanced remote actions:** Extend the existing `run_command` remote action with streaming output (SSE or WebSocket), timeout controls, and working directory selection. Console UI for interactive command execution against selected machines. All commands audit-logged with full input/output capture.
+
+### 5G: Scale (Future)
 
 - [ ] **PXE/iPXE boot service:** Control plane serves boot images based on device identity — unknown devices get the enrollment image, known devices boot from local disk, reprovisioning devices get a fresh installer. Uses iPXE chain-loading from an HTTP endpoint. Enables zero-touch provisioning of 50+ machines simultaneously.
 - [ ] **gRPC/SSE push notifications:** Optional push channel from control plane to agent for latency-sensitive deployments. Agent maintains a long-lived connection over the Headscale mesh (or direct HTTPS). Control plane wakes the agent immediately when a new target closure is set, rather than waiting for the next 60-second poll cycle.
