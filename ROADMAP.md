@@ -494,6 +494,9 @@ Items that are valuable but not currently prioritized. May be promoted to a phas
 ### Conditional Access
 Integrate compliance state with Kanidm's OAuth2 claims pipeline. Non-compliant devices (missed updates, failed attestation, config drift) get restricted OAuth2 tokens that block access to sensitive resources. Requires the compliance engine (Phase 5B) to exist first, and depends on Kanidm's claims-based access control maturing upstream.
 
+### Canonical Identity Namespace
+Decouple user identity from the auth backend by introducing a deployment-level identity domain (e.g., `testuser@hearth.local` instead of `testuser@kanidm.hearth.local`). The domain would come from deployment config rather than the IdP, keeping usernames stable across auth backend changes. Requires design work around capabilities disclosure (which IdP is active), multi-IdP federation, and how the namespace maps to home directories, Matrix IDs, and Nextcloud accounts. Currently single-tenant with short usernames (`testuser`); this would formalize the namespace for multi-tenant readiness.
+
 ### Multi-Tenancy
 Multiple organizations sharing a single control plane deployment with isolated fleet views, RBAC boundaries, and separate Attic cache tenants. Relevant for SaaS deployment or MSP use cases. Not needed for self-hosted single-org deployments.
 

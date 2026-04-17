@@ -384,27 +384,38 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             })
             .await;
 
+        // Resolve the user via passwd and ensure their home directory exists.
+        // The resolved passwd name may be the full SPN (e.g., testuser@kanidm.hearth.local)
+        // which we use for API calls so buildUserEnv gets the correct homeDirectory.
+        let resolved = match resolve_and_ensure_home(&user) {
+            Ok(r) => {
+                info!(%user, passwd_name = %r.passwd_name, home = %r.home, "resolved user identity");
+                Some(r)
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to resolve user (continuing with greeter username)");
+                None
+            }
+        };
+        let api_user = resolved
+            .as_ref()
+            .map(|r| r.passwd_name.as_str())
+            .unwrap_or(&user);
+
         // Report "building" status to control plane.
         if let Err(e) = client
-            .report_user_env(machine_id, &user, &role, UserEnvStatus::Building)
+            .report_user_env(machine_id, api_user, &role, UserEnvStatus::Building)
             .await
         {
             warn!(error = %e, "failed to report building status");
         }
 
-        // Ensure the user's home directory exists before any activation.
-        // PAM's pam_mkhomedir runs during session open, but the agent
-        // prepares the environment before the greeter calls start_session.
-        if let Err(e) = ensure_home_dir(&user) {
-            warn!(error = %e, "failed to ensure home directory (continuing anyway)");
-        }
-
         // Try to use a pre-built per-user closure from the control plane.
         // If available, pull it from the cache and activate it.
-        // If not, fall back to role template activation via home-manager switch.
+        // If not, poll until one is built.
         let activation_result = {
             // Step 1: Check for pre-built closure.
-            let prebuilt = match client.get_user_env_closure(&user, Some(&role)).await {
+            let prebuilt = match client.get_user_env_closure(api_user, Some(&role)).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     debug!(error = %e, "failed to query per-user closure, falling back to role template");
@@ -461,7 +472,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
                 if let Some(msg) = copy_err {
                     // Report the broken closure so the server can trigger a rebuild.
-                    let _ = client.report_closure_failure(&user, closure, &msg).await;
+                    let _ = client.report_closure_failure(api_user, closure, &msg).await;
                     Err(msg)
                 } else {
                     let _ = event_tx
@@ -503,7 +514,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
                     tokio::time::sleep(POLL_INTERVAL).await;
 
-                    match client.get_user_env_closure(&user, Some(&role)).await {
+                    match client.get_user_env_closure(api_user, Some(&role)).await {
                         Ok(resp) if resp.closure.is_some() => {
                             closure_path = resp.closure;
                             break;
@@ -555,13 +566,15 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                         match realise_result {
                             Err(e) => {
                                 let msg = format!("nix-store --realise failed: {e}");
-                                let _ = client.report_closure_failure(&user, closure, &msg).await;
+                                let _ =
+                                    client.report_closure_failure(api_user, closure, &msg).await;
                                 Err(msg)
                             }
                             Ok(out) if !out.status.success() => {
                                 let stderr = String::from_utf8_lossy(&out.stderr);
                                 let msg = format!("nix-store --realise failed: {stderr}");
-                                let _ = client.report_closure_failure(&user, closure, &msg).await;
+                                let _ =
+                                    client.report_closure_failure(api_user, closure, &msg).await;
                                 Err(msg)
                             }
                             Ok(_) => {
@@ -590,12 +603,12 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             Ok(()) => {
                 // Report active status + record login.
                 if let Err(e) = client
-                    .report_user_env(machine_id, &user, &role, UserEnvStatus::Active)
+                    .report_user_env(machine_id, api_user, &role, UserEnvStatus::Active)
                     .await
                 {
                     warn!(error = %e, "failed to report active status");
                 }
-                if let Err(e) = client.report_user_login(machine_id, &user).await {
+                if let Err(e) = client.report_user_login(machine_id, api_user).await {
                     warn!(error = %e, "failed to report user login");
                 }
 
@@ -616,7 +629,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                 };
 
                 if let Err(e) = client
-                    .report_user_env(machine_id, &user, &role, UserEnvStatus::Failed)
+                    .report_user_env(machine_id, api_user, &role, UserEnvStatus::Failed)
                     .await
                 {
                     warn!(error = %e, "failed to report failed status");
@@ -643,7 +656,19 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 /// session is opened (which is when `pam_mkhomedir` would normally create
 /// the home directory). We must create it ourselves so that `runuser`-based
 /// activation can write to `$HOME`.
-fn ensure_home_dir(username: &str) -> Result<(), String> {
+/// Resolved user identity from the passwd database.
+struct ResolvedUser {
+    /// The canonical username from passwd (e.g., the Kanidm SPN).
+    passwd_name: String,
+    /// The user's home directory path.
+    home: String,
+}
+
+/// Resolve a user via getent and ensure their home directory exists.
+///
+/// Returns the canonical passwd username (which may differ from the input
+/// when Kanidm resolves a short name to an SPN) and the home directory path.
+fn resolve_and_ensure_home(username: &str) -> Result<ResolvedUser, String> {
     let output = std::process::Command::new("getent")
         .args(["passwd", username])
         .output()
@@ -659,21 +684,21 @@ fn ensure_home_dir(username: &str) -> Result<(), String> {
         return Err(format!("invalid passwd entry for {username}"));
     }
 
+    let passwd_name = fields[0].to_string();
     let uid: u32 = fields[2]
         .parse()
         .map_err(|_| format!("invalid uid in passwd entry for {username}"))?;
     let gid: u32 = fields[3]
         .parse()
         .map_err(|_| format!("invalid gid in passwd entry for {username}"))?;
-    let home = fields[5];
+    let home = fields[5].to_string();
 
-    let home_path = std::path::Path::new(home);
+    let home_path = std::path::Path::new(&home);
     if !home_path.exists() {
         info!(%username, %home, "creating home directory");
         std::fs::create_dir_all(home_path)
             .map_err(|e| format!("failed to create home directory {home}: {e}"))?;
 
-        // chown to the user
         #[cfg(unix)]
         {
             use std::os::unix::fs::chown;
@@ -682,7 +707,7 @@ fn ensure_home_dir(username: &str) -> Result<(), String> {
         }
     }
 
-    Ok(())
+    Ok(ResolvedUser { passwd_name, home })
 }
 
 /// Run a command as a specific user via `runuser`, with shutdown support.

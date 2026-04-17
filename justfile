@@ -44,21 +44,29 @@ setup:
         --pull '*' --push '*' --create-cache '*' --delete '*' \
         2>/dev/null || echo "")
     if [ -n "$TOKEN" ]; then
-        attic login dev http://localhost:8080 "$TOKEN" 2>/dev/null
+        attic login dev http://localhost:8080 "$TOKEN"
         attic cache create hearth 2>/dev/null || true
         # Save Attic's own public key — this is what narinfo responses are signed
         # with, and what fleet VMs need in trusted-public-keys.
-        ATTIC_PUB=$(attic cache info hearth 2>/dev/null | grep 'Public Key' | awk '{print $NF}' || true)
+        ATTIC_PUB=""
+        for i in $(seq 1 10); do
+            ATTIC_PUB=$(attic cache info hearth 2>&1 | grep 'Public Key' | awk '{print $NF}')
+            [ -n "$ATTIC_PUB" ] && break
+            echo "    Waiting for Attic cache key (attempt $i/10)..."
+            sleep 1
+        done
         if [ -n "$ATTIC_PUB" ]; then
             echo "$ATTIC_PUB" > dev/attic/cache-public-key
             echo "    Attic cache public key: $ATTIC_PUB"
         else
-            echo "    WARNING: Could not read Attic cache public key"
-            echo "    Run 'attic cache info hearth' to debug"
+            echo "    ERROR: Could not read Attic cache public key after 10 attempts"
+            attic cache info hearth || true
+            exit 1
         fi
         echo "    Attic cache 'hearth' ready"
     else
-        echo "    WARNING: Could not create Attic token (is atticd running?)"
+        echo "    ERROR: Could not create Attic token (is atticd running?)"
+        exit 1
     fi
     echo "==> Generating cache signing key..."
     if [ ! -f dev/attic/signing-key.sec ]; then

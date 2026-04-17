@@ -79,7 +79,7 @@ in
         kanidm.pam_allowed_login_groups = cfg.allowedLoginGroups;
         default_shell = cfg.defaultShell;
         home_prefix = cfg.homePrefix;
-        home_attr = "uuid";
+        home_attr = "spn";
         home_alias = "spn";
         use_etc_skel = true;
         hsm_type = cfg.hsmType;
