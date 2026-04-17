@@ -448,33 +448,16 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
                 // Realise the closure using the system's configured substituters.
                 // This pulls Hearth-specific paths from the Attic binary cache
-                // and standard nixpkgs paths from cache.nixos.org, avoiding the
-                // need for Attic to store the entire nixpkgs closure.
-                let realise_result = tokio::process::Command::new("nix-store")
-                    .args(["--realise", closure])
-                    .output()
-                    .await;
-                let copy_err = match realise_result {
-                    Err(e) => {
-                        error!(%user, %closure, error = %e, "nix-store --realise failed to start");
-                        Some(format!("nix-store --realise failed to start: {e}"))
-                    }
-                    Ok(out) if !out.status.success() => {
-                        let stderr = String::from_utf8_lossy(&out.stderr);
-                        error!(%user, %closure, %stderr, "nix-store --realise failed");
-                        Some(format!("nix-store --realise failed: {stderr}"))
-                    }
-                    Ok(_) => {
-                        info!(%user, %closure, "closure realised from substituters");
-                        None
-                    }
-                };
-
-                if let Some(msg) = copy_err {
-                    // Report the broken closure so the server can trigger a rebuild.
+                // and standard nixpkgs paths from cache.nixos.org, streaming
+                // per-path progress to the greeter.
+                if let Err(msg) =
+                    realise_closure_with_progress(closure, &event_tx, &user, &bg_shutdown).await
+                {
+                    error!(%user, %closure, %msg, "nix-store --realise failed");
                     let _ = client.report_closure_failure(api_user, closure, &msg).await;
                     Err(msg)
                 } else {
+                    info!(%user, %closure, "closure realised from substituters");
                     let _ = event_tx
                         .send(AgentEvent::Progress {
                             username: user.clone(),
@@ -559,25 +542,15 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                             })
                             .await;
 
-                        let realise_result = tokio::process::Command::new("nix-store")
-                            .args(["--realise", closure])
-                            .output()
-                            .await;
-                        match realise_result {
-                            Err(e) => {
-                                let msg = format!("nix-store --realise failed: {e}");
+                        match realise_closure_with_progress(closure, &event_tx, &user, &bg_shutdown)
+                            .await
+                        {
+                            Err(msg) => {
                                 let _ =
                                     client.report_closure_failure(api_user, closure, &msg).await;
                                 Err(msg)
                             }
-                            Ok(out) if !out.status.success() => {
-                                let stderr = String::from_utf8_lossy(&out.stderr);
-                                let msg = format!("nix-store --realise failed: {stderr}");
-                                let _ =
-                                    client.report_closure_failure(api_user, closure, &msg).await;
-                                Err(msg)
-                            }
-                            Ok(_) => {
+                            Ok(()) => {
                                 let _ = event_tx
                                     .send(AgentEvent::Progress {
                                         username: user.clone(),
@@ -708,6 +681,72 @@ fn resolve_and_ensure_home(username: &str) -> Result<ResolvedUser, String> {
     }
 
     Ok(ResolvedUser { passwd_name, home })
+}
+
+/// Realise a Nix store closure, streaming download progress to the greeter.
+///
+/// `nix-store --realise` outputs `copying path '...' from '...'` lines on
+/// stderr. We parse these and forward human-friendly messages (e.g.,
+/// "fetching firefox-147.0.3") as `AgentEvent::Progress` events.
+async fn realise_closure_with_progress(
+    closure: &str,
+    event_tx: &mpsc::Sender<AgentEvent>,
+    username: &str,
+    shutdown: &CancellationToken,
+) -> Result<(), String> {
+    use tokio::io::AsyncBufReadExt;
+
+    let mut child = tokio::process::Command::new("nix-store")
+        .args(["--realise", closure])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("nix-store --realise failed to start: {e}"))?;
+
+    let stderr = child.stderr.take();
+    let progress_user = username.to_string();
+    let progress_tx = event_tx.clone();
+
+    let stderr_task = tokio::spawn(async move {
+        let mut collected = String::new();
+        let Some(stderr) = stderr else {
+            return collected;
+        };
+        let reader = tokio::io::BufReader::new(stderr);
+        let mut lines = reader.lines();
+        let mut fetched: usize = 0;
+        while let Ok(Some(line)) = lines.next_line().await {
+            collected.push_str(&line);
+            collected.push('\n');
+            if let Some(msg) = parse_nix_progress(&line) {
+                fetched += 1;
+                let display = format!("{msg} ({fetched} fetched)");
+                let _ = progress_tx
+                    .send(AgentEvent::Progress {
+                        username: progress_user.clone(),
+                        percent: 40,
+                        message: display,
+                    })
+                    .await;
+            }
+        }
+        collected
+    });
+
+    tokio::select! {
+        status = child.wait() => {
+            let stderr_output = stderr_task.await.unwrap_or_default();
+            match status {
+                Ok(s) if s.success() => Ok(()),
+                Ok(_) => Err(format!("nix-store --realise failed: {stderr_output}")),
+                Err(e) => Err(format!("nix-store --realise failed: {e}")),
+            }
+        }
+        () = shutdown.cancelled() => {
+            let _ = child.kill().await;
+            Err("shutdown during closure realise".into())
+        }
+    }
 }
 
 /// Run a command as a specific user via `runuser`, with shutdown support.
