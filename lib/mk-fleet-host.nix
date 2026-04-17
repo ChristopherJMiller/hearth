@@ -54,6 +54,8 @@
 , mailImapHost ? null
 , mailSmtpHost ? null
 , mailDomain ? null
+, grafanaUrl ? null
+, vaultwardenUrl ? null
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -87,9 +89,11 @@ nixpkgs.lib.nixosSystem {
     ../modules/tpm-fde.nix
     ../modules/services.nix
     ../modules/headscale-client.nix
+    ../modules/firefox.nix
     ../modules/chat.nix
     ../modules/nextcloud.nix
     ../modules/thunderbird.nix
+    ../modules/libreoffice.nix
     ../modules/logging.nix
     ../modules/metrics.nix
     ../modules/roles/default.nix
@@ -171,6 +175,23 @@ nixpkgs.lib.nixosSystem {
         serverUrl = headscaleUrl;
       };
 
+      # --- Managed Firefox browser ---
+      services.hearth.firefox = lib.mkIf enableDesktop {
+        enable = true;
+        inherit role;
+        consoleUrl = serverUrl;
+        inherit nextcloudUrl vaultwardenUrl;
+        internalCaCerts = lib.optional (kanidmCaCert != null) kanidmCaCert;
+        services =
+          lib.optional (matrixUrl != null) { name = "Hearth Chat"; url = matrixUrl; }
+          ++ lib.optional (nextcloudUrl != null) { name = "Cloud Storage"; url = nextcloudUrl; }
+          ++ lib.optional (kanidmUrl != null) { name = "Identity Portal"; url = kanidmUrl; }
+          ++ lib.optional (grafanaUrl != null) { name = "Monitoring"; url = grafanaUrl; };
+        roleBookmarks = {
+          admin = lib.optional (grafanaUrl != null) { name = "Grafana Dashboards"; url = grafanaUrl; };
+        };
+      };
+
       # --- Corporate chat (Element Desktop) ---
       services.hearth.chat = lib.mkIf (matrixUrl != null) {
         enable = true;
@@ -182,6 +203,12 @@ nixpkgs.lib.nixosSystem {
       services.hearth.nextcloud = lib.mkIf (nextcloudUrl != null) {
         enable = true;
         serverUrl = nextcloudUrl;
+      };
+
+      # --- Managed LibreOffice ---
+      services.hearth.libreoffice = lib.mkIf (nextcloudUrl != null) {
+        enable = true;
+        inherit nextcloudUrl;
       };
 
       # --- Email, Calendar & Contacts (Thunderbird) ---

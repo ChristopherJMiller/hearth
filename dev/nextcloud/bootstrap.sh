@@ -120,7 +120,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5: Create default shared folders for admin user
+# Step 5: Install Bookmarks app (for Floccus browser sync)
+# ---------------------------------------------------------------------------
+echo ""
+echo "==> Installing Bookmarks app..."
+
+if occ app:list --shipped=false 2>/dev/null | grep -q "bookmarks"; then
+    echo "    Bookmarks app already installed"
+else
+    occ app:install bookmarks 2>/dev/null || echo "    bookmarks install returned non-zero (may already be installed)"
+fi
+occ app:enable bookmarks 2>/dev/null || true
+echo "    Bookmarks app enabled"
+
+# ---------------------------------------------------------------------------
+# Step 6: Create default shared folders for admin user
 # ---------------------------------------------------------------------------
 echo ""
 echo "==> Creating default folder structure..."

@@ -49,6 +49,11 @@ data:
   HEARTH_IDENTITY_URL: {{ include "hearth-home.kanidmUrl" . | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.capabilities.observability }}
+  {{- if and .Values.grafana.ingress.enabled .Values.grafana.ingress.hosts }}
+  HEARTH_GRAFANA_URL: "https://{{ (index .Values.grafana.ingress.hosts 0).host }}"
+  {{- end }}
+  {{- end }}
   {{- if .Values.capabilities.mail }}
   {{- if .Values.stalwart.hosted }}
   {{- if and .Values.stalwart.ingress.enabled .Values.stalwart.ingress.hosts }}
