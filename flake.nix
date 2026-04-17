@@ -341,6 +341,7 @@
             ./modules/pam.nix
             ./modules/desktop.nix
             ./modules/hardening.nix
+            ./modules/libreoffice.nix
             ./modules/roles/default.nix
           ];
         };

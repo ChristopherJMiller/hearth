@@ -8,32 +8,6 @@
 {
   imports = [ ./common.nix ];
 
-  # --- Firefox with managed policies ---
-  programs.firefox = {
-    enable = true;
-    # Managed policies can be set here. In production, the control plane
-    # provides per-org policy overrides.
-    policies = {
-      # Disable telemetry
-      DisableTelemetry = true;
-      # Disable studies
-      DisableFirefoxStudies = true;
-      # Disable pocket
-      DisablePocket = true;
-      # Enable tracking protection
-      EnableTrackingProtection = {
-        Value = true;
-        Locked = false;
-        Cryptomining = true;
-        Fingerprinting = true;
-      };
-      # Default search engine
-      SearchEngines = {
-        Default = "DuckDuckGo";
-      };
-    };
-  };
-
   # --- Nautilus bookmarks ---
   # Standard user bookmarks for the file manager
   xdg.configFile."gtk-3.0/bookmarks" = {
@@ -53,7 +27,7 @@
         "firefox.desktop"
         "org.gnome.Nautilus.desktop"
         "org.gnome.Terminal.desktop"
-        "org.gnome.TextEditor.desktop"
+      ] ++ lib.optionals config.hearth.libreoffice.enable [
         "org.libreoffice.LibreOffice.writer.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
         "element-desktop.desktop"
@@ -82,10 +56,8 @@
   };
 
   # --- Additional packages for default role ---
+  # LibreOffice is installed by home-modules/libreoffice.nix when enabled
   home.packages = with pkgs; [
-    # Office suite
-    libreoffice
-
     # Image viewer
     loupe
 

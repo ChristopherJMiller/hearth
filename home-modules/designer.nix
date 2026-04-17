@@ -16,7 +16,8 @@
         "gimp.desktop"
         "org.inkscape.Inkscape.desktop"
         "org.gnome.Nautilus.desktop"
-        "org.gnome.TextEditor.desktop"
+      ] ++ lib.optionals config.hearth.libreoffice.enable [
+        "org.libreoffice.LibreOffice.writer.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
         "element-desktop.desktop"
       ] ++ lib.optionals config.hearth.nextcloud.enable [
@@ -122,18 +123,8 @@
     noto-fonts-color-emoji
     font-awesome
 
-    # Office suite for presentations
-    libreoffice
+    # LibreOffice is installed by home-modules/libreoffice.nix when enabled
   ];
-
-  # --- Firefox configured for design reference ---
-  programs.firefox = {
-    enable = true;
-    policies = {
-      DisableTelemetry = true;
-      DisableFirefoxStudies = true;
-    };
-  };
 
   # --- Shell with design-specific aliases ---
   programs.bash = {

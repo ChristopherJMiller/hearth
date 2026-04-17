@@ -191,8 +191,9 @@
       favorite-apps = [
         "firefox.desktop"
         "kitty.desktop"
-        "org.gnome.SystemMonitor.desktop"
         "org.gnome.Nautilus.desktop"
+      ] ++ lib.optionals config.hearth.libreoffice.enable [
+        "org.libreoffice.LibreOffice.writer.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
         "element-desktop.desktop"
       ] ++ lib.optionals config.hearth.nextcloud.enable [
@@ -282,12 +283,4 @@
     nerd-fonts.jetbrains-mono
   ];
 
-  # --- Firefox ---
-  programs.firefox = {
-    enable = true;
-    policies = {
-      DisableTelemetry = true;
-      DisableFirefoxStudies = true;
-    };
-  };
 }

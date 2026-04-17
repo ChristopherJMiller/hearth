@@ -7,7 +7,7 @@
 { config, lib, pkgs, ... }:
 
 {
-  imports = [ ./chat.nix ./nextcloud.nix ./services.nix ./thunderbird.nix ./gnome-online-accounts.nix ];
+  imports = [ ./chat.nix ./firefox.nix ./libreoffice.nix ./nextcloud.nix ./services.nix ./thunderbird.nix ./gnome-online-accounts.nix ];
   # --- Home-manager basics ---
   home.stateVersion = "25.05";
 
