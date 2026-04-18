@@ -19,7 +19,7 @@
       ] ++ lib.optionals config.hearth.libreoffice.enable [
         "org.libreoffice.LibreOffice.writer.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
-        "element-desktop.desktop"
+        "org.gnome.Fractal.desktop"
       ] ++ lib.optionals config.hearth.nextcloud.enable [
         "com.nextcloud.desktopclient.nextcloud.desktop"
       ] ++ lib.optionals config.hearth.thunderbird.enable [
@@ -107,10 +107,11 @@
     # Screenshot and screen recording
     gnome-screenshot
 
-    # Fonts — extensive collection for design work
+    # Fonts — extensive collection for design work.
+    # google-fonts includes JetBrains Mono, so don't install it separately
+    # to avoid buildEnv font file conflicts.
     google-fonts
     nerd-fonts.fira-code
-    nerd-fonts.jetbrains-mono
     inter
     roboto
     lato

@@ -53,9 +53,12 @@ self.lib.mkFleetHost {
       # --- QEMU VM settings ---
       virtualisation = {
         memorySize = 4096;
+        # Disk-backed writable store — per-user closures with collaboration
+        # apps are too large for the default 2GB tmpfs overlay.
+        writableStoreUseTmpfs = false;
         cores = 2;
         graphics = true;
-        diskSize = 32768; # 32GB — room for NixOS system, home-manager profiles, flatpaks, and dev tools
+        diskSize = 32768;
         resolution = { x = 1920; y = 1080; };
         qemu.options = [
           "-device" "virtio-vga,xres=1920,yres=1080"

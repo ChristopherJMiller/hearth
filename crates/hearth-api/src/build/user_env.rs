@@ -16,11 +16,64 @@ struct UserConfigJson {
     username: String,
     base_role: String,
     overrides: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fleet_config: Option<FleetConfigJson>,
+}
+
+/// Fleet-wide service configuration injected into per-user builds.
+///
+/// These values come from environment variables (same ones used by
+/// `build_services_from_env` in lib.rs) and are identical for every user.
+/// They tell the Nix build which collaboration modules to enable.
+#[derive(Serialize, Default)]
+struct FleetConfigJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cloud_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matrix_server_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grafana_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identity_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vaultwarden_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mail_imap_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mail_smtp_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mail_domain: Option<String>,
+}
+
+/// Build fleet config from environment variables.
+fn fleet_config_from_env() -> Option<FleetConfigJson> {
+    let cfg = FleetConfigJson {
+        server_url: std::env::var("HEARTH_SERVER_URL").ok(),
+        chat_url: std::env::var("HEARTH_CHAT_URL").ok(),
+        cloud_url: std::env::var("HEARTH_CLOUD_URL").ok(),
+        matrix_server_name: std::env::var("HEARTH_MATRIX_SERVER_NAME").ok(),
+        grafana_url: std::env::var("HEARTH_GRAFANA_URL").ok(),
+        identity_url: std::env::var("HEARTH_IDENTITY_URL").ok(),
+        vaultwarden_url: std::env::var("HEARTH_VAULTWARDEN_URL").ok(),
+        mail_imap_host: std::env::var("HEARTH_MAIL_IMAP_HOST").ok(),
+        mail_smtp_host: std::env::var("HEARTH_MAIL_SMTP_HOST").ok(),
+        mail_domain: std::env::var("HEARTH_MAIL_DOMAIN").ok(),
+    };
+    // Only include if at least one service is configured
+    if cfg.server_url.is_some() || cfg.chat_url.is_some() || cfg.cloud_url.is_some() {
+        Some(cfg)
+    } else {
+        None
+    }
 }
 
 /// Build a per-user home-manager closure from a `UserConfigRow`.
 ///
-/// 1. Writes `user-config.json` to a temp directory.
+/// 1. Writes `user-config.json` to a temp directory (includes fleet config from env).
 /// 2. Writes `user-eval.nix` that calls `flake.lib.buildUserEnv`.
 /// 3. Runs `nix build` to produce the closure.
 /// 4. Optionally pushes to the Attic cache.
@@ -45,11 +98,12 @@ pub async fn build_user_env(
     let build_dir = tempfile::tempdir()?;
     let build_path = build_dir.path();
 
-    // Write user config JSON.
+    // Write user config JSON with fleet service configuration.
     let user_config = UserConfigJson {
         username: config.username.clone(),
         base_role: config.base_role.clone(),
         overrides: config.overrides.clone(),
+        fleet_config: fleet_config_from_env(),
     };
     let config_json_path = build_path.join("user-config.json");
     let config_json = serde_json::to_string_pretty(&user_config)?;

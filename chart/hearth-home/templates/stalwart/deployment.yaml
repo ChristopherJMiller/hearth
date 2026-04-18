@@ -28,7 +28,7 @@ spec:
         {{- if and .Values.capabilities.identity .Values.stalwart.oidc.enabled }}
         - name: inject-oidc-secret
           image: busybox:1.36
-          command: ['sh', '-c', 'echo -n "$OIDC_CLIENT_SECRET" > /opt/stalwart-mail/etc/oidc_client_secret']
+          command: ['sh', '-c', 'echo -n "$OIDC_CLIENT_SECRET" > /opt/stalwart/etc/oidc_client_secret']
           env:
             - name: OIDC_CLIENT_SECRET
               valueFrom:
@@ -37,7 +37,7 @@ spec:
                   key: {{ .Values.stalwart.oidc.existingSecretKey | default "stalwart-oidc-secret" }}
           volumeMounts:
             - name: config-dir
-              mountPath: /opt/stalwart-mail/etc
+              mountPath: /opt/stalwart/etc
         {{- end }}
       containers:
         - name: stalwart
@@ -75,15 +75,15 @@ spec:
             {{- toYaml .Values.stalwart.resources | nindent 12 }}
           volumeMounts:
             - name: config
-              mountPath: /opt/stalwart-mail/etc/config.toml
+              mountPath: /opt/stalwart/etc/config.toml
               subPath: config.toml
               readOnly: true
             - name: config-dir
-              mountPath: /opt/stalwart-mail/etc/oidc_client_secret
+              mountPath: /opt/stalwart/etc/oidc_client_secret
               subPath: oidc_client_secret
               readOnly: true
             - name: data
-              mountPath: /opt/stalwart-mail/data
+              mountPath: /opt/stalwart/data
       volumes:
         - name: config
           configMap:

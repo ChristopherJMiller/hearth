@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry"
+                    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                    oor:name="Addons"
+                    oor:package="org.openoffice.Office">
+
+  <!-- Register the Hearth toolbar with share and comments buttons -->
+  <node oor:name="AddonUI">
+
+    <!-- Toolbar buttons -->
+    <node oor:name="OfficeToolBar">
+      <node oor:name="com.hearth.office.toolbar" oor:op="replace">
+
+        <!-- Share via Nextcloud button -->
+        <node oor:name="m1" oor:op="replace">
+          <prop oor:name="URL" oor:type="xs:string">
+            <value>hearth:ShareViaNextcloud</value>
+          </prop>
+          <prop oor:name="Title" oor:type="xs:string">
+            <value>Share via Nextcloud</value>
+          </prop>
+          <prop oor:name="Target" oor:type="xs:string">
+            <value>_self</value>
+          </prop>
+          <prop oor:name="Context" oor:type="xs:string">
+            <value>com.sun.star.text.TextDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument</value>
+          </prop>
+        </node>
+
+        <!-- Nextcloud Comments button -->
+        <node oor:name="m2" oor:op="replace">
+          <prop oor:name="URL" oor:type="xs:string">
+            <value>hearth:ShowComments</value>
+          </prop>
+          <prop oor:name="Title" oor:type="xs:string">
+            <value>Nextcloud Comments</value>
+          </prop>
+          <prop oor:name="Target" oor:type="xs:string">
+            <value>_self</value>
+          </prop>
+          <prop oor:name="Context" oor:type="xs:string">
+            <value>com.sun.star.text.TextDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument</value>
+          </prop>
+        </node>
+
+      </node>
+    </node>
+
+    <!-- Menu entries (Tools menu) -->
+    <node oor:name="OfficeMenuBar">
+      <node oor:name="com.hearth.office.menu" oor:op="replace">
+
+        <node oor:name="m1" oor:op="replace">
+          <prop oor:name="URL" oor:type="xs:string">
+            <value>hearth:ShareViaNextcloud</value>
+          </prop>
+          <prop oor:name="Title" oor:type="xs:string">
+            <value>Share via Nextcloud...</value>
+          </prop>
+          <prop oor:name="Target" oor:type="xs:string">
+            <value>_self</value>
+          </prop>
+          <prop oor:name="Context" oor:type="xs:string">
+            <value>com.sun.star.text.TextDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument</value>
+          </prop>
+        </node>
+
+      </node>
+    </node>
+
+  </node>
+
+</oor:component-data>

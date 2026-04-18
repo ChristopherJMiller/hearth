@@ -56,6 +56,7 @@
 , mailDomain ? null
 , grafanaUrl ? null
 , vaultwardenUrl ? null
+, libreofficeExtensions ? false
 , branding ? { }
 , extraModules ? [ ]
 , extraConfig ? { }
@@ -209,6 +210,7 @@ nixpkgs.lib.nixosSystem {
       services.hearth.libreoffice = lib.mkIf (nextcloudUrl != null) {
         enable = true;
         inherit nextcloudUrl;
+        enableExtensions = libreofficeExtensions;
       };
 
       # --- Email, Calendar & Contacts (Thunderbird) ---
@@ -238,6 +240,9 @@ nixpkgs.lib.nixosSystem {
         settings = {
           experimental-features = [ "nix-command" "flakes" ];
           auto-optimise-store = true;
+          # Parallel downloads for faster closure fetching from Attic/cache.nixos.org
+          max-substitution-jobs = 32;
+          http-connections = 50;
           # Binary cache (Attic) — allow fleet hosts to pull closures.
           substituters = lib.mkForce (
             lib.optional (binaryCacheUrl != null) binaryCacheUrl

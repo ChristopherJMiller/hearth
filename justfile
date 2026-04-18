@@ -12,6 +12,7 @@ setup:
     # Synapse reads /data/oidc_client_secret at startup — the real value is
     # written later by dev/synapse/bootstrap.sh after Kanidm is ready.
     [ -f dev/synapse/oidc_client_secret ] || echo -n "placeholder-will-be-replaced" > dev/synapse/oidc_client_secret
+    [ -f dev/stalwart/oidc_client_secret ] || echo -n "placeholder-will-be-replaced" > dev/stalwart/oidc_client_secret
     # Kanidm TLS cert must exist as a file before docker compose bind-mounts it,
     # otherwise Docker creates a directory placeholder that Kanidm can't read.
     if [ ! -f dev/kanidm/cert.pem ] || [ ! -f dev/kanidm/key.pem ]; then
@@ -98,6 +99,8 @@ setup:
     echo "    Nextcloud ready"
     echo "==> Bootstrapping Nextcloud cloud storage..."
     bash dev/nextcloud/bootstrap.sh
+    echo "==> Bootstrapping Stalwart mail server..."
+    bash dev/stalwart/bootstrap.sh
     echo "==> Exporting Caddy Dev CA..."
     bash dev/caddy/bootstrap.sh
     echo "==> Running database migrations..."
@@ -176,7 +179,10 @@ dev:
     export HEARTH_CLOUD_URL=http://localhost:8089
     export HEARTH_IDENTITY_URL=https://localhost:8443
     export HEARTH_MATRIX_SERVER_NAME=hearth.local
-    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}"
+    export HEARTH_MAIL_IMAP_HOST=localhost
+    export HEARTH_MAIL_SMTP_HOST=localhost
+    export HEARTH_MAIL_DOMAIN=hearth.local
+    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}"
     # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
     export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
     # Cache public key for signature verification.
@@ -208,7 +214,10 @@ dev-full:
     export HEARTH_CLOUD_URL=http://localhost:8089
     export HEARTH_IDENTITY_URL=https://localhost:8443
     export HEARTH_MATRIX_SERVER_NAME=hearth.local
-    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}"
+    export HEARTH_MAIL_IMAP_HOST=localhost
+    export HEARTH_MAIL_SMTP_HOST=localhost
+    export HEARTH_MAIL_DOMAIN=hearth.local
+    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}"
     export ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}"
     # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
     export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
@@ -251,7 +260,10 @@ dev-watch:
     export HEARTH_CLOUD_URL=http://localhost:8089
     export HEARTH_IDENTITY_URL=https://localhost:8443
     export HEARTH_MATRIX_SERVER_NAME=hearth.local
-    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}"
+    export HEARTH_MAIL_IMAP_HOST=localhost
+    export HEARTH_MAIL_SMTP_HOST=localhost
+    export HEARTH_MAIL_DOMAIN=hearth.local
+    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}"
     # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
     # Uses Attic's port directly — no Caddy proxy needed for HTTP binary cache.
     export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
@@ -259,10 +271,18 @@ dev-watch:
 
 # Start a build worker (HEARTH_FLAKE_REF defaults to API tarball endpoint)
 worker:
-    HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-tarball+http://localhost:3000/api/v1/fleet-config/flake.tar.gz}" \
+    HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}" \
     ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}" \
     ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-hearth}" \
     HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}" \
+    HEARTH_SERVER_URL="${HEARTH_SERVER_URL:-http://localhost:3000}" \
+    HEARTH_CHAT_URL="${HEARTH_CHAT_URL:-http://localhost:8088}" \
+    HEARTH_CLOUD_URL="${HEARTH_CLOUD_URL:-http://localhost:8089}" \
+    HEARTH_IDENTITY_URL="${HEARTH_IDENTITY_URL:-https://localhost:8443}" \
+    HEARTH_MATRIX_SERVER_NAME="${HEARTH_MATRIX_SERVER_NAME:-hearth.local}" \
+    HEARTH_MAIL_IMAP_HOST="${HEARTH_MAIL_IMAP_HOST:-localhost}" \
+    HEARTH_MAIL_SMTP_HOST="${HEARTH_MAIL_SMTP_HOST:-localhost}" \
+    HEARTH_MAIL_DOMAIN="${HEARTH_MAIL_DOMAIN:-hearth.local}" \
     cargo run -p hearth-build-worker
 
 # Start build worker with file watching
@@ -468,6 +488,10 @@ matrix-setup:
 # Set up Nextcloud cloud storage for development
 nextcloud-setup:
     bash dev/nextcloud/bootstrap.sh
+
+# Set up Stalwart mail server for development
+stalwart-setup:
+    bash dev/stalwart/bootstrap.sh
 
 # Build all Hearth packages and push them to the local Attic cache.
 # This ensures the build worker can substitute packages instead of building from source.

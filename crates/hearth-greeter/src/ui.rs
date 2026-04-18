@@ -271,7 +271,7 @@ pub fn build_ui(
 
     let status_label = gtk4::Label::new(Some("Preparing environment..."));
     status_label.add_css_class("status-label");
-    status_label.set_halign(gtk4::Align::Start);
+    status_label.set_halign(gtk4::Align::Center);
     progress_box.append(&status_label);
 
     let progress_bar = gtk4::ProgressBar::new();
@@ -353,12 +353,22 @@ pub fn build_ui(
                         w.progress_box.set_visible(false);
                     }
                     UiUpdate::PrepProgress {
-                        percent: _,
+                        percent,
                         ref message,
                     } => {
                         w.progress_box.set_visible(true);
-                        w.progress_bar.pulse();
-                        w.status_label.set_text(message);
+                        w.progress_bar.set_fraction(percent as f64 / 100.0);
+                        // Format: "{package_name}\n{count_text}"
+                        // Status label (above bar): count/summary — stable context
+                        // Progress bar text: current package name — changes rapidly
+                        if let Some((pkg_name, count_text)) = message.split_once('\n') {
+                            w.status_label.set_text(count_text);
+                            w.progress_bar.set_show_text(true);
+                            w.progress_bar.set_text(Some(pkg_name));
+                        } else {
+                            w.status_label.set_text(message);
+                            w.progress_bar.set_show_text(false);
+                        }
                     }
                     UiUpdate::PrepReady => {
                         w.progress_bar.set_fraction(1.0);

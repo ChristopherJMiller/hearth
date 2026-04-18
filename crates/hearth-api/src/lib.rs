@@ -412,10 +412,14 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
         .nest("/api/v1/services", services_routes())
         .nest("/api/v1/directory", directory_routes())
         .nest("/api/v1/me", me_config_routes())
-        .route(
-            "/api/v1/fleet-config/flake.tar.gz",
-            get(routes::fleet_config::flake_tarball),
-        )
+        .nest("/api/v1/fleet-config", {
+            let cache = routes::fleet_config::new_tarball_cache();
+            Router::new()
+                .route("/flake.tar.gz", get(routes::fleet_config::flake_tarball))
+                .route("/latest", get(routes::fleet_config::flake_latest))
+                .route("/{hash}/flake.tar.gz", get(routes::fleet_config::flake_tarball_by_hash))
+                .with_state(cache)
+        })
         .route(
             "/api/v1/cache-token",
             post(routes::cache_token::get_cache_token),

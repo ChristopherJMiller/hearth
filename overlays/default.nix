@@ -19,6 +19,9 @@ final: prev: {
   hearth-enrollment = self.packages.${prev.system}.hearth-enrollment;
   hearth-api = self.packages.${prev.system}.hearth-api;
 
+  # Hearth LibreOffice extension package
+  hearth-office-oxt = self.packages.${prev.system}.hearth-office-oxt or null;
+
   # Convenience alias for all Hearth packages
   hearth-packages = prev.symlinkJoin {
     name = "hearth-packages";

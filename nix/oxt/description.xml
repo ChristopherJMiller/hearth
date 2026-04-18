@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<description xmlns="http://openoffice.org/extensions/description/2006"
+             xmlns:xlink="http://www.w3.org/1999/xlink"
+             xmlns:d="http://openoffice.org/extensions/description/2006">
+
+  <identifier value="com.hearth.office"/>
+
+  <version value="0.1.0"/>
+
+  <display-name>
+    <name lang="en">Hearth Office — Nextcloud Integration</name>
+  </display-name>
+
+  <publisher>
+    <name xlink:href="https://github.com/hearth-os/hearth" lang="en">Hearth Project</name>
+  </publisher>
+
+  <extension-description>
+    <src lang="en" xlink:href=""/>
+  </extension-description>
+
+  <dependencies>
+    <!-- Requires LibreOffice 26.2+ for Rust UNO support -->
+    <LibreOffice-minimal-version value="26.2" d:name="LibreOffice 26.2"/>
+  </dependencies>
+
+  <platform value="linux_x86_64"/>
+
+</description>

@@ -24,6 +24,7 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./dev/synapse/init-db.sh:/docker-entrypoint-initdb.d/10-synapse.sh:ro
       - ./dev/nextcloud/init-db.sh:/docker-entrypoint-initdb.d/20-nextcloud.sh:ro
+      - ./dev/stalwart/init-db.sh:/docker-entrypoint-initdb.d/30-stalwart.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hearth"]
       interval: 5s
@@ -192,6 +193,27 @@ services:
       timeout: 5s
       retries: 5
 
+  stalwart:
+    image: stalwartlabs/stalwart:v0.15
+    ports:
+      - "127.0.0.1:8025:8080"   # HTTP/JMAP admin
+      - "127.0.0.1:1143:143"    # IMAP (plaintext for dev)
+      - "127.0.0.1:1587:587"    # SMTP submission
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./dev/stalwart/config.toml:/opt/stalwart/etc/config.toml:ro
+      # OIDC client secret — written by Kanidm bootstrap, read by Stalwart
+      - ./dev/stalwart/oidc_client_secret:/opt/stalwart/etc/oidc_client_secret
+      - stalwart-data:/opt/stalwart/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   caddy:
     # Reverse-proxies *.hearth.local (kanidm, chat, cloud, grafana, api, cache)
     # on host :80/:443 so enrolled VMs can reach services via clean URLs.
@@ -215,3 +237,4 @@ volumes:
   synapse-data:
   synapse-signing:
   nextcloud-data:
+  stalwart-data:

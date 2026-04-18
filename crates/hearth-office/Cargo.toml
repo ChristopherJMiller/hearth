@@ -1,0 +1,49 @@
+[package]
+name = "hearth-office"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/hearth-os/hearth"
+description = "Hearth LibreOffice UNO extensions — Nextcloud share, comments, lock status"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Hearth shared types (config structs, etc.)
+hearth-common = { path = "../hearth-common" }
+
+# LibreOffice Rust UNO bindings (extracted from LO 26.2 source by Nix).
+# `nix develop` symlinks this into place automatically via shellHook.
+# Crane build assembles it into the source tree.
+rust_uno = { path = "../../rust_uno" }
+
+# HTTP client — blocking because UNO dispatch callbacks run on the LO main thread.
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], default-features = false }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Data types
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+
+# Clipboard access (Wayland + X11)
+arboard = "3"
+
+# Logging
+tracing = "0.1"
+
+# INI-style config parsing (Nextcloud Desktop client config)
+configparser = "3"
+
+# Home directory detection
+dirs = "6"
+
+# Error types
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

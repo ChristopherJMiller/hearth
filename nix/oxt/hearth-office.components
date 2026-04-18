@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<components xmlns="http://openoffice.org/2010/uno-components">
+  <component loader="com.sun.star.loader.SharedLibrary"
+             uri="libhearth_office.so">
+
+    <!-- Share via Nextcloud — toolbar button protocol handler -->
+    <implementation name="com.hearth.ShareHandler">
+      <service name="com.sun.star.frame.ProtocolHandler"/>
+    </implementation>
+
+    <!-- File Lock Status — status bar controller -->
+    <implementation name="com.hearth.LockStatusController">
+      <service name="com.sun.star.frame.StatusbarController"/>
+    </implementation>
+
+    <!-- Nextcloud Comments — sidebar panel -->
+    <implementation name="com.hearth.CommentsPanel">
+      <service name="com.sun.star.ui.UIElementFactory"/>
+    </implementation>
+
+  </component>
+</components>

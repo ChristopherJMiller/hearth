@@ -351,6 +351,14 @@ User-owned desktop preferences that survive closure rebuilds, plus a traditional
 - [ ] **Expanded desktop personalization:** Extend the sync-back key set beyond the initial curated list — keyboard shortcuts, accessibility settings (font scaling, high contrast), notification preferences, GNOME extension toggles. Each key requires explicit opt-in to the "user-owned" set to prevent security-sensitive settings from being user-modifiable.
 - [ ] **Org-level theming & branding:** Organization-wide wallpapers, color schemes, and branding assets pushed from the control plane as a theming layer between role defaults and user overrides. Configurable per-org in Helm values. Applied via a separate dconf priority so users can override aesthetics but not branding.
 - [ ] **Preference conflict policy:** Define behavior when fleet policy changes a key the user has customized (fleet wins / user wins / notify). Configurable per-key or per-category. Default: user wins for personalization keys, fleet wins for security/compliance keys.
+- [ ] **Catalog approval persistence:** When a user requests a Nix package through the Software Center and it's approved, write the package into `user_configs.overrides.extra_packages` so it survives closure rebuilds. Currently approved Nix catalog items are installed on the device but not persisted into the user's config — the next closure rebuild removes them. Flatpak catalog items are unaffected (they live outside the closure).
+- [ ] **Cached closure for offline subsequent logins:** First login on a machine must sync against the control plane to build/pull the per-user closure. Subsequent logins should work immediately via PAM with the locally cached closure, regardless of connectivity. The agent activates the last-known-good closure from the local Nix store. Internet is only required for the initial bootstrap — after that, login is fully offline-capable.
+- [ ] **Heartbeat staleness policy:** Define a configurable staleness threshold (e.g., 7 days without heartbeat) after which a machine is flagged as out-of-compliance in the dashboard. The agent tracks its last successful heartbeat locally and can display a warning in the greeter ("last synced N days ago"). IT can configure the policy response: warn-only, restrict to read-only session, or require re-sync before login. The threshold and response are fleet-wide settings, not per-machine.
+- [ ] **Closure rollback:** Keep the previous home-manager generation's closure path on the device. If the latest closure fails activation (e.g., bad package, config regression), the agent falls back to the previous generation and reports the failure to the control plane. The greeter could also offer a "Use previous environment" option when the current one fails. Home-manager already tracks generations — the agent just needs to remember the last-known-good path.
+- [ ] **Role+fleet closure layering:** Split the per-user closure into two layers to reduce build fan-out from fleet-wide config changes. A **role+fleet closure** (shared, built once per role when fleet config changes) provides the base with all collaboration apps configured. A **user overlay** (personal customizations: git config, extra packages, desktop prefs) is composed on top. When IT enables a new service, only 4–5 role closures rebuild instead of N per-user closures. The overlay is small and fast to build since it only contains deltas.
+- [ ] **Extension/add-on allowlists:** Firefox `ExtensionSettings` policy supports per-extension `installation_mode` — expose an `allowedExtensions` list in the fleet config so IT can define which extensions users may self-install beyond the force-installed set. Same pattern for LibreOffice extensions via the managed extension list. Blocked extensions can also be specified (malware, data exfiltration risk).
+- [ ] **Machine-specific vs. roaming preferences:** Separate machine-local preferences (display scaling, default printer, Bluetooth pairings, network profiles) from roaming preferences (wallpaper, dark mode, favorite apps) that follow the user across devices. Machine-local prefs stored on the `user_environments` record scoped to `machine_id + username`, not synced into the per-user closure. Roaming prefs continue to flow through `user_configs.overrides.desktop`.
+- [ ] **Closure preview for IT changes:** Before applying a fleet config change that triggers mass closure rebuilds, IT can trigger a "preview build" for a single test user/role via the console. Shows a diff of what packages/configs would change. Prevents surprises from config typos or unexpected module interactions. Could also integrate with the existing deployment canary system.
 
 ### 5F: Secure Remote Access (Future)
 
@@ -472,16 +480,18 @@ LibreOffice as the primary document editor with Nextcloud for sync and sharing. 
 - [x] **Role profile cleanup:** LibreOffice package moved from individual role profiles to the centralized libreoffice module. GNOME favorites conditional on `hearth.libreoffice.enable` across default, designer, and admin roles.
 - [x] **Extension config file:** `~/.config/hearth/office.toml` with Nextcloud URL, written by home-manager for Phase 2 extensions.
 
-**Phase 2: Rust UNO Extensions (Future)**
+**Phase 2: Rust UNO Extensions ✓**
 
 Native LibreOffice extensions built with the Rust UNO bindings (LibreOffice 26.2, `--enable-rust-uno`). Packaged as a single `.oxt` via Nix, installed by the libreoffice home-manager module.
 
-- [ ] **LibreOffice overlay:** nixpkgs overlay adding `--enable-rust-uno` to the LibreOffice build for Rust UNO binding support.
-- [ ] **hearth-office crate:** New Cargo workspace member (`crate-type = ["cdylib"]`). Shares types with `hearth-common`. Uses `reqwest`/`rustls` for Nextcloud API calls, reads config from `office.toml`.
-- [ ] **Share via Nextcloud extension:** Toolbar button that creates a Nextcloud share link (OCS Share API) for the current document and copies it to clipboard. Handles both synced (`~/Nextcloud/`) and non-synced files.
-- [ ] **Nextcloud Comments sidebar:** Sidebar panel (or modeless dialog fallback) showing file comments from Nextcloud OCS API. Fetch/post comments, commenter name + timestamp. Active only for Nextcloud-managed files.
-- [ ] **File Lock Status indicator:** Status bar showing WebDAV lock state via PROPFIND `{DAV:}lockdiscovery`. Shows "Locked by {username}" when another user has the file open. 30s refresh.
-- [ ] **.oxt packaging:** Nix derivation producing a valid `.oxt` (ZIP with manifest.xml, description.xml, platform.components). Crane build in flake.nix, exported via overlay.
+- [x] **LibreOffice overlay:** `nix/libreoffice-hearth/` overrides the nixpkgs LibreOffice to 26.2.2.2 source with `--enable-rust-uno` configure flag, Rust toolchain in nativeBuildInputs, and `rust_uno` crate extraction as a separate output. Wrapped via the standard `wrapper.nix`. Exported as `pkgs.libreoffice-hearth` via overlay.
+- [x] **hearth-office crate:** Standalone Cargo project at `crates/hearth-office/` (`crate-type = ["cdylib"]`, NOT a workspace member). Uses `hearth-common` as path dep, `reqwest` (blocking + rustls) for Nextcloud API, `arboard` for clipboard, `configparser` for NC Desktop config reading, `quick-xml` for WebDAV PROPFIND parsing. Reads config from `~/.config/hearth/office.toml`. Auth via Nextcloud Desktop client stored credentials + GNOME Keyring fallback.
+- [x] **Share via Nextcloud extension:** `uno/share_handler.rs` — XDispatchProvider for `hearth:ShareViaNextcloud` protocol. Gets document URL, resolves to NC path (synced ~/Nextcloud/ or WebDAV), calls OCS Share API v2 (`POST /ocs/v2.php/apps/files_sharing/api/v1/shares`, shareType=3, permissions=1), copies public link to clipboard. Toolbar button + Tools menu entry via `Addons.xcu`.
+- [x] **Nextcloud Comments sidebar:** `uno/comments_panel.rs` — sidebar panel (XToolPanel) with modeless dialog fallback. Resolves file ID via WebDAV PROPFIND `oc:fileid`, fetches comments via OCS API (`GET/POST /ocs/v2.php/apps/dav/api/v1/comments/files/{fileId}`). File ID cached per document URL. Shows commenter name + timestamp + message. Supports posting new comments.
+- [x] **File Lock Status indicator:** `uno/lock_status.rs` — StatusbarController (with infobar/toolbar fallback). WebDAV PROPFIND with `{DAV:}lockdiscovery` property. Parses `<d:activelock>` for owner + timeout. Shows "Not locked" or "Locked by {username}" in status bar. 30-second refresh interval.
+- [x] **.oxt packaging:** `nix/hearth-office-oxt.nix` — `runCommand` combining the `.so` from Crane build + XML descriptors (`nix/oxt/`: manifest.xml, description.xml, hearth-office.components, Addons.xcu, ProtocolHandler.xcu) into a ZIP archive. `home-modules/libreoffice.nix` auto-adds the .oxt to extensions when `enableExtensions = true`, switches to `pkgs.libreoffice-hearth`. `mk-fleet-host.nix` extended with `libreofficeExtensions` parameter.
+
+**Stats:** 1 new crate (hearth-office, 11 source files ~600 lines), 6 Nix files (LO overlay + .oxt packaging), 6 OXT descriptor files, 1 VM test. Modified: flake.nix (+3 packages, overlay), overlays/default.nix (+2 entries), home-modules/libreoffice.nix (conditional LO package + auto .oxt), mk-fleet-host.nix (+libreofficeExtensions parameter).
 
 #### 6D-4: Video Conferencing (Future)
 
@@ -545,6 +555,13 @@ Encrypted, centrally-managed DNS for the fleet — internal service resolution, 
 ## Icebox {#icebox}
 
 Items that are valuable but not currently prioritized. May be promoted to a phase based on user demand or strategic need.
+
+### Closed Supply Chain (Attic-Only Substituters)
+Optional mode where fleet devices use only the Hearth Attic cache as their Nix substituter — cache.nixos.org is removed. All store paths on every device were built by the org's build pipeline, signed with the org's key, and have corresponding SBOMs. Trades first-build speed for full supply chain provenance.
+
+Benefits: supply chain control (NIST 800-53 SA-12, FedRAMP), accurate SBOM coverage for every path on every device, deterministic CVE impact queries ("which devices have this vulnerable package?" answered from Attic + deployment DB), air-gapped deployment support, single trust anchor (org signing key vs. Hydra's).
+
+Implementation: build worker pushes full closures to Attic (already done). Fleet config toggle (`closedSupplyChain: true`) removes cache.nixos.org from `nix.settings.substituters`. Attic itself can optionally use cache.nixos.org as an upstream for warming the cache, but fleet devices never contact it directly. Helm values + `mk-fleet-host.nix` parameter.
 
 ### Conditional Access
 Integrate compliance state with Kanidm's OAuth2 claims pipeline. Non-compliant devices (missed updates, failed attestation, config drift) get restricted OAuth2 tokens that block access to sensitive resources. Requires the compliance engine (Phase 5B) to exist first, and depends on Kanidm's claims-based access control maturing upstream.

@@ -63,6 +63,13 @@ in
       '';
     };
 
+    # --- GNOME Keyring ---
+    # Start gnome-keyring-daemon via PAM on login so it's available before
+    # any desktop apps launch (Element, Nextcloud Desktop, etc. need it for
+    # credential storage). Required when using greetd instead of GDM.
+    services.gnome.gnome-keyring.enable = true;
+    security.pam.services.greetd.enableGnomeKeyring = true;
+
     # --- dconf system defaults ---
     # User-level dconf settings (dark theme, touchpad, privacy, etc.) are
     # managed by home-manager via the role profiles in home-modules/.

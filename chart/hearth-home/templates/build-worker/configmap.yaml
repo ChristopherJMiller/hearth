@@ -16,5 +16,13 @@ data:
   HEARTH_BINARY_CACHE_URL: {{ include "hearth-home.atticUrl" . | quote }}
   {{- if .Values.capabilities.identity }}
   HEARTH_KANIDM_URL: {{ include "hearth-home.kanidmUrl" . | quote }}
+  HEARTH_IDENTITY_URL: {{ include "hearth-home.kanidmUrl" . | quote }}
+  {{- end }}
+  {{- if .Values.capabilities.chat }}
+  HEARTH_CHAT_URL: {{ printf "https://%s" .Values.synapse.ingress.host | quote }}
+  HEARTH_MATRIX_SERVER_NAME: {{ .Values.synapse.serverName | quote }}
+  {{- end }}
+  {{- if .Values.capabilities.cloud }}
+  HEARTH_CLOUD_URL: {{ printf "https://%s" .Values.nextcloud.ingress.host | quote }}
   {{- end }}
 {{- end }}

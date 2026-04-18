@@ -453,6 +453,30 @@ checked_patch "configure hearth-nextcloud" "/v1/oauth2/hearth-nextcloud" \
 NEXTCLOUD_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-nextcloud" \
     -H "Authorization: Bearer $IDM_TOKEN" | jq -r '.attrs.oauth2_rs_basic_secret[0] // empty')
 
+# hearth-stalwart: Confidential OAuth2 client for Stalwart Mail Server
+# Stalwart uses OIDC for user authentication (IMAP/SMTP login via OAuth2).
+if resource_exists "/v1/oauth2/hearth-stalwart" "$IDM_TOKEN"; then
+    echo "    OAuth2 client 'hearth-stalwart' already exists"
+else
+    checked_post "create OAuth2 client 'hearth-stalwart'" "/v1/oauth2/_basic" \
+        '{"attrs":{"name":["hearth-stalwart"],"displayname":["Hearth Mail Server"],"oauth2_rs_origin_landing":["http://localhost:8025"]}}'
+    echo "    Created OAuth2 client 'hearth-stalwart'"
+fi
+
+checked_post "scopemap hearth-stalwart" "/v1/oauth2/hearth-stalwart/_scopemap/hearth-users" \
+    '["openid","profile","email"]'
+
+checked_patch "configure hearth-stalwart" "/v1/oauth2/hearth-stalwart" \
+    '{"attrs":{"oauth2_prefer_short_username":["true"]}}'
+
+# Retrieve the client secret for Stalwart
+STALWART_SECRET=$($C "$KANIDM_URL/v1/oauth2/hearth-stalwart" \
+    -H "Authorization: Bearer $IDM_TOKEN" | jq -r '.attrs.oauth2_rs_basic_secret[0] // empty')
+
+# Write the OIDC client secret for Stalwart container bind mount
+echo -n "$STALWART_SECRET" > "$SCRIPT_DIR/../stalwart/oidc_client_secret"
+echo "    Wrote Stalwart OIDC secret to dev/stalwart/oidc_client_secret"
+
 # ---------------------------------------------------------------------------
 # Step 6: Write .env for local dev
 # ---------------------------------------------------------------------------
@@ -482,6 +506,7 @@ HEARTH_API_SVC_TOKEN=$API_TOKEN
 HEARTH_MACHINE_TOKEN_SECRET=$MACHINE_TOKEN_SECRET
 MATRIX_OIDC_CLIENT_SECRET=$MATRIX_SECRET
 NEXTCLOUD_OIDC_CLIENT_SECRET=$NEXTCLOUD_SECRET
+STALWART_OIDC_CLIENT_SECRET=$STALWART_SECRET
 TESTADMIN_PASSWORD=${USER_PASSWORDS[testadmin]:-}
 TESTDEV_PASSWORD=${USER_PASSWORDS[testdev]:-}
 TESTDESIGNER_PASSWORD=${USER_PASSWORDS[testdesigner]:-}

@@ -47,8 +47,14 @@ fn resolve_role(groups: &[String], config: &AgentConfig) -> String {
                 return entry.role.clone();
             }
         }
+        warn!(
+            ?groups,
+            default_role = %mapping.default_role,
+            "no role mapping matched user's groups, using default"
+        );
         mapping.default_role.clone()
     } else {
+        warn!("no role_mapping configured, using \"default\"");
         "default".into()
     }
 }
@@ -418,13 +424,27 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
             let prebuilt = match client.get_user_env_closure(api_user, Some(&role)).await {
                 Ok(resp) => resp,
                 Err(e) => {
-                    debug!(error = %e, "failed to query per-user closure, falling back to role template");
-                    hearth_common::api_types::UserEnvClosureResponse {
-                        closure: None,
-                        cache_url: None,
-                        fallback_role: role.clone(),
-                        build_status: None,
-                    }
+                    error!(error = %e, "failed to reach control plane for per-user closure");
+
+                    let _ = client
+                        .report_user_env(machine_id, api_user, &role, UserEnvStatus::Failed)
+                        .await;
+
+                    let msg = format!(
+                        "Cannot reach the control plane to prepare your environment. \
+                         Check network connectivity or contact IT support. ({})",
+                        e
+                    );
+                    let mut st = state_bg.lock().await;
+                    st.prepare_status
+                        .insert(user.clone(), PrepareStatus::Error(msg.clone()));
+                    let _ = event_tx
+                        .send(AgentEvent::Error {
+                            username: user,
+                            message: msg,
+                        })
+                        .await;
+                    return;
                 }
             };
 
@@ -564,10 +584,25 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                         }
                     }
                 } else {
-                    Err(
-                        "still bootstrapping your environment — please try again in a few minutes"
-                            .into(),
-                    )
+                    let _ = client
+                        .report_user_env(machine_id, api_user, &role, UserEnvStatus::Failed)
+                        .await;
+
+                    error!(
+                        %user,
+                        %role,
+                        "environment build timed out after {} seconds",
+                        MAX_WAIT.as_secs()
+                    );
+
+                    Err(format!(
+                        "Your environment could not be built within {} minutes. \
+                         The build server may be overloaded or unreachable. \
+                         Please contact IT support. (user: {}, role: {})",
+                        MAX_WAIT.as_secs() / 60,
+                        user,
+                        role
+                    ).into())
                 }
             }
         };
@@ -723,17 +758,74 @@ async fn realise_closure_with_progress(
         let reader = tokio::io::BufReader::new(stderr);
         let mut lines = reader.lines();
         let mut fetched: usize = 0;
+        let mut total_paths: usize = 0;
+        let mut total_download_mib: Option<String> = None;
+        // Track in-flight downloads (started but not yet completed)
+        let mut in_flight: Vec<String> = Vec::new();
+
         while let Ok(Some(line)) = lines.next_line().await {
             collected.push_str(&line);
             collected.push('\n');
-            if let Some(msg) = parse_nix_progress(&line) {
+
+            // "these 157 paths will be fetched (312.50 MiB download, 1024.00 MiB unpacked):"
+            if total_paths == 0 {
+                if let Some(n) = parse_paths_to_fetch_count(&line) {
+                    total_paths = n;
+                    // Extract download size if present
+                    if let Some(start) = line.find('(') {
+                        if let Some(end) = line.find(" download") {
+                            total_download_mib = Some(line[start + 1..end].to_string());
+                        }
+                    }
+                    let size_info = total_download_mib
+                        .as_deref()
+                        .map(|s| format!(" — {s}"))
+                        .unwrap_or_default();
+                    let _ = progress_tx
+                        .send(AgentEvent::Progress {
+                            username: progress_user.clone(),
+                            percent: 20,
+                            message: format!("downloading {total_paths} packages{size_info}"),
+                        })
+                        .await;
+                    continue;
+                }
+            }
+
+            if let Some(name) = parse_fetch_name(&line) {
                 fetched += 1;
-                let display = format!("{msg} ({fetched} fetched)");
+                // Remove from in-flight if present
+                in_flight.retain(|n| n != &name);
+
+                let pct = if total_paths > 0 {
+                    (20 + (fetched * 40 / total_paths).min(40)) as u8
+                } else {
+                    40
+                };
+
+                // Send package name on first line, count on second line.
+                // The greeter shows the name as status text and the count
+                // inside the GTK ProgressBar widget.
+                let count_text = if total_paths > 0 {
+                    format!("{fetched}/{total_paths}")
+                } else {
+                    format!("{fetched} fetched")
+                };
+
                 let _ = progress_tx
                     .send(AgentEvent::Progress {
                         username: progress_user.clone(),
-                        percent: 40,
-                        message: display,
+                        percent: pct,
+                        message: format!("{name}\n{count_text}"),
+                    })
+                    .await;
+            } else if let Some(msg) = parse_nix_progress(&line) {
+                // Building derivations, etc.
+                let _ = progress_tx
+                    .send(AgentEvent::Progress {
+                        username: progress_user.clone(),
+                        percent: 55,
+                        message: msg,
                     })
                     .await;
             }
@@ -855,22 +947,36 @@ async fn get_disk_usage_summary() -> String {
     }
 }
 
-/// Parse a line of nix stderr output into a human-friendly progress message.
+/// Extract the path count from "these N paths will be fetched (X MiB download, Y MiB unpacked):"
+fn parse_paths_to_fetch_count(line: &str) -> Option<usize> {
+    let line = line.trim();
+    if line.starts_with("these ") && line.contains("paths will be fetched") {
+        line.split_whitespace().nth(1)?.parse().ok()
+    } else {
+        None
+    }
+}
+
+/// Extract the package name from a "copying path '...'" line.
+fn parse_fetch_name(line: &str) -> Option<String> {
+    let line = line.trim();
+    if !line.starts_with("copying path '") {
+        return None;
+    }
+    let path = line.strip_prefix("copying path '")?.split('\'').next()?;
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    let name = if basename.len() > 33 { &basename[33..] } else { basename };
+    Some(name.to_string())
+}
+
+/// Parse a non-fetch line of nix stderr into a progress message.
 fn parse_nix_progress(line: &str) -> Option<String> {
     let line = line.trim();
+    // Fetch lines handled by parse_fetch_name
     if line.starts_with("copying path '") {
-        // "copying path '/nix/store/abc123hash-name-1.0' from 'https://...'"
-        let path = line.strip_prefix("copying path '")?.split('\'').next()?;
-        // Store paths: /nix/store/<32-char-hash>-<name>
-        let basename = path.rsplit('/').next().unwrap_or(path);
-        // Skip the hash prefix (32 hex chars + dash)
-        let name = if basename.len() > 33 {
-            &basename[33..]
-        } else {
-            basename
-        };
-        Some(format!("fetching {name}"))
-    } else if line.starts_with("building '/nix/store/") {
+        return None;
+    }
+    if line.starts_with("building '/nix/store/") {
         let path = line
             .strip_prefix("building '/nix/store/")?
             .split('\'')
@@ -1003,21 +1109,34 @@ pub async fn sync_user_desktop_prefs<C: HearthApiClient>(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_dconf_string_array, parse_nix_progress, strip_dconf_string};
+    use super::{
+        parse_dconf_string_array, parse_fetch_name, parse_nix_progress,
+        parse_paths_to_fetch_count, strip_dconf_string,
+    };
 
     #[test]
     fn test_copying_path() {
         let line = "copying path '/nix/store/aaaabbbbccccddddeeeeffffgggghhhh-hello-2.12.1' from 'https://cache.nixos.org'...";
-        assert_eq!(
-            parse_nix_progress(line),
-            Some("fetching hello-2.12.1".into())
-        );
+        assert_eq!(parse_fetch_name(line), Some("hello-2.12.1".into()));
+        // parse_nix_progress should NOT match fetch lines (handled separately)
+        assert_eq!(parse_nix_progress(line), None);
     }
 
     #[test]
     fn test_copying_path_no_source() {
         let line = "copying path '/nix/store/aaaabbbbccccddddeeeeffffgggghhhh-glibc-2.40'";
-        assert_eq!(parse_nix_progress(line), Some("fetching glibc-2.40".into()));
+        assert_eq!(parse_fetch_name(line), Some("glibc-2.40".into()));
+    }
+
+    #[test]
+    fn test_paths_to_fetch_count() {
+        let line = "these 157 paths will be fetched (312.50 MiB download, 1024.00 MiB unpacked):";
+        assert_eq!(parse_paths_to_fetch_count(line), Some(157));
+    }
+
+    #[test]
+    fn test_paths_to_fetch_count_no_match() {
+        assert_eq!(parse_paths_to_fetch_count("building something..."), None);
     }
 
     #[test]

@@ -48,13 +48,18 @@ in
     # --- Pre-configure Nextcloud Desktop client ---
     # Points at the Hearth Nextcloud instance. On first launch, the client
     # will open a browser for OIDC login via Kanidm.
+    # Nextcloud Desktop config uses QSettings INI format with backslash-delimited
+    # array keys. authType=webflow triggers browser-based OIDC login via Kanidm.
+    # Keys: url, authType, version (from Nextcloud Desktop source: accountmanager.cpp)
     xdg.configFile."Nextcloud/nextcloud.cfg".text = ''
-      [General]
-      optionalServerNotifications=true
+[General]
+optionalServerNotifications=true
 
-      [Accounts]
-      0\url=${cfg.serverUrl}
-      0\authType=http
+[Accounts]
+version=2
+0\url=${cfg.serverUrl}
+0\authType=webflow
+0\version=1
     '';
 
     # --- Auto-start Nextcloud sync client on GNOME login ---

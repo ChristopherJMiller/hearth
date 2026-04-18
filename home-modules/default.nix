@@ -30,7 +30,7 @@
       ] ++ lib.optionals config.hearth.libreoffice.enable [
         "org.libreoffice.LibreOffice.writer.desktop"
       ] ++ lib.optionals config.hearth.chat.enable [
-        "element-desktop.desktop"
+        "org.gnome.Fractal.desktop"
       ] ++ lib.optionals config.hearth.nextcloud.enable [
         "com.nextcloud.desktopclient.nextcloud.desktop"
       ] ++ lib.optionals config.hearth.thunderbird.enable [

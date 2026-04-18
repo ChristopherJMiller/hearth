@@ -1,0 +1,80 @@
+# Stalwart Mail Server — dev environment configuration
+#
+# PostgreSQL backend, Kanidm OIDC auth, no TLS (dev only).
+# Domain: hearth.local
+
+[server]
+hostname = "mail.hearth.local"
+max-connections = 256
+
+[server.listener.http]
+bind = ["0.0.0.0:8080"]
+protocol = "http"
+
+[server.listener.imap]
+bind = ["0.0.0.0:143"]
+protocol = "imap"
+tls.implicit = false
+
+[server.listener.submission]
+bind = ["0.0.0.0:587"]
+protocol = "smtp"
+tls.implicit = false
+
+# ---------------------------------------------------------------
+# Storage — PostgreSQL backend (shared cluster, separate database)
+# ---------------------------------------------------------------
+[store."postgresql"]
+type = "postgresql"
+host = "postgres"
+port = 5432
+database = "stalwart"
+user = "stalwart"
+password = "stalwart"
+
+[storage]
+data = "postgresql"
+blob = "postgresql"
+fts = "postgresql"
+lookup = "postgresql"
+directory = "postgresql"
+
+# ---------------------------------------------------------------
+# Directory — local users managed via admin API
+# ---------------------------------------------------------------
+[directory."postgresql"]
+type = "sql"
+store = "postgresql"
+
+# ---------------------------------------------------------------
+# Authentication — Kanidm OIDC/OAuth2
+# ---------------------------------------------------------------
+[auth.oauth]
+key = "%{file:/opt/stalwart/etc/oidc_client_secret}%"
+
+[oauth."kanidm"]
+issuer-url = "https://localhost:8443/oauth2/openid/hearth-stalwart"
+client-id = "hearth-stalwart"
+
+# ---------------------------------------------------------------
+# Domain configuration
+# ---------------------------------------------------------------
+[session.rcpt]
+relay = false
+
+[queue.outbound]
+hostname = "mail.hearth.local"
+
+# ---------------------------------------------------------------
+# Autoconfig / Autodiscover (Thunderbird + Outlook)
+# ---------------------------------------------------------------
+[server.autoconfig]
+domain = "hearth.local"
+
+# ---------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------
+[tracing."stdout"]
+type = "stdout"
+level = "info"
+enable = true

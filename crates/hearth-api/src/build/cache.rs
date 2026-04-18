@@ -30,6 +30,10 @@ pub async fn push_to_cache(cache_name: &str, store_path: &str) -> Result<(), Cac
     // Sign the path before pushing (if signing key is configured).
     sign_path(store_path).await;
 
+    // Attic pushes the full closure (all transitive deps) by default.
+    // Deduplication ensures paths already in the cache are skipped. Shared
+    // deps (e.g., LibreOffice, Firefox) are cached after the first user
+    // build and pulled instantly for subsequent users.
     let output = Command::new("attic")
         .args(["push", cache_name, store_path])
         .output()

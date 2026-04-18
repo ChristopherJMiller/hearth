@@ -48,10 +48,22 @@
             || (builtins.match ".*\.svg$" path != null);
         };
 
+        # rust_uno crate extracted from LO 26.2 source (with generated stubs)
+        rust-uno = pkgs.callPackage ./nix/rust-uno {};
+
+        # UNO shared libraries extracted from LO 26.2 debs (for linking)
+        libreoffice-uno-libs = pkgs.callPackage ./nix/libreoffice-uno-libs.nix {};
+
         # Common build arguments shared across all builds
         commonArgs = {
           inherit src;
           strictDeps = true;
+
+          # rust_uno must be at the workspace root for hearth-office path dep
+          preConfigure = ''
+            ln -sfn ${rust-uno} $PWD/rust_uno
+          '';
+          INSTDIR = "${libreoffice-uno-libs}";
 
           buildInputs = with pkgs; [
             openssl
@@ -105,6 +117,26 @@
           inherit cargoArtifacts;
           cargoExtraArgs = "-p hearth-build-worker";
         });
+
+
+        # hearth-office Rust UNO extension (.so)
+        hearth-office-so = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+          cargoExtraArgs = "-p hearth-office";
+          # UNO libs needed at runtime for tests
+          LD_LIBRARY_PATH = "${libreoffice-uno-libs}/program";
+          postInstall = ''
+            mkdir -p $out/lib
+            find $out -name "libhearth_office.so" -exec cp {} $out/lib/ \; || true
+          '';
+        });
+
+        # Packaged .oxt extension (ZIP archive)
+        hearth-office-oxt = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux (
+          pkgs.callPackage ./nix/hearth-office-oxt.nix {
+            inherit hearth-office-so;
+          }
+        );
 
         # OCI container images (Linux only)
         ociImages = lib.optionalAttrs pkgs.stdenv.isLinux {
@@ -234,7 +266,11 @@
         packages = {
           inherit hearth-common hearth-agent hearth-greeter hearth-enrollment hearth-api hearth-build-worker;
           default = hearth-agent;
-        } // enrollmentImage // fleetVm // ociImages;
+        } // enrollmentImage // fleetVm // ociImages
+          // lib.optionalAttrs pkgs.stdenv.isLinux {
+            inherit hearth-office-oxt;
+          }
+          // { inherit rust-uno libreoffice-uno-libs; };
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
@@ -277,7 +313,7 @@
             # Frontend (Vite + React)
             nodejs_22
             pnpm
-            nodePackages.typescript
+            typescript
 
             # Identity management (kanidm 1.9 needs Rust 1.93, built via rust-overlay)
             (pkgs.callPackage ./nix/kanidm-cli.nix {
@@ -294,12 +330,30 @@
             jq
             httpie
             just
+
+            # rust_uno crate + UNO libraries for hearth-office local development
+            rust-uno
+            libreoffice-uno-libs
           ];
 
           # Environment variables for development
           DATABASE_URL = "postgres://hearth:hearth@localhost:5432/hearth";
           SQLX_OFFLINE = "true";
           RUST_LOG = "info";
+          # Point hearth-office at the extracted rust_uno crate for local dev
+          RUST_UNO_PATH = "${rust-uno}";
+          # Point rust_uno's build.rs at the UNO libraries for linking
+          INSTDIR = "${libreoffice-uno-libs}";
+          # UNO libs also needed at runtime for test binaries
+          LD_LIBRARY_PATH = "${libreoffice-uno-libs}/program";
+
+          # Symlink rust_uno crate for hearth-office path dep
+          shellHook = ''
+            if [ ! -e "$PWD/rust_uno/Cargo.toml" ]; then
+              ln -sfn "${rust-uno}" "$PWD/rust_uno"
+            fi
+          '';
+
           HEARTH_ATTIC_CACHE = "hearth";
           # URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
           HEARTH_ATTIC_SERVER = "http://10.0.2.2:8080";
@@ -319,6 +373,8 @@
         hearth-enrollment = self.packages.${prev.system}.hearth-enrollment;
         hearth-api = self.packages.${prev.system}.hearth-api;
         hearth-build-worker = self.packages.${prev.system}.hearth-build-worker;
+        # Hearth LibreOffice extension package
+        hearth-office-oxt = self.packages.${prev.system}.hearth-office-oxt or null;
         # Pin kanidm version globally — all modules and tests use this.
         kanidm = prev.kanidm_1_9;
       };
@@ -439,7 +495,10 @@
         let
           cfg = builtins.fromJSON (builtins.readFile userConfigPath);
           lib = nixpkgs.lib;
-          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+          pkgs = import nixpkgs {
+            system = "x86_64-linux";
+            overlays = [ self.overlays.default ];
+          };
           roleModule = self.homeModules.${cfg.base_role} or self.homeModules.default;
 
           # Build an override module from structured JSON fields.
@@ -495,11 +554,71 @@
               };
             };
           };
+
+          # Enable fleet-wide collaboration modules based on service URLs
+          # provided by the build worker via fleet_config in user-config.json.
+          # When fleet_config is absent (CI builds, no services configured),
+          # all modules stay disabled (their defaults are false).
+          fleetModule = { config, lib, pkgs, ... }: let
+            fleet = cfg.fleet_config or {};
+            chatUrl = fleet.chat_url or null;
+            cloudUrl = fleet.cloud_url or null;
+            serverUrl = fleet.server_url or null;
+            matrixServerName = fleet.matrix_server_name or null;
+            grafanaUrl = fleet.grafana_url or null;
+            identityUrl = fleet.identity_url or null;
+            vaultwardenUrl = fleet.vaultwarden_url or null;
+            mailImapHost = fleet.mail_imap_host or null;
+            mailSmtpHost = fleet.mail_smtp_host or null;
+            mailDomain = fleet.mail_domain or null;
+          in {
+            hearth.chat = lib.mkIf (chatUrl != null) {
+              enable = true;
+              homeserverUrl = chatUrl;
+              serverName = if matrixServerName != null then matrixServerName else "hearth.local";
+            };
+
+            hearth.nextcloud = lib.mkIf (cloudUrl != null) {
+              enable = true;
+              serverUrl = cloudUrl;
+            };
+
+            hearth.libreoffice = lib.mkIf (cloudUrl != null) {
+              enable = true;
+              nextcloudUrl = cloudUrl;
+            };
+
+            hearth.thunderbird = lib.mkIf (cloudUrl != null) ({
+              enable = true;
+              nextcloudUrl = cloudUrl;
+            } // lib.optionalAttrs (mailImapHost != null) {
+              mail = {
+                enable = true;
+                imapHost = mailImapHost;
+                smtpHost = mailSmtpHost;
+                domain = mailDomain;
+              };
+            });
+
+            hearth.firefox = lib.mkIf (serverUrl != null) {
+              enable = true;
+              consoleUrl = serverUrl;
+              nextcloudUrl = cloudUrl;
+              vaultwardenUrl = vaultwardenUrl;
+              role = cfg.base_role;
+              services =
+                lib.optional (chatUrl != null) { name = "Hearth Chat"; url = chatUrl; }
+                ++ lib.optional (cloudUrl != null) { name = "Cloud Storage"; url = cloudUrl; }
+                ++ lib.optional (identityUrl != null) { name = "Identity Portal"; url = identityUrl; }
+                ++ lib.optional (grafanaUrl != null) { name = "Monitoring"; url = grafanaUrl; };
+            };
+          };
         in home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
           modules = [
             roleModule
             overrideModule
+            fleetModule
             {
               home.username = cfg.username;
               home.homeDirectory = "/home/${cfg.username}";

@@ -579,8 +579,8 @@ stalwart:
     domain: ""
 
   image:
-    repository: stalwartlabs/mail-server
-    tag: "v0.10"
+    repository: stalwartlabs/stalwart
+    tag: "v0.15"
     pullPolicy: IfNotPresent
 
   resources:

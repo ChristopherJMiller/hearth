@@ -5,10 +5,11 @@
 //! Designed to run as one or more instances alongside the API server. Uses
 //! `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrent job claiming.
 
+use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use hearth_api::build::{orchestrator, user_env};
@@ -216,12 +217,12 @@ async fn execute_user_env_job(pool: &sqlx::PgPool, job: &hearth_api::db::UserEnv
         }
     };
 
-    let flake_ref = match std::env::var("HEARTH_FLAKE_REF") {
+    let flake_ref = match resolve_flake_ref().await {
         Ok(r) => r,
-        Err(_) => {
-            error!(job_id = %job.id, "HEARTH_FLAKE_REF not set — cannot build user env");
+        Err(e) => {
+            error!(job_id = %job.id, error = %e, "failed to resolve flake ref");
             let _ =
-                repo::fail_user_env_build(pool, job.id, "HEARTH_FLAKE_REF not configured").await;
+                repo::fail_user_env_build(pool, job.id, &format!("flake ref error: {e}")).await;
             return;
         }
     };
@@ -252,4 +253,42 @@ async fn execute_user_env_job(pool: &sqlx::PgPool, job: &hearth_api::db::UserEnv
             }
         }
     }
+}
+
+#[derive(Deserialize)]
+struct FlakeLatestResponse {
+    tarball_url: String,
+}
+
+/// Resolve the flake ref for the current build.
+///
+/// If `HEARTH_FLAKE_REF` looks like a full flake ref (contains "tarball+" or
+/// "git+"), use it directly. Otherwise, treat it as an API server base URL and
+/// query `/api/v1/fleet-config/latest` to get a content-addressed tarball URL.
+async fn resolve_flake_ref() -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let raw = std::env::var("HEARTH_FLAKE_REF")
+        .map_err(|_| "HEARTH_FLAKE_REF not set")?;
+
+    // If it's already a full flake ref (legacy or explicit), use it directly
+    if raw.contains("tarball+") || raw.contains("git+") || raw.contains("path:") {
+        debug!(flake_ref = %raw, "using explicit flake ref");
+        return Ok(raw);
+    }
+
+    // Treat as API server base URL — query /latest for content-addressed URL
+    let latest_url = format!("{}/api/v1/fleet-config/latest", raw.trim_end_matches('/'));
+    debug!(%latest_url, "querying fleet-config latest");
+
+    let resp = reqwest::get(&latest_url).await?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "fleet-config/latest returned {}: {}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        ).into());
+    }
+
+    let latest: FlakeLatestResponse = resp.json().await?;
+    info!(flake_ref = %latest.tarball_url, "resolved content-addressed flake ref");
+    Ok(latest.tarball_url)
 }

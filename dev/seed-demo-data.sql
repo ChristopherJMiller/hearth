@@ -70,10 +70,10 @@ ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO user_configs (username, base_role, overrides, config_hash, build_status)
 VALUES
-  ('testadmin',    'admin',     '{}', encode(sha256(convert_to('admin|{}',     'UTF8')), 'hex'), 'pending'),
-  ('testdev',      'developer', '{}', encode(sha256(convert_to('developer|{}', 'UTF8')), 'hex'), 'pending'),
-  ('testdesigner', 'designer',  '{}', encode(sha256(convert_to('designer|{}',  'UTF8')), 'hex'), 'pending'),
-  ('testuser',     'default',   '{}', encode(sha256(convert_to('default|{}',   'UTF8')), 'hex'), 'pending')
+  ('testuser@kanidm.hearth.local',     'default',   '{}', encode(sha256(convert_to('default|{}',   'UTF8')), 'hex'), 'pending'),
+  ('testadmin@kanidm.hearth.local',    'admin',     '{}', encode(sha256(convert_to('admin|{}',     'UTF8')), 'hex'), 'pending'),
+  ('testdev@kanidm.hearth.local',      'developer', '{}', encode(sha256(convert_to('developer|{}', 'UTF8')), 'hex'), 'pending'),
+  ('testdesigner@kanidm.hearth.local', 'designer',  '{}', encode(sha256(convert_to('designer|{}',  'UTF8')), 'hex'), 'pending')
 ON CONFLICT (username) DO UPDATE SET
   build_status = 'pending',
   build_error = NULL,

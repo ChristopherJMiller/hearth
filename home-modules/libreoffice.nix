@@ -149,15 +149,15 @@ in
     extensions = lib.mkOption {
       type = lib.types.listOf lib.types.package;
       default = [];
-      description = "List of .oxt extension packages to install (e.g., hearth-office-oxt).";
+      description = "Additional .oxt extension packages to install via unopkg.";
     };
 
     enableExtensions = lib.mkOption {
       type = lib.types.bool;
-      default = false;
+      default = true;
       description = ''
         Install Hearth LibreOffice extensions (Nextcloud Share, Comments
-        sidebar, Lock Status). Requires LibreOffice built with Rust UNO support.
+        sidebar, Lock Status). Uses LibreOffice 26.2+ with Rust UNO support.
       '';
     };
   };
@@ -167,9 +167,8 @@ in
     home.packages = with pkgs; [
       libreoffice
 
-      # Hearth design system fonts for consistent document formatting
+      # Hearth design system fonts
       dm-sans
-      jetbrains-mono
       noto-fonts
     ];
 
