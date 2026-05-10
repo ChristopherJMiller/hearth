@@ -1,18 +1,13 @@
 # tests/libreoffice-extension.nix — NixOS VM test: LibreOffice extension loading
 #
-# Verifies that the hearth-office .oxt extension can be installed via unopkg
-# and that LibreOffice starts headless with the extension registered.
+# Verifies that the hearth-office .oxt installs cleanly via unopkg and that
+# LibreOffice can resolve the registered components. The .oxt now ships the
+# C++ UNO bridge alongside the Rust .so; the bridge implements
+# component_getFactory and is what LO actually calls into.
 #
-# This test uses the standard LibreOffice (not libreoffice-hearth with Rust UNO)
-# to validate the .oxt packaging structure without requiring the full 26.2 build.
-# The actual Rust UNO component registration is tested separately as it requires
-# the custom LO build.
-#
-# Assertions:
-#   - unopkg can install the .oxt without errors
-#   - The .oxt ZIP structure is valid (manifest.xml, description.xml, etc.)
-#   - LibreOffice starts headless and exits cleanly
-#   - The extension config file (office.toml) is written correctly
+# This test runs against stock nixpkgs LibreOffice. The bridge does not
+# require LO 26.2 / rust_uno — it speaks the standard UNO ABI, so older LO
+# versions register the components fine.
 
 { pkgs, lib, hearth-office-oxt ? null, ... }:
 
@@ -26,13 +21,11 @@ pkgs.testers.nixosTest {
       file
     ];
 
-    # Create a test user
     users.users.testuser = {
       isNormalUser = true;
       home = "/home/testuser";
     };
 
-    # Write a test office.toml
     environment.etc."skel/.config/hearth/office.toml".text = ''
       [nextcloud]
       url = "https://cloud.test.example.com"
@@ -44,20 +37,46 @@ pkgs.testers.nixosTest {
     machine.start()
     machine.wait_for_unit("multi-user.target")
 
-    # Verify the .oxt is a valid ZIP archive
     ${lib.optionalString (hearth-office-oxt != null) ''
+      # ZIP structure: both .so files + descriptors must be present.
       machine.succeed("file ${hearth-office-oxt}/hearth-office.oxt | grep -q 'Zip archive'")
+      for entry in [
+          "META-INF/manifest.xml",
+          "description.xml",
+          "hearth-office.components",
+          "Addons.xcu",
+          "ProtocolHandler.xcu",
+          "libhearth_office.so",
+          "libhearth_office_bridge.so",
+      ]:
+          machine.succeed(f"unzip -l ${hearth-office-oxt}/hearth-office.oxt | grep -q '{entry}'")
 
-      # Check that required files are inside the .oxt
-      machine.succeed("unzip -l ${hearth-office-oxt}/hearth-office.oxt | grep -q 'META-INF/manifest.xml'")
-      machine.succeed("unzip -l ${hearth-office-oxt}/hearth-office.oxt | grep -q 'description.xml'")
-      machine.succeed("unzip -l ${hearth-office-oxt}/hearth-office.oxt | grep -q 'hearth-office.components'")
-      machine.succeed("unzip -l ${hearth-office-oxt}/hearth-office.oxt | grep -q 'Addons.xcu'")
-      machine.succeed("unzip -l ${hearth-office-oxt}/hearth-office.oxt | grep -q 'ProtocolHandler.xcu'")
-      machine.succeed("unzip -l ${hearth-office-oxt}/hearth-office.oxt | grep -q 'libhearth_office.so'")
+      # The .components file must point at the C++ bridge .so (not the Rust one).
+      machine.succeed(
+          "unzip -p ${hearth-office-oxt}/hearth-office.oxt hearth-office.components"
+          " | grep -q 'libhearth_office_bridge.so'"
+      )
+
+      # Install the extension as the test user. unopkg unpacks both .so files
+      # into the extension cache; the bridge's $ORIGIN-relative DT_NEEDED
+      # then resolves libhearth_office.so as a sibling.
+      machine.succeed(
+          "su - testuser -c '"
+          "$(find /nix/store -name unopkg -path \"*/libreoffice/program/*\" | head -1)"
+          " add --suppress-license"
+          " ${hearth-office-oxt}/hearth-office.oxt'"
+      )
+
+      # unopkg list must show the extension registered and active.
+      result = machine.succeed(
+          "su - testuser -c '"
+          "$(find /nix/store -name unopkg -path \"*/libreoffice/program/*\" | head -1)"
+          " list'"
+      )
+      assert "com.hearth.office" in result, f"extension not listed: {result}"
     ''}
 
-    # Verify the office.toml config structure
+    # office.toml config sanity check.
     machine.succeed(
       "mkdir -p /home/testuser/.config/hearth && "
       "cp /etc/skel/.config/hearth/office.toml /home/testuser/.config/hearth/ && "
@@ -65,12 +84,10 @@ pkgs.testers.nixosTest {
     )
     machine.succeed("grep -q 'cloud.test.example.com' /home/testuser/.config/hearth/office.toml")
 
-    # Verify LibreOffice starts headless and exits cleanly
+    # LO starts headless without crashing — proves the extension's component
+    # loader doesn't blow up at registration time.
     machine.succeed(
       "su - testuser -c 'timeout 30 soffice --headless --norestore --nofirststartwizard --calc --convert-to csv /dev/null 2>&1 || true'"
     )
-
-    # Verify LibreOffice program directory exists and has unopkg
-    machine.succeed("test -x $(find /nix/store -name unopkg -path '*/libreoffice/program/*' | head -1)")
   '';
 }

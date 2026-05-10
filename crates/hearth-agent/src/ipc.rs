@@ -602,7 +602,7 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                         MAX_WAIT.as_secs() / 60,
                         user,
                         role
-                    ).into())
+                    ))
                 }
             }
         };
@@ -768,28 +768,28 @@ async fn realise_closure_with_progress(
             collected.push('\n');
 
             // "these 157 paths will be fetched (312.50 MiB download, 1024.00 MiB unpacked):"
-            if total_paths == 0 {
-                if let Some(n) = parse_paths_to_fetch_count(&line) {
-                    total_paths = n;
-                    // Extract download size if present
-                    if let Some(start) = line.find('(') {
-                        if let Some(end) = line.find(" download") {
-                            total_download_mib = Some(line[start + 1..end].to_string());
-                        }
-                    }
-                    let size_info = total_download_mib
-                        .as_deref()
-                        .map(|s| format!(" — {s}"))
-                        .unwrap_or_default();
-                    let _ = progress_tx
-                        .send(AgentEvent::Progress {
-                            username: progress_user.clone(),
-                            percent: 20,
-                            message: format!("downloading {total_paths} packages{size_info}"),
-                        })
-                        .await;
-                    continue;
+            if total_paths == 0
+                && let Some(n) = parse_paths_to_fetch_count(&line)
+            {
+                total_paths = n;
+                // Extract download size if present
+                if let Some(start) = line.find('(')
+                    && let Some(end) = line.find(" download")
+                {
+                    total_download_mib = Some(line[start + 1..end].to_string());
                 }
+                let size_info = total_download_mib
+                    .as_deref()
+                    .map(|s| format!(" — {s}"))
+                    .unwrap_or_default();
+                let _ = progress_tx
+                    .send(AgentEvent::Progress {
+                        username: progress_user.clone(),
+                        percent: 20,
+                        message: format!("downloading {total_paths} packages{size_info}"),
+                    })
+                    .await;
+                continue;
             }
 
             if let Some(name) = parse_fetch_name(&line) {
@@ -965,7 +965,11 @@ fn parse_fetch_name(line: &str) -> Option<String> {
     }
     let path = line.strip_prefix("copying path '")?.split('\'').next()?;
     let basename = path.rsplit('/').next().unwrap_or(path);
-    let name = if basename.len() > 33 { &basename[33..] } else { basename };
+    let name = if basename.len() > 33 {
+        &basename[33..]
+    } else {
+        basename
+    };
     Some(name.to_string())
 }
 
@@ -1026,9 +1030,7 @@ async fn read_desktop_prefs(username: &str) -> DesktopPreferences {
     let wallpaper_uri =
         read_dconf_as_user(username, "/org/gnome/desktop/background/picture-uri-dark")
             .await
-            .or(
-                read_dconf_as_user(username, "/org/gnome/desktop/background/picture-uri").await,
-            )
+            .or(read_dconf_as_user(username, "/org/gnome/desktop/background/picture-uri").await)
             .map(|v| strip_dconf_string(&v));
 
     let wallpaper_color =
@@ -1036,10 +1038,9 @@ async fn read_desktop_prefs(username: &str) -> DesktopPreferences {
             .await
             .map(|v| strip_dconf_string(&v));
 
-    let dark_mode =
-        read_dconf_as_user(username, "/org/gnome/desktop/interface/color-scheme")
-            .await
-            .map(|v| v.contains("prefer-dark"));
+    let dark_mode = read_dconf_as_user(username, "/org/gnome/desktop/interface/color-scheme")
+        .await
+        .map(|v| v.contains("prefer-dark"));
 
     DesktopPreferences {
         favorite_apps,
@@ -1110,8 +1111,8 @@ pub async fn sync_user_desktop_prefs<C: HearthApiClient>(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_dconf_string_array, parse_fetch_name, parse_nix_progress,
-        parse_paths_to_fetch_count, strip_dconf_string,
+        parse_dconf_string_array, parse_fetch_name, parse_nix_progress, parse_paths_to_fetch_count,
+        strip_dconf_string,
     };
 
     #[test]

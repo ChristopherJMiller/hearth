@@ -38,9 +38,13 @@ tests:
       stalwart.hosted: true
       stalwart.image.tag: "v0.11"
     asserts:
+      # Upstream renamed the OCI image from stalwart-mail/mail-server to
+      # stalwartlabs/stalwart in v0.11+. values.yaml tracks the new name; the
+      # tag override above only flips the version, so the rendered image is
+      # stalwartlabs/stalwart:v0.11.
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: "stalwartlabs/mail-server:v0\\.11"
+          pattern: "stalwartlabs/stalwart:v0\\.11"
 
   - it: should include health probes
     template: stalwart/deployment.yaml

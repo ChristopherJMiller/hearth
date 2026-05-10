@@ -10,10 +10,7 @@ pub struct ShareLink {
 const SHARE_TYPE_PUBLIC_LINK: &str = "3";
 const PERMISSIONS_READ_ONLY: &str = "1";
 
-pub fn create_share_link(
-    client: &NextcloudClient,
-    nc_path: &str,
-) -> Result<ShareLink, ShareError> {
+pub fn create_share_link(client: &NextcloudClient, nc_path: &str) -> Result<ShareLink, ShareError> {
     let url = client.ocs_url("/apps/files_sharing/api/v1/shares");
 
     let resp = client
@@ -30,7 +27,10 @@ pub fn create_share_link(
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().unwrap_or_default();
-        return Err(ShareError::ApiError { status: status.as_u16(), body });
+        return Err(ShareError::ApiError {
+            status: status.as_u16(),
+            body,
+        });
     }
 
     let ocs_resp: OcsResponse = resp.json().map_err(ShareError::ParseResponse)?;
@@ -38,7 +38,10 @@ pub fn create_share_link(
     match ocs_resp.ocs.meta.statuscode {
         200 => {
             let data = ocs_resp.ocs.data.ok_or(ShareError::MissingData)?;
-            Ok(ShareLink { url: data.url, token: data.token })
+            Ok(ShareLink {
+                url: data.url,
+                token: data.token,
+            })
         }
         code => Err(ShareError::OcsError {
             code,

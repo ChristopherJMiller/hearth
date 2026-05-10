@@ -26,26 +26,31 @@ impl OfficeConfig {
     /// Load configuration from the standard path (~/.config/hearth/office.toml).
     pub fn load() -> Result<Self, ConfigError> {
         let path = config_path()?;
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| ConfigError::ReadFailed { path: path.clone(), source: e })?;
-        let config: Self = toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseFailed { path, source: e })?;
+        let content = std::fs::read_to_string(&path).map_err(|e| ConfigError::ReadFailed {
+            path: path.clone(),
+            source: e,
+        })?;
+        let config: Self =
+            toml::from_str(&content).map_err(|e| ConfigError::ParseFailed { path, source: e })?;
         Ok(config)
     }
 
     /// Load from a specific path (for testing).
     pub fn load_from(path: &std::path::Path) -> Result<Self, ConfigError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::ReadFailed { path: path.to_path_buf(), source: e })?;
-        let config: Self = toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseFailed { path: path.to_path_buf(), source: e })?;
+        let content = std::fs::read_to_string(path).map_err(|e| ConfigError::ReadFailed {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+        let config: Self = toml::from_str(&content).map_err(|e| ConfigError::ParseFailed {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
         Ok(config)
     }
 }
 
 fn config_path() -> Result<PathBuf, ConfigError> {
-    let config_dir = dirs::config_dir()
-        .ok_or(ConfigError::NoConfigDir)?;
+    let config_dir = dirs::config_dir().ok_or(ConfigError::NoConfigDir)?;
     Ok(config_dir.join("hearth").join("office.toml"))
 }
 

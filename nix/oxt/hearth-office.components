@@ -1,19 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <components xmlns="http://openoffice.org/2010/uno-components">
+  <!-- The C++ bridge .so is the registered component loader; it forwards
+       method invocations to libhearth_office.so via DT_NEEDED + $ORIGIN-rpath
+       (both .so files unpack into the same directory inside the .oxt). -->
   <component loader="com.sun.star.loader.SharedLibrary"
-             uri="libhearth_office.so">
+             uri="libhearth_office_bridge.so">
 
     <!-- Share via Nextcloud — toolbar button protocol handler -->
     <implementation name="com.hearth.ShareHandler">
       <service name="com.sun.star.frame.ProtocolHandler"/>
     </implementation>
 
-    <!-- File Lock Status — status bar controller -->
+    <!-- File Lock Status — status bar controller (Phase 3) -->
     <implementation name="com.hearth.LockStatusController">
       <service name="com.sun.star.frame.StatusbarController"/>
     </implementation>
 
-    <!-- Nextcloud Comments — sidebar panel -->
+    <!-- Nextcloud Comments — sidebar panel (Phase 4) -->
     <implementation name="com.hearth.CommentsPanel">
       <service name="com.sun.star.ui.UIElementFactory"/>
     </implementation>

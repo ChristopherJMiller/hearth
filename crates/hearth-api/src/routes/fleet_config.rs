@@ -1,8 +1,8 @@
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use serde::Serialize;
@@ -51,10 +51,10 @@ pub fn new_tarball_cache() -> FlakeTarballCache {
 async fn ensure_cached(cache: &FlakeTarballCache) -> Result<(), AppError> {
     {
         let guard = cache.read().await;
-        if let Some(ref cached) = *guard {
-            if cached.generated_at.elapsed().as_secs() < CACHE_TTL_SECS {
-                return Ok(());
-            }
+        if let Some(ref cached) = *guard
+            && cached.generated_at.elapsed().as_secs() < CACHE_TTL_SECS
+        {
+            return Ok(());
         }
     }
 
@@ -96,8 +96,8 @@ pub async fn flake_latest(
     let guard = cache.read().await;
     let cached = guard.as_ref().unwrap();
 
-    let server_url = std::env::var("HEARTH_SERVER_URL")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let server_url =
+        std::env::var("HEARTH_SERVER_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     Ok(Json(FlakeLatestResponse {
         hash: cached.hash.clone(),
@@ -145,9 +145,7 @@ pub async fn flake_tarball_by_hash(
 /// `GET /api/v1/fleet-config/flake.tar.gz` (backwards compat)
 ///
 /// Serves the tarball at the static URL. Still works but Nix may cache it.
-pub async fn flake_tarball(
-    State(cache): State<FlakeTarballCache>,
-) -> Result<Response, AppError> {
+pub async fn flake_tarball(State(cache): State<FlakeTarballCache>) -> Result<Response, AppError> {
     ensure_cached(&cache).await?;
 
     let guard = cache.read().await;

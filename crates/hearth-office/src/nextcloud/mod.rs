@@ -57,11 +57,15 @@ impl NextcloudClient {
     }
 
     pub fn authed_get(&self, url: &str) -> reqwest::blocking::RequestBuilder {
-        self.http.get(url).basic_auth(&self.username, Some(&self.password))
+        self.http
+            .get(url)
+            .basic_auth(&self.username, Some(&self.password))
     }
 
     pub fn authed_post(&self, url: &str) -> reqwest::blocking::RequestBuilder {
-        self.http.post(url).basic_auth(&self.username, Some(&self.password))
+        self.http
+            .post(url)
+            .basic_auth(&self.username, Some(&self.password))
     }
 
     pub fn authed_propfind(&self, url: &str) -> reqwest::blocking::RequestBuilder {
@@ -91,7 +95,9 @@ pub fn resolve_nc_context(
     let sync_dir = crate::util::default_sync_dir();
     let location = crate::util::resolve_file_location(
         document_url,
-        sync_dir.as_deref().unwrap_or(std::path::Path::new("/nonexistent")),
+        sync_dir
+            .as_deref()
+            .unwrap_or(std::path::Path::new("/nonexistent")),
         &config.nextcloud.webdav_url,
     );
 
@@ -101,8 +107,7 @@ pub fn resolve_nc_context(
         crate::util::FileLocation::External => return Ok(None),
     };
 
-    let client = NextcloudClient::new(config)
-        .map_err(OfficeError::Auth)?;
+    let client = NextcloudClient::new(config).map_err(OfficeError::Auth)?;
 
     Ok(Some((client, nc_path)))
 }
@@ -168,19 +173,35 @@ fn read_nc_desktop_credentials() -> Result<NcCredentials, AuthError> {
         .or_else(|| read_password_from_keyring(&server_url, &username))
         .ok_or(AuthError::NoPassword)?;
 
-    Ok(NcCredentials { server_url, username, password })
+    Ok(NcCredentials {
+        server_url,
+        username,
+        password,
+    })
 }
 
 fn read_password_from_keyring(server_url: &str, username: &str) -> Option<String> {
     let output = std::process::Command::new("secret-tool")
-        .args(["lookup", "user", username, "server", server_url, "type", "nextcloud"])
+        .args([
+            "lookup",
+            "user",
+            username,
+            "server",
+            server_url,
+            "type",
+            "nextcloud",
+        ])
         .output()
         .ok()?;
 
     if output.status.success() {
         let password = String::from_utf8(output.stdout).ok()?;
         let trimmed = password.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     } else {
         None
     }

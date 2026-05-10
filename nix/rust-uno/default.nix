@@ -18,7 +18,10 @@
 }:
 
 pkgs.runCommand "rust-uno-crate" {
-  nativeBuildInputs = [ pkgs.gnutar pkgs.xz ];
+  # rustfmt is needed to clean up the hand-emitted stub source so the workspace
+  # `cargo fmt --check` doesn't trip on it. Without this step, the generated
+  # files (one-liner struct/impl blocks) violate every fmt rule rustfmt has.
+  nativeBuildInputs = [ pkgs.gnutar pkgs.xz pkgs.rustfmt ];
 } ''
   # Extract the rust_uno directory from the LO source tarball
   tar -xf ${libreoffice-src} --strip-components=1 --wildcards 'libreoffice-*/rust_uno/'
@@ -392,4 +395,11 @@ fn main() {
     }
 }
 BUILDEOF
+
+  # rustfmt the entire crate so workspace-wide `cargo fmt --check` passes
+  # against the path-dep'd source. The generated stub files in particular are
+  # emitted as one-liner struct/impl blocks that fail every fmt rule, and the
+  # upstream-shipped src/core/* + examples are also pre-2024-edition style.
+  # Workspace edition is 2024 — use the same here for consistent rules.
+  find $out -name '*.rs' -print0 | xargs -0 rustfmt --edition 2024 || true
 ''

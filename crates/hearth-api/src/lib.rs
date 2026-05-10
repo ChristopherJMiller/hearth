@@ -417,7 +417,10 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
             Router::new()
                 .route("/flake.tar.gz", get(routes::fleet_config::flake_tarball))
                 .route("/latest", get(routes::fleet_config::flake_latest))
-                .route("/{hash}/flake.tar.gz", get(routes::fleet_config::flake_tarball_by_hash))
+                .route(
+                    "/{hash}/flake.tar.gz",
+                    get(routes::fleet_config::flake_tarball_by_hash),
+                )
                 .with_state(cache)
         })
         .route(

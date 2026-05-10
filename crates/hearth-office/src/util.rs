@@ -32,11 +32,11 @@ pub fn resolve_file_location(
     webdav_base_url: &str,
 ) -> FileLocation {
     // Case 1: file:// URL pointing into the sync directory
-    if let Some(local_path) = strip_file_url(document_url) {
-        if let Ok(relative) = local_path.strip_prefix(sync_dir) {
-            let nc_path = format!("/{}", relative.display());
-            return FileLocation::Synced { nc_path };
-        }
+    if let Some(local_path) = strip_file_url(document_url)
+        && let Ok(relative) = local_path.strip_prefix(sync_dir)
+    {
+        let nc_path = format!("/{}", relative.display());
+        return FileLocation::Synced { nc_path };
     }
 
     // Case 2: WebDAV URL (strip the base to get the relative path)
@@ -49,8 +49,7 @@ pub fn resolve_file_location(
     }
 
     // Also check for https:// WebDAV URLs matching the configured base
-    if document_url.starts_with(webdav_base_url) {
-        let remainder = &document_url[webdav_base_url.len()..];
+    if let Some(remainder) = document_url.strip_prefix(webdav_base_url) {
         // remainder is "USERNAME/path/to/file" — strip the username prefix
         if let Some((_user, path)) = remainder.split_once('/') {
             let nc_path = format!("/{path}");
@@ -118,16 +117,34 @@ mod tests {
     fn synced_file_detected() {
         let sync_dir = Path::new("/home/alice/Nextcloud");
         let url = "file:///home/alice/Nextcloud/Documents/report.odt";
-        let loc = resolve_file_location(url, sync_dir, "https://cloud.example.com/remote.php/dav/files/");
-        assert_eq!(loc, FileLocation::Synced { nc_path: "/Documents/report.odt".into() });
+        let loc = resolve_file_location(
+            url,
+            sync_dir,
+            "https://cloud.example.com/remote.php/dav/files/",
+        );
+        assert_eq!(
+            loc,
+            FileLocation::Synced {
+                nc_path: "/Documents/report.odt".into()
+            }
+        );
     }
 
     #[test]
     fn webdav_url_detected() {
         let sync_dir = Path::new("/home/alice/Nextcloud");
         let url = "davs://cloud.example.com/remote.php/dav/files/alice/Documents/report.odt";
-        let loc = resolve_file_location(url, sync_dir, "https://cloud.example.com/remote.php/dav/files/");
-        assert_eq!(loc, FileLocation::WebDav { nc_path: "/Documents/report.odt".into() });
+        let loc = resolve_file_location(
+            url,
+            sync_dir,
+            "https://cloud.example.com/remote.php/dav/files/",
+        );
+        assert_eq!(
+            loc,
+            FileLocation::WebDav {
+                nc_path: "/Documents/report.odt".into()
+            }
+        );
     }
 
     #[test]
@@ -136,14 +153,23 @@ mod tests {
         let url = "https://cloud.example.com/remote.php/dav/files/alice/Documents/report.odt";
         let webdav_base = "https://cloud.example.com/remote.php/dav/files/";
         let loc = resolve_file_location(url, sync_dir, webdav_base);
-        assert_eq!(loc, FileLocation::WebDav { nc_path: "/Documents/report.odt".into() });
+        assert_eq!(
+            loc,
+            FileLocation::WebDav {
+                nc_path: "/Documents/report.odt".into()
+            }
+        );
     }
 
     #[test]
     fn external_file_detected() {
         let sync_dir = Path::new("/home/alice/Nextcloud");
         let url = "file:///tmp/scratch.odt";
-        let loc = resolve_file_location(url, sync_dir, "https://cloud.example.com/remote.php/dav/files/");
+        let loc = resolve_file_location(
+            url,
+            sync_dir,
+            "https://cloud.example.com/remote.php/dav/files/",
+        );
         assert_eq!(loc, FileLocation::External);
     }
 
@@ -151,7 +177,16 @@ mod tests {
     fn url_decoding_works() {
         let sync_dir = Path::new("/home/alice/Nextcloud");
         let url = "file:///home/alice/Nextcloud/My%20Documents/report.odt";
-        let loc = resolve_file_location(url, sync_dir, "https://cloud.example.com/remote.php/dav/files/");
-        assert_eq!(loc, FileLocation::Synced { nc_path: "/My Documents/report.odt".into() });
+        let loc = resolve_file_location(
+            url,
+            sync_dir,
+            "https://cloud.example.com/remote.php/dav/files/",
+        );
+        assert_eq!(
+            loc,
+            FileLocation::Synced {
+                nc_path: "/My Documents/report.odt".into()
+            }
+        );
     }
 }

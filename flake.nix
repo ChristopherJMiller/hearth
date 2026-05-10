@@ -54,6 +54,10 @@
         # UNO shared libraries extracted from LO 26.2 debs (for linking)
         libreoffice-uno-libs = pkgs.callPackage ./nix/libreoffice-uno-libs.nix {};
 
+        # LO 26.2 SDK headers + cppumaker-generated com::sun::star::* bindings
+        # (used to compile the C++ UNO bridge below)
+        libreoffice-sdk = pkgs.callPackage ./nix/libreoffice-sdk.nix {};
+
         # Common build arguments shared across all builds
         commonArgs = {
           inherit src;
@@ -131,10 +135,19 @@
           '';
         });
 
-        # Packaged .oxt extension (ZIP archive)
+        # C++ UNO bridge — implements the XSingleComponentFactory entry points
+        # that LibreOffice calls into; forwards method dispatch to Rust via the
+        # extern "C" ABI of libhearth_office.so.
+        hearth-office-bridge = pkgs.callPackage ./nix/hearth-office-bridge.nix {
+          inherit hearth-office-so libreoffice-sdk libreoffice-uno-libs;
+        };
+
+        # Packaged .oxt extension (ZIP archive). Ships both the Rust .so and
+        # the C++ bridge .so; LO loads the bridge, which $ORIGIN-resolves the
+        # Rust .so as a sibling DT_NEEDED.
         hearth-office-oxt = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux (
           pkgs.callPackage ./nix/hearth-office-oxt.nix {
-            inherit hearth-office-so;
+            inherit hearth-office-so hearth-office-bridge;
           }
         );
 
@@ -268,9 +281,9 @@
           default = hearth-agent;
         } // enrollmentImage // fleetVm // ociImages
           // lib.optionalAttrs pkgs.stdenv.isLinux {
-            inherit hearth-office-oxt;
+            inherit hearth-office-oxt hearth-office-bridge;
           }
-          // { inherit rust-uno libreoffice-uno-libs; };
+          // { inherit rust-uno libreoffice-uno-libs libreoffice-sdk; };
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
@@ -320,8 +333,13 @@
               inherit (pkgs) rust-bin;
             })
 
-            # Helm chart tooling
-            kubernetes-helm
+            # Helm chart tooling. helm-unittest is a plugin (not a separate
+            # binary); kubernetes-helm-wrapped accepts a `plugins` override
+            # that bakes the plugin into the helm binary's plugin path so
+            # `helm unittest` works out of the box in `nix develop`.
+            (kubernetes-helm-wrapped.override {
+              plugins = [ kubernetes-helmPlugins.helm-unittest ];
+            })
             chart-testing
             kubeconform
             kind

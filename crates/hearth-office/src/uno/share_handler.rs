@@ -1,5 +1,5 @@
-use crate::nextcloud::{self, OfficeError};
 use crate::nextcloud::share;
+use crate::nextcloud::{self, OfficeError};
 
 #[derive(Debug)]
 pub enum ShareResult {

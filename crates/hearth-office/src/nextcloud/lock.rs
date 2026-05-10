@@ -9,10 +9,7 @@ pub enum LockStatus {
     },
 }
 
-pub fn check_lock_status(
-    client: &NextcloudClient,
-    nc_path: &str,
-) -> Result<LockStatus, LockError> {
+pub fn check_lock_status(client: &NextcloudClient, nc_path: &str) -> Result<LockStatus, LockError> {
     let url = client.webdav_file_url(nc_path);
 
     let propfind_body = r#"<?xml version="1.0" encoding="UTF-8"?>

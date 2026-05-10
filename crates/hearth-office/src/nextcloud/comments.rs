@@ -1,8 +1,8 @@
 use crate::nextcloud::{NextcloudClient, OcsMeta};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FileComment {
     pub id: String,
     pub author_display_name: String,
@@ -11,10 +11,7 @@ pub struct FileComment {
 }
 
 /// Resolve a Nextcloud file path to its internal file ID via WebDAV PROPFIND.
-pub fn resolve_file_id(
-    client: &NextcloudClient,
-    nc_path: &str,
-) -> Result<String, CommentsError> {
+pub fn resolve_file_id(client: &NextcloudClient, nc_path: &str) -> Result<String, CommentsError> {
     let url = client.webdav_file_url(nc_path);
 
     let propfind_body = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -103,7 +100,9 @@ fn parse_file_id_from_propfind(xml: &str) -> Result<String, CommentsError> {
 
     let start = xml.find(start_tag).ok_or(CommentsError::MissingFileId)?;
     let value_start = start + start_tag.len();
-    let end = xml[value_start..].find(end_tag).ok_or(CommentsError::MissingFileId)?;
+    let end = xml[value_start..]
+        .find(end_tag)
+        .ok_or(CommentsError::MissingFileId)?;
 
     let file_id = xml[value_start..value_start + end].trim().to_string();
     if file_id.is_empty() {

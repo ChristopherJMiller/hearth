@@ -221,8 +221,7 @@ async fn execute_user_env_job(pool: &sqlx::PgPool, job: &hearth_api::db::UserEnv
         Ok(r) => r,
         Err(e) => {
             error!(job_id = %job.id, error = %e, "failed to resolve flake ref");
-            let _ =
-                repo::fail_user_env_build(pool, job.id, &format!("flake ref error: {e}")).await;
+            let _ = repo::fail_user_env_build(pool, job.id, &format!("flake ref error: {e}")).await;
             return;
         }
     };
@@ -266,8 +265,7 @@ struct FlakeLatestResponse {
 /// "git+"), use it directly. Otherwise, treat it as an API server base URL and
 /// query `/api/v1/fleet-config/latest` to get a content-addressed tarball URL.
 async fn resolve_flake_ref() -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let raw = std::env::var("HEARTH_FLAKE_REF")
-        .map_err(|_| "HEARTH_FLAKE_REF not set")?;
+    let raw = std::env::var("HEARTH_FLAKE_REF").map_err(|_| "HEARTH_FLAKE_REF not set")?;
 
     // If it's already a full flake ref (legacy or explicit), use it directly
     if raw.contains("tarball+") || raw.contains("git+") || raw.contains("path:") {
@@ -285,7 +283,8 @@ async fn resolve_flake_ref() -> Result<String, Box<dyn std::error::Error + Send 
             "fleet-config/latest returned {}: {}",
             resp.status(),
             resp.text().await.unwrap_or_default()
-        ).into());
+        )
+        .into());
     }
 
     let latest: FlakeLatestResponse = resp.json().await?;

@@ -10,6 +10,7 @@
 
 { pkgs
 , hearth-office-so
+, hearth-office-bridge
 }:
 
 pkgs.runCommand "hearth-office-oxt" {
@@ -17,8 +18,11 @@ pkgs.runCommand "hearth-office-oxt" {
 } ''
   mkdir -p oxt/META-INF oxt/icons
 
-  # Copy the Rust UNO shared library
+  # Copy the Rust UNO shared library (business logic) and the C++ bridge .so
+  # (LibreOffice's component entry point). The bridge's RPATH is $ORIGIN, so
+  # both must land in the same directory inside the .oxt.
   cp ${hearth-office-so}/lib/libhearth_office.so oxt/
+  cp ${hearth-office-bridge}/lib/libhearth_office_bridge.so oxt/
 
   # Copy extension descriptors
   cp ${../nix/oxt/META-INF/manifest.xml} oxt/META-INF/manifest.xml

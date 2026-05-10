@@ -1,5 +1,5 @@
-use crate::nextcloud::{self, OfficeError};
 use crate::nextcloud::comments::{self, FileComment};
+use crate::nextcloud::{self, OfficeError};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
@@ -18,8 +18,7 @@ pub fn fetch_comments(document_url: &str) -> Result<Option<Vec<FileComment>>, Of
     };
 
     let file_id = resolve_file_id_cached(document_url, &nc_path, &client)?;
-    let file_comments = comments::get_comments(&client, &file_id)
-        .map_err(OfficeError::Comments)?;
+    let file_comments = comments::get_comments(&client, &file_id).map_err(OfficeError::Comments)?;
     Ok(Some(file_comments))
 }
 
@@ -31,8 +30,7 @@ pub fn post_comment(document_url: &str, message: &str) -> Result<(), OfficeError
     };
 
     let file_id = resolve_file_id_cached(document_url, &nc_path, &client)?;
-    comments::post_comment(&client, &file_id, message)
-        .map_err(OfficeError::Comments)
+    comments::post_comment(&client, &file_id, message).map_err(OfficeError::Comments)
 }
 
 fn resolve_file_id_cached(
@@ -47,8 +45,7 @@ fn resolve_file_id_cached(
         }
     }
 
-    let file_id = comments::resolve_file_id(client, nc_path)
-        .map_err(OfficeError::Comments)?;
+    let file_id = comments::resolve_file_id(client, nc_path).map_err(OfficeError::Comments)?;
 
     {
         let mut cache = FILE_ID_CACHE.lock().unwrap();

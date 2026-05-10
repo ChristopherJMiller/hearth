@@ -674,6 +674,13 @@ oauth2Proxy:
 # ============================================================
 grafana:
   adminPassword: ""
+  # Templates probe `.Values.grafana.ingress.enabled` to decide whether to
+  # advertise an HTTPS Grafana URL. Default to disabled so the probe works
+  # even when no ingress is configured (the upstream Grafana subchart treats
+  # missing ingress.enabled as false anyway).
+  ingress:
+    enabled: false
+    hosts: []
   persistence:
     enabled: true
     size: 5Gi

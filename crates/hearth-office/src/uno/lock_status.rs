@@ -1,5 +1,5 @@
-use crate::nextcloud::{self, OfficeError};
 use crate::nextcloud::lock;
+use crate::nextcloud::{self, OfficeError};
 
 /// Human-readable lock status for UI display.
 #[derive(Debug, Clone)]
@@ -24,8 +24,7 @@ pub fn check_document_lock(document_url: &str) -> Result<Option<LockDisplayInfo>
         None => return Ok(None),
     };
 
-    let status = lock::check_lock_status(&client, &nc_path)
-        .map_err(OfficeError::Lock)?;
+    let status = lock::check_lock_status(&client, &nc_path).map_err(OfficeError::Lock)?;
 
     Ok(Some(match status {
         lock::LockStatus::Unlocked => LockDisplayInfo {
