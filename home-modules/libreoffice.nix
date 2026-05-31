@@ -198,18 +198,25 @@ in
     # --- Extension installation ---
     # Install .oxt extensions via unopkg on home-manager activation.
     # Extensions are placed in the user's extension directory and registered
-    # with LibreOffice's extension manager.
-    home.activation.hearthLibreOfficeExtensions = lib.mkIf (cfg.extensions != []) (
-      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        UNOPKG="${pkgs.libreoffice}/lib/libreoffice/program/unopkg"
-        if [ -x "$UNOPKG" ]; then
-          for ext in ${lib.concatMapStringsSep " " (e: "${e}/*.oxt") cfg.extensions}; do
-            if [ -f "$ext" ]; then
-              $UNOPKG add --suppress-license "$ext" 2>/dev/null || true
+    # with LibreOffice's extension manager. The Hearth Rust UNO bundle
+    # (hearth-office-oxt) is auto-added when enableExtensions is true.
+    home.activation.hearthLibreOfficeExtensions =
+      let
+        allExtensions =
+          cfg.extensions
+          ++ lib.optional (cfg.enableExtensions && pkgs.hearth-office-oxt != null) pkgs.hearth-office-oxt;
+      in
+        lib.mkIf (allExtensions != [ ]) (
+          lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+            UNOPKG="${pkgs.libreoffice}/lib/libreoffice/program/unopkg"
+            if [ -x "$UNOPKG" ]; then
+              for ext in ${lib.concatMapStringsSep " " (e: "${e}/*.oxt") allExtensions}; do
+                if [ -f "$ext" ]; then
+                  $UNOPKG add --suppress-license "$ext" 2>/dev/null || true
+                fi
+              done
             fi
-          done
-        fi
-      ''
-    );
+          ''
+        );
   };
 }

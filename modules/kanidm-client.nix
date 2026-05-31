@@ -79,7 +79,11 @@ in
         kanidm.pam_allowed_login_groups = cfg.allowedLoginGroups;
         default_shell = cfg.defaultShell;
         home_prefix = cfg.homePrefix;
-        home_attr = "spn";
+        # `name` keeps `@` out of /etc/passwd, the home dir, and `whoami`,
+        # which Nextcloud Desktop and other clients mishandle. `spn` as the
+        # alias means the user can still log in as `user@domain`. Must stay
+        # in lockstep with flake.nix lib.buildUserEnv home.homeDirectory.
+        home_attr = "name";
         home_alias = "spn";
         use_etc_skel = true;
         hsm_type = cfg.hsmType;

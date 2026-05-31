@@ -7,6 +7,15 @@
 hostname = "mail.hearth.local"
 max-connections = 256
 
+# Load the admin UI from a local zip bundle instead of fetching from github
+# at first boot — the container has no egress and the download silently
+# leaves the webadmin missing (HTTP 404 on /). `just setup` pre-fetches the
+# zip into dev/stalwart/webadmin.zip; docker-compose bind-mounts it here.
+# In Stalwart this key is `webadmin.resource` (the `config.` prefix used in
+# some docs is for the CLI's `server add-config` form).
+[webadmin]
+resource = "file:///opt/stalwart/etc/webadmin.zip"
+
 [server.listener.http]
 bind = ["0.0.0.0:8080"]
 protocol = "http"

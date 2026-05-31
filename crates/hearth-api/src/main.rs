@@ -1,6 +1,7 @@
 use hearth_api::auth::AuthConfig;
 use hearth_api::{AppState, build_router};
 use sqlx::postgres::PgPoolOptions;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -28,6 +29,9 @@ async fn main() {
 
     let pool = PgPoolOptions::new()
         .max_connections(20)
+        .test_before_acquire(true)
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(60 * 60))
         .connect(&database_url)
         .await
         .expect("failed to connect to database");

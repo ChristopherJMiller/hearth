@@ -116,7 +116,7 @@ PostgreSQL with migration files in `migrations/`. Key tables: `machines`, `user_
 
 ## Key Conventions
 
-- **Kanidm version:** Pinned to **1.9** globally. Docker uses `kanidm/server:1.9.0`, NixOS modules use `pkgs.kanidm` which resolves to `kanidm_1_9` via the overlay in `flake.nix`. The pin lives in two places: `flake.nix` (inline overlay in `pkgs` definition + `overlays.default`) and `docker-compose.yml` (image tag). Update both together.
+- **Kanidm version:** Pinned to **1.10** globally. Docker uses `kanidm/server:1.10.1`, NixOS modules use `pkgs.kanidm` which resolves to `kanidm_1_10` via the overlay in `flake.nix`, and the dev-shell `kanidm` CLI is built from `nix/kanidm-cli.nix` at the same version. The pin lives in three places: `flake.nix` (inline overlay in `pkgs` definition + `overlays.default`), `docker-compose.yml` (image tag), and `nix/kanidm-cli.nix` (version + cargoHash + src hash). Update all three together. Kanidm releases on a fast cadence and 1.9 reached EOL 2026-05-31 — see https://kanidm.github.io/kanidm/master/server_updates.html.
 - **Linker:** mold via clang on Linux (configured in `.cargo/config.toml`)
 - **sqlx offline mode:** `SQLX_OFFLINE=true` is set by default so builds work without a live database. The `.sqlx/` directory stores query metadata for compile-time checking.
 - **Rust edition:** 2024

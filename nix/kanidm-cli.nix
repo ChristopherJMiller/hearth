@@ -21,7 +21,7 @@
 }:
 
 let
-  version = "1.9.0";
+  version = "1.10.1";
   arch = if stdenv.hostPlatform.isx86_64 then "x86_64" else "generic";
   buildProfile = "release_nixpkgs_${arch}";
 
@@ -40,10 +40,10 @@ rustPlatform.buildRustPackage {
     owner = "kanidm";
     repo = "kanidm";
     rev = "refs/tags/v${version}";
-    hash = "sha256-PAYD+CSvDVtx5SFRtTogbu7Az+9WFVeFL/76Dr/pOog=";
+    hash = "sha256-nIuxaYuVVNzQpnFRisyLkWFz7GWaJOUrj8mRRcGs2KI=";
   };
 
-  cargoHash = "sha256-razlbe5VEiWz427dShvWT/rVuvBh5Re/z1vXsVQGOgM=";
+  cargoHash = "sha256-zti+7dlaU9k2EQfLQmdCL7Am9Xib1YKdUFVrLx15cCc=";
 
   env.KANIDM_BUILD_PROFILE = buildProfile;
   env.RUSTFLAGS = "--cap-lints warn";

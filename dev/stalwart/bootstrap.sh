@@ -11,9 +11,13 @@ DOMAIN="hearth.local"
 ADMIN_PASSWORD="${STALWART_ADMIN_PASSWORD:-admin}"
 
 echo "==> Waiting for Stalwart to be ready..."
+# Any HTTP response (incl. 404) means the listener is up. The webadmin bundle
+# download from GitHub can fail at first boot and leave / returning 404 even
+# though the API is otherwise healthy.
 for i in $(seq 1 30); do
-    if curl -sf "$STALWART_URL/" > /dev/null 2>&1; then
-        echo "    Stalwart is ready"
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$STALWART_URL/" 2>/dev/null || echo 000)
+    if [ "$code" != "000" ]; then
+        echo "    Stalwart is ready (HTTP $code)"
         break
     fi
     if [ "$i" = "30" ]; then

@@ -13,6 +13,15 @@ setup:
     # written later by dev/synapse/bootstrap.sh after Kanidm is ready.
     [ -f dev/synapse/oidc_client_secret ] || echo -n "placeholder-will-be-replaced" > dev/synapse/oidc_client_secret
     [ -f dev/stalwart/oidc_client_secret ] || echo -n "placeholder-will-be-replaced" > dev/stalwart/oidc_client_secret
+    # Stalwart tries to download webadmin.zip from github on first boot — that
+    # fails inside the container (no egress / DNS), leaving the admin UI 404.
+    # Pre-fetch it on the host so the bind-mounted file exists when Stalwart
+    # starts and config.resource.webadmin in config.toml loads it locally.
+    if [ ! -s dev/stalwart/webadmin.zip ]; then
+        echo "    Downloading Stalwart webadmin bundle..."
+        curl -fsSL -o dev/stalwart/webadmin.zip \
+            https://github.com/stalwartlabs/webadmin/releases/latest/download/webadmin.zip
+    fi
     # Kanidm TLS cert must exist as a file before docker compose bind-mounts it,
     # otherwise Docker creates a directory placeholder that Kanidm can't read.
     if [ ! -f dev/kanidm/cert.pem ] || [ ! -f dev/kanidm/key.pem ]; then
@@ -46,12 +55,16 @@ setup:
         2>/dev/null || echo "")
     if [ -n "$TOKEN" ]; then
         attic login dev http://localhost:8080 "$TOKEN"
-        attic cache create hearth 2>/dev/null || true
+        # Always qualify with the dev: server prefix — users may have a remote
+        # attic configured as their default-server (e.g. a personal cache), in
+        # which case unqualified `attic cache create hearth` would create the
+        # cache there instead of on the local docker attic.
+        attic cache create dev:hearth 2>/dev/null || true
         # Save Attic's own public key — this is what narinfo responses are signed
         # with, and what fleet VMs need in trusted-public-keys.
         ATTIC_PUB=""
         for i in $(seq 1 10); do
-            ATTIC_PUB=$(attic cache info hearth 2>&1 | grep 'Public Key' | awk '{print $NF}')
+            ATTIC_PUB=$(attic cache info dev:hearth 2>&1 | grep 'Public Key' | awk '{print $NF}')
             [ -n "$ATTIC_PUB" ] && break
             echo "    Waiting for Attic cache key (attempt $i/10)..."
             sleep 1
@@ -61,10 +74,10 @@ setup:
             echo "    Attic cache public key: $ATTIC_PUB"
         else
             echo "    ERROR: Could not read Attic cache public key after 10 attempts"
-            attic cache info hearth || true
+            attic cache info dev:hearth || true
             exit 1
         fi
-        echo "    Attic cache 'hearth' ready"
+        echo "    Attic cache 'dev:hearth' ready"
     else
         echo "    ERROR: Could not create Attic token (is atticd running?)"
         exit 1
@@ -106,7 +119,7 @@ setup:
     echo "==> Running database migrations..."
     sqlx migrate run
     echo "==> Building web frontends..."
-    cd web && pnpm install && pnpm build
+    cd web && pnpm install --frozen-lockfile && pnpm build
     cd ..
     echo ""
     echo "=== Setup complete! ==="
@@ -232,7 +245,7 @@ dev-full:
     (cd web && pnpm dev) &
     WEB_PID=$!
     # Start build worker in background so build jobs are automatically claimed.
-    export ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-hearth}"
+    export ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-dev:hearth}"
     cargo run -p hearth-build-worker &
     WORKER_PID=$!
     trap "kill $WEB_PID $WORKER_PID 2>/dev/null || true" EXIT INT TERM
@@ -273,7 +286,7 @@ dev-watch:
 worker:
     HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}" \
     ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}" \
-    ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-hearth}" \
+    ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-dev:hearth}" \
     HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}" \
     HEARTH_SERVER_URL="${HEARTH_SERVER_URL:-http://localhost:3000}" \
     HEARTH_CHAT_URL="${HEARTH_CHAT_URL:-http://localhost:8088}" \
@@ -452,7 +465,7 @@ test *ARGS:
 
 # Build web frontends
 web-build:
-    cd web && pnpm install && pnpm build
+    cd web && pnpm install --frozen-lockfile && pnpm build
 
 # Run web dev server (:5174)
 web-dev:
@@ -507,7 +520,7 @@ push-cache:
             nix store sign --key-file "$SIGNING_KEY" "$path" 2>/dev/null || true
         fi
         echo "  Pushing $path"
-        attic push hearth "$path" 2>/dev/null || true
+        attic push dev:hearth "$path" 2>/dev/null || true
     done
     echo "Packages pushed to Attic cache"
 
@@ -574,7 +587,7 @@ check-fleet:
 
 # Push a Nix closure to the local Attic cache
 cache-push PATH:
-    attic push hearth {{PATH}}
+    attic push dev:hearth {{PATH}}
 
 # ===== Helm chart recipes =====
 

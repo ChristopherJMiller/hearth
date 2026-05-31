@@ -43,6 +43,7 @@ self.lib.mkFleetHost {
   matrixUrl = "http://chat.hearth.local";
   matrixServerName = "hearth.local";
   nextcloudUrl = "http://cloud.hearth.local";
+  libreofficeExtensions = true;
 
   extraModules = [
     # Import the QEMU virtualisation module for `nix run .#fleet-vm`

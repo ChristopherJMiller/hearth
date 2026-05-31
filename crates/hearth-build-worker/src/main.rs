@@ -35,6 +35,9 @@ async fn main() {
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
+        .test_before_acquire(true)
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(60 * 60))
         .connect(&database_url)
         .await
         .expect("failed to connect to database");

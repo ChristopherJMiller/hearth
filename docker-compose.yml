@@ -45,7 +45,7 @@ services:
       retries: 5
 
   kanidm:
-    image: kanidm/server:1.9.0
+    image: kanidm/server:1.10.1
     ports: ["8443:8443"]
     # Pinned IP on the default network so other services can put
     # `kanidm.hearth.local` in their /etc/hosts via extra_hosts. See the
@@ -206,6 +206,9 @@ services:
       - ./dev/stalwart/config.toml:/opt/stalwart/etc/config.toml:ro
       # OIDC client secret — written by Kanidm bootstrap, read by Stalwart
       - ./dev/stalwart/oidc_client_secret:/opt/stalwart/etc/oidc_client_secret
+      # Pre-fetched webadmin bundle (just setup downloads it). config.toml's
+      # config.resource.webadmin points here so Stalwart skips the github fetch.
+      - ./dev/stalwart/webadmin.zip:/opt/stalwart/etc/webadmin.zip:ro
       - stalwart-data:/opt/stalwart/data
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]

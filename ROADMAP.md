@@ -552,6 +552,39 @@ Encrypted, centrally-managed DNS for the fleet — internal service resolution, 
 
 ---
 
+## Operational Backlog {#operational-backlog}
+
+Items surfaced during recent dev/debug sessions. Each carries enough context to be picked up in isolation. Use this section for follow-ups that don't belong to a specific phase — reliability fixes, test-coverage gaps, dev-loop ergonomics, and small RFCs.
+
+### Pending
+
+- [ ] **seatd start-timeout / restart loop on cold boot.** First systemd start of `seatd.service` times out at ~90s on cold fleet-vm boot, auto-recovers on retry one second later, greeter then comes up. Caused by `s6-notify-socket-from-fd` emitting more notify messages than systemd expects (`Extra notification messages sent with BARRIER=1, ignoring everything`). Fix candidates: `systemd.services.seatd.serviceConfig.TimeoutStartSec = 30` (fail fast), or `Type = "simple"` (drop notify entirely). Sites: `modules/greeter.nix`. Repro: `dev/fleet-vm-logs/journal.log:1279-1283`.
+
+- [ ] **Cold-boot → greeter → desktop session test coverage.** Today's `tests/full-login-flow.nix` waits on `hearth-agent` + `kanidm-unixd` but doesn't drive `greetd` through to a working desktop session. Recent regressions that nothing in CI would have caught: cache pubkey rotation breaking closure trust ("no substituter that can build it"), seatd timeout loop, `@` in `/home/` breaking Nextcloud Desktop. Wanted: cold-boot smoke test that lands the user in a session and asserts a per-user closure file exists. Implementation candidates: extend `full-login-flow.nix` with `machine.send_chars(...)` + `get_screen_text()`, or new `tests/desktop-session.nix`. Should gate PRs touching `modules/{greeter,pam,desktop}.nix`, `home-modules/`, `lib/mk-fleet-host.nix`, `dev/fleet-vm.nix`, `dev/attic/`.
+
+- [ ] **Push mechanism: control-plane → agent fast-path.** Today's loop (edit `home-modules/*.nix` → worker claim → nix evaluate flake tarball → build → sign → push to Attic → fan out to `user_environments` → 30s agent poll → fetch) is ~60-120s round-trip. Each hop hides bugs. **Dev push:** `just push-user-env <user>` or `hearth push --user <user>` builds the closure on the host and POSTs it directly to the agent's IPC socket via the existing 9p mount (or SSH:2222). Bypasses worker queue + Attic + DB. **Prod push:** SSE / WebSocket from agent → API so `complete_user_env_build` can notify affected agents within ~1s instead of waiting on a 30s poll. Auth via existing machine token; falls back to polling on disconnect. Out of scope: replacing Attic for content delivery, removing the build worker queue. Deliverable: 1-2 page RFC in `docs/` before any implementation.
+
+- [ ] **Stalwart webadmin bundle for production / air-gapped deployments.** Dev is fixed (`just setup` pre-fetches `webadmin.zip`, docker-compose bind-mounts it, `dev/stalwart/config.toml` points `[webadmin] resource = file:///...`). Same pattern needs to extend to the Helm chart: either bake the bundle into a custom Stalwart image, or stage it via a values entry + initContainer, so air-gapped clusters don't try to reach `github.com/stalwartlabs/webadmin/releases` on first boot.
+
+- [ ] **Renovate GitHub App activation.** `renovate.json` is checked in (weekly schedule, semantic commits, per-manager grouping, auto-merge for cargo/npm patches, manual review for Kanidm/server image bumps, custom regex manager for `nix/kanidm-cli.nix` version pin). Needs the Renovate App installed on the repo (one-time, repo owner) at https://github.com/apps/renovate. Self-hosted alternative is `renovatebot/github-action` on a cron in `.github/workflows/`.
+
+- [ ] **Validate LibreOffice Rust UNO extension end-to-end in the fleet VM.** Wiring is in place (`dev/fleet-vm.nix` passes `libreofficeExtensions = true`, `home-modules/libreoffice.nix` auto-adds `pkgs.hearth-office-oxt` to the extensions list when `enableExtensions` is true, `pkgs.hearth-office-oxt` builds clean). Not exercised in a live session yet — confirm `unopkg list` shows the extension after `testuser` logs in, that `Tools → Extension Manager` lists it, and that the Nextcloud Share / Comments sidebar / Lock Status features can connect to the dev Nextcloud over WebDAV.
+
+### Recent fixes (record)
+
+For archaeology — context for changes landed in the same session this backlog was filed:
+
+- **nixpkgs 2026-04-14 → 2026-05-23** — fetchCargoVendor User-Agent fix (NixOS/nixpkgs#512735) bypasses crates.io's WAF blocking `python-requests/<version>`.
+- **home-manager 2026-03-20 → 2026-05-30** — neovim `extraConfig` null-list regression in the in-flight upstream refactor (commits between `9670de29` and `7d8127d3`).
+- **Kanidm 1.9 → 1.10.1** — 1.9 EOL 2026-05-31. Pin sites: `flake.nix` overlay (×2), `nix/kanidm-cli.nix` (version + cargoHash + src hash), `docker-compose.yml` image tag. See `CLAUDE.md` Key Conventions for the canonical pin list.
+- **sqlx PgPool keepalive** — `test_before_acquire(true)` + `idle_timeout(10m)` + `max_lifetime(60m)` for both `hearth-api` and `hearth-build-worker`. Prevents silent stall when postgres / NAT drops idle TCP and sqlx's pool holds a dead socket.
+- **pnpm 11 pre-script `depsStatusCheck` bypass** — `verifyDepsBeforeRun: false` in `web/pnpm-workspace.yaml`. Pre-script silently runs `pnpm install` before `pnpm run`/`exec`, which under `nix develop -c pnpm ...` has no TTY and aborts with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`.
+- **attic CLI server qualifier in dev** — `ATTIC_CACHE_NAME=dev:hearth` in `justfile` dev-full + worker + push-cache. Without `dev:`, pushes leak to whatever the developer's attic `default-server` happens to be (e.g. a personal `attic.<domain>` cache). VM reads `dev:hearth` via Caddy → never meets the push.
+- **kanidm-unixd `home_attr` `spn` → `name`** — keeps `@` out of `/etc/passwd`, `$HOME`, and `whoami`, which Nextcloud Desktop and several other clients mishandle. `home_alias = spn` retained so login by full SPN still works. Matching change in `flake.nix` `lib.buildUserEnv` (`home.username`/`home.homeDirectory` use the local part of the SPN).
+- **Stalwart webadmin bundle pre-fetch (dev)** — `just setup` curls `webadmin.zip` into `dev/stalwart/`, docker-compose bind-mounts it at `/opt/stalwart/etc/webadmin.zip`, `config.toml` `[webadmin] resource =` points at the local file. Stalwart's GitHub download silently fails inside the container.
+
+---
+
 ## Icebox {#icebox}
 
 Items that are valuable but not currently prioritized. May be promoted to a phase based on user demand or strategic need.

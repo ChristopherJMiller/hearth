@@ -2,5 +2,17 @@ packages:
   - packages/*
   - apps/*
 
-ignoredBuiltDependencies:
-  - esbuild
+# Disable pnpm 11's pre-script depsStatusCheck. It silently runs `pnpm install`
+# before `pnpm run`/`pnpm exec`, which under `nix develop -c pnpm ...` has no
+# TTY and aborts with ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY. Explicit
+# `pnpm install --frozen-lockfile` is still required when deps change.
+verifyDepsBeforeRun: false
+
+# esbuild ships a postinstall that compiles a native binary; the prebuilt
+# binary already ships with the package, so we explicitly disallow its build
+# script. Keeping it here (vs. silently ignored) suppresses pnpm 11's
+# ERR_PNPM_IGNORED_BUILDS exit-1 in non-interactive runs.
+onlyBuiltDependencies: []
+
+allowBuilds:
+  esbuild: false

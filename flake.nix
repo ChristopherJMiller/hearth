@@ -27,7 +27,7 @@
           overlays = [
             rust-overlay.overlays.default
             # Pin kanidm globally so all modules/tests use 1.9.
-            (final: prev: { kanidm = prev.kanidm_1_9; })
+            (final: prev: { kanidm = prev.kanidm_1_10; })
           ];
         };
 
@@ -394,7 +394,7 @@
         # Hearth LibreOffice extension package
         hearth-office-oxt = self.packages.${prev.system}.hearth-office-oxt or null;
         # Pin kanidm version globally — all modules and tests use this.
-        kanidm = prev.kanidm_1_9;
+        kanidm = prev.kanidm_1_10;
       };
 
       # --- NixOS Modules ---
@@ -638,8 +638,14 @@
             overrideModule
             fleetModule
             {
-              home.username = cfg.username;
-              home.homeDirectory = "/home/${cfg.username}";
+              # Use the local part of the SPN as the OS-level username and
+              # home dir. The full SPN (testuser@kanidm.hearth.local) remains
+              # the API/DB key and OIDC subject; this just keeps `@` out of
+              # filesystem paths where Nextcloud Desktop and other clients
+              # mishandle it. Must stay in lockstep with kanidm-unixd's
+              # home_attr = "name" in modules/kanidm-client.nix.
+              home.username = lib.elemAt (lib.splitString "@" cfg.username) 0;
+              home.homeDirectory = "/home/${lib.elemAt (lib.splitString "@" cfg.username) 0}";
             }
           ];
         };

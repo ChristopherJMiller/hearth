@@ -1,0 +1,85 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":separateMajorReleases",
+    ":timezone(America/Los_Angeles)",
+    "schedule:weekly"
+  ],
+  "labels": ["dependencies"],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 10,
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "dependencies"]
+  },
+  "nix": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Group all Nix flake input bumps into one PR — they tend to move together and one fleet rebuild covers them all.",
+      "matchManagers": ["nix"],
+      "groupName": "nix flake inputs",
+      "commitMessageTopic": "nix flake inputs"
+    },
+    {
+      "description": "Group Cargo workspace dep bumps so reviewers only see one Cargo.lock churn per cycle.",
+      "matchManagers": ["cargo"],
+      "groupName": "cargo workspace deps",
+      "commitMessageTopic": "cargo deps"
+    },
+    {
+      "description": "Group pnpm web monorepo deps.",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["web/**"],
+      "groupName": "web pnpm deps",
+      "commitMessageTopic": "web pnpm deps"
+    },
+    {
+      "description": "Helm subchart deps in chart/hearth-home/Chart.yaml.",
+      "matchManagers": ["helmv3"],
+      "groupName": "helm subcharts"
+    },
+    {
+      "description": "docker-compose image tags — keep separate so we can review each service bump individually (Kanidm, Stalwart, Nextcloud, etc. all need careful upgrade checks).",
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["major", "minor"],
+      "automerge": false
+    },
+    {
+      "description": "Auto-merge patch-level Cargo/npm bumps when CI passes — low risk, high signal.",
+      "matchManagers": ["cargo", "npm"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Pin Kanidm explicitly — moving between Kanidm minor versions requires kanidmd domain upgrade-check and may need data migration. Never auto-merge.",
+      "matchPackageNames": ["kanidm/server", "kanidm"],
+      "automerge": false,
+      "labels": ["kanidm-upgrade", "needs-review"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Bump the inline kanidm-cli version pin in nix/kanidm-cli.nix when Renovate sees a new Kanidm release.",
+      "fileMatch": ["^nix/kanidm-cli\\.nix$"],
+      "matchStrings": [
+        "version\\s*=\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "kanidm/kanidm",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$"
+    }
+  ]
+}
