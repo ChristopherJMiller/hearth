@@ -70,12 +70,26 @@ pkgs.testers.nixosTest {
       # into the extension cache; the bridge's $ORIGIN-relative DT_NEEDED
       # then resolves libhearth_office.so as a sibling. Set
       # XDG_RUNTIME_DIR explicitly because `su -` doesn't create one.
+      # Capture stderr so we can assert it stays free of configmgr schema
+      # warnings — the OfficeMenuBar entry has to wrap menu items in a
+      # Submenu node per the PopupMenu schema (officecfg/registry/schema/
+      # org/openoffice/Office/Addons.xcs); a regression there silently
+      # surfaces as `unknown node "m1"` in unopkg's stderr.
       machine.succeed(
           "su - testuser -c '"
           "export XDG_RUNTIME_DIR=/run/user/1000; "
           "$(find /nix/store -name unopkg -path \"*/libreoffice/program/*\" | head -1)"
           " add --suppress-license"
           " ${hearth-office-oxt}/hearth-office.oxt'"
+          " 2>/tmp/unopkg-add.stderr"
+      )
+
+      # Regression gate for nix/oxt/Addons.xcu OfficeMenuBar structure.
+      stderr = machine.succeed("cat /tmp/unopkg-add.stderr || true")
+      assert "unknown node" not in stderr, (
+          f"unopkg add emitted a configmgr schema warning — check "
+          f"Addons.xcu for PopupMenu/Submenu structure regressions. "
+          f"stderr:\n{stderr}"
       )
 
       # unopkg list must show the extension registered and active.
