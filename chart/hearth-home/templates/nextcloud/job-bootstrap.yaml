@@ -199,6 +199,18 @@ spec:
               occ app:enable contacts 2>/dev/null || true
               echo "    Calendar and contacts apps enabled"
 
+              # ---------------------------------------------------------------
+              # Enable Bookmarks app (needed by Floccus for personal bookmark
+              # sync from the fleet-managed Firefox config — see
+              # home-modules/firefox.nix `Extensions` config block).
+              # Mirrors dev/nextcloud/bootstrap.sh step 5.
+              # ---------------------------------------------------------------
+              echo ""
+              echo "==> Enabling bookmarks app..."
+              occ app:install bookmarks 2>/dev/null || echo "    bookmarks already installed"
+              occ app:enable bookmarks 2>/dev/null || true
+              echo "    Bookmarks app enabled"
+
               {{- if .Values.nextcloud.bootstrap.sharedCalendars }}
               # ---------------------------------------------------------------
               # Shared organizational calendars
