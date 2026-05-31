@@ -223,6 +223,46 @@ tests:
             name: fetch-webadmin
           any: true
 
+  - it: should pass WEBADMIN_SHA256 env when sha256 is set
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.webadmin.sha256: "9c8245c4e147a0806dd7f947f7bb5f38761acbaa371b0b5bdc0a79036b3b5909"
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env
+          content:
+            name: WEBADMIN_SHA256
+            value: "9c8245c4e147a0806dd7f947f7bb5f38761acbaa371b0b5bdc0a79036b3b5909"
+          any: true
+
+  - it: should omit WEBADMIN_SHA256 env when sha256 is unset
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.webadmin.sha256: ""
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env
+          content:
+            name: WEBADMIN_SHA256
+          any: true
+
+  - it: should default webadmin url to a pinned version (not latest)
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env[?(@.name == "WEBADMIN_URL")].value
+          pattern: "/latest/"
+      - matchRegex:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env[?(@.name == "WEBADMIN_URL")].value
+          pattern: "/v[0-9]+\\.[0-9]+\\.[0-9]+/"
+
   - it: should not render ConfigMap when not hosted
     template: stalwart/configmap.yaml
     set:

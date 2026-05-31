@@ -17,10 +17,22 @@ setup:
     # fails inside the container (no egress / DNS), leaving the admin UI 404.
     # Pre-fetch it on the host so the bind-mounted file exists when Stalwart
     # starts and config.resource.webadmin in config.toml loads it locally.
+    # Pinned + checksummed so the same setup run produces the same bundle
+    # bit-for-bit. Keep this version in lockstep with the Helm chart default
+    # at chart/hearth-home/values.yaml stalwart.webadmin.url.
+    WEBADMIN_VERSION="v0.1.37"
+    WEBADMIN_SHA256="9c8245c4e147a0806dd7f947f7bb5f38761acbaa371b0b5bdc0a79036b3b5909"
+    if [ -s dev/stalwart/webadmin.zip ] \
+       && ! echo "$WEBADMIN_SHA256  dev/stalwart/webadmin.zip" | sha256sum -c --quiet 2>/dev/null; then
+        echo "    Existing webadmin.zip checksum mismatch — re-downloading..."
+        rm -f dev/stalwart/webadmin.zip
+    fi
     if [ ! -s dev/stalwart/webadmin.zip ]; then
-        echo "    Downloading Stalwart webadmin bundle..."
-        curl -fsSL -o dev/stalwart/webadmin.zip \
-            https://github.com/stalwartlabs/webadmin/releases/latest/download/webadmin.zip
+        echo "    Downloading Stalwart webadmin bundle ($WEBADMIN_VERSION)..."
+        curl -fsSL -o dev/stalwart/webadmin.zip.tmp \
+            "https://github.com/stalwartlabs/webadmin/releases/download/$WEBADMIN_VERSION/webadmin.zip"
+        echo "$WEBADMIN_SHA256  dev/stalwart/webadmin.zip.tmp" | sha256sum -c --quiet
+        mv dev/stalwart/webadmin.zip.tmp dev/stalwart/webadmin.zip
     fi
     # Kanidm TLS cert must exist as a file before docker compose bind-mounts it,
     # otherwise Docker creates a directory placeholder that Kanidm can't read.

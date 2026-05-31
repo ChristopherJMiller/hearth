@@ -625,11 +625,18 @@ stalwart:
   # container reads it from disk.
   #
   # For air-gapped clusters, override `url` to an internal mirror that
-  # the cluster *can* reach. Pin a specific release rather than `latest`
-  # in production so the deploy is reproducible.
+  # the cluster *can* reach. The default is pinned to a specific release
+  # (not `latest`) so deploys are reproducible — keep this version in
+  # lockstep with the dev pre-fetch in justfile's `setup` recipe.
+  #
+  # `sha256` is optional but strongly recommended: when set, the init
+  # container verifies the bundle bit-for-bit before staging it. Leave
+  # empty to skip verification (e.g. for an internal mirror where you
+  # trust the network path).
   webadmin:
     enabled: true
-    url: "https://github.com/stalwartlabs/webadmin/releases/latest/download/webadmin.zip"
+    url: "https://github.com/stalwartlabs/webadmin/releases/download/v0.1.37/webadmin.zip"
+    sha256: "9c8245c4e147a0806dd7f947f7bb5f38761acbaa371b0b5bdc0a79036b3b5909"
     image:
       repository: curlimages/curl
       tag: "8.10.1"
