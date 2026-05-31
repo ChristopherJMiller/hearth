@@ -6,6 +6,7 @@ mod build_pipeline;
 mod catalog;
 mod deployment_monitor;
 mod deployments;
+mod desktop_prefs;
 mod enrollment;
 mod environments;
 mod health;
