@@ -13,6 +13,12 @@ pub mod repo;
 pub mod rollout;
 mod routes;
 
+// Re-exported so integration tests can construct minimal sub-routers
+// without spinning up a DB-backed AppState. The cache type and handler
+// fns are stable public API to tests; the rest of `routes` stays
+// crate-private.
+pub use routes::fleet_config;
+
 use auth::AuthConfig;
 use axum::Router;
 use axum::middleware;
