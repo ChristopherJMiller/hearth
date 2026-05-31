@@ -617,6 +617,24 @@ stalwart:
   bootstrap:
     enabled: true
 
+  # Stalwart's admin web UI ships as a separate webadmin.zip bundle that
+  # the server fetches from GitHub on first boot. That download silently
+  # fails in any environment with no/restricted egress (air-gapped,
+  # egress-policy clusters, dev containers) and leaves the admin UI 404.
+  # We always pre-stage the bundle via an init container so the main
+  # container reads it from disk.
+  #
+  # For air-gapped clusters, override `url` to an internal mirror that
+  # the cluster *can* reach. Pin a specific release rather than `latest`
+  # in production so the deploy is reproducible.
+  webadmin:
+    enabled: true
+    url: "https://github.com/stalwartlabs/webadmin/releases/latest/download/webadmin.zip"
+    image:
+      repository: curlimages/curl
+      tag: "8.10.1"
+      pullPolicy: IfNotPresent
+
   ingress:
     enabled: true
     className: ""

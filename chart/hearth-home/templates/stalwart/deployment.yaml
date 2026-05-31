@@ -39,6 +39,43 @@ spec:
             - name: config-dir
               mountPath: /opt/stalwart/etc
         {{- end }}
+        {{- if .Values.stalwart.webadmin.enabled }}
+        - name: fetch-webadmin
+          image: "{{ .Values.stalwart.webadmin.image.repository }}:{{ .Values.stalwart.webadmin.image.tag }}"
+          imagePullPolicy: {{ .Values.stalwart.webadmin.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              dest=/opt/stalwart/etc/webadmin.zip
+              if [ -s "$dest" ]; then
+                echo "webadmin.zip already staged ($(wc -c <"$dest") bytes), skipping fetch"
+                exit 0
+              fi
+              echo "Fetching webadmin bundle from $WEBADMIN_URL"
+              curl --fail --location --silent --show-error \
+                --retry 5 --retry-delay 5 --retry-connrefused \
+                --max-time 120 \
+                --output "$dest.tmp" "$WEBADMIN_URL"
+              mv "$dest.tmp" "$dest"
+              echo "Staged webadmin bundle ($(wc -c <"$dest") bytes) at $dest"
+          env:
+            - name: WEBADMIN_URL
+              value: {{ .Values.stalwart.webadmin.url | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config-dir
+              mountPath: /opt/stalwart/etc
+        {{- end }}
       containers:
         - name: stalwart
           image: "{{ .Values.stalwart.image.repository }}:{{ .Values.stalwart.image.tag }}"

@@ -11,6 +11,15 @@ data:
     hostname = {{ .Values.stalwart.config.hostname | quote }}
     max-connections = 1024
 
+    {{- if .Values.stalwart.webadmin.enabled }}
+    # Load the admin UI from a pre-staged local zip rather than fetching
+    # from github at first boot — the in-container download silently fails
+    # in air-gapped/egress-restricted clusters. The `fetch-webadmin` init
+    # container stages the bundle into a shared emptyDir at this path.
+    [webadmin]
+    resource = "file:///opt/stalwart/etc/webadmin.zip"
+
+    {{- end }}
     [server.listener.http]
     bind = ["0.0.0.0:8080"]
     protocol = "http"
