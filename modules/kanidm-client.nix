@@ -80,11 +80,19 @@ in
         default_shell = cfg.defaultShell;
         home_prefix = cfg.homePrefix;
         # `name` keeps `@` out of /etc/passwd, the home dir, and `whoami`,
-        # which Nextcloud Desktop and other clients mishandle. `spn` as the
-        # alias means the user can still log in as `user@domain`. Must stay
+        # which Nextcloud Desktop and other clients mishandle. Must stay
         # in lockstep with flake.nix lib.buildUserEnv home.homeDirectory.
+        #
+        # home_alias MUST be set to "none" explicitly: in Kanidm 1.10 the
+        # alias overrides home_attr in token_homedirectory() (alias result
+        # checked first; attr used only when alias is None). And critically,
+        # `DEFAULT_HOME_ALIAS = Some(HomeAttr::Spn)` — *omitting* the field
+        # falls back to SPN, re-introducing /home/<user>@<domain>. The
+        # parser maps the string "none" to Some(None), disabling the alias.
+        # Login by either short name or SPN already works without an alias
+        # because Kanidm accepts both forms at the auth layer.
         home_attr = "name";
-        home_alias = "spn";
+        home_alias = "none";
         use_etc_skel = true;
         hsm_type = cfg.hsmType;
       };

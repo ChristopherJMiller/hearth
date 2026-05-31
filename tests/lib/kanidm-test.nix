@@ -150,10 +150,15 @@ let
       -H "Authorization: Bearer $IDM_TOKEN" \
       -H "Content-Type: application/json" \
       -d '["posixaccount"]' > /dev/null 2>&1 || true
+    # kanidm-unixd refuses authentication if the configured loginshell is
+    # not canonicalisable on the device. NixOS has no /bin/bash; bash lives
+    # under /run/current-system/sw/bin/. Use that so the test user can
+    # actually log in. Must stay in lockstep with modules/kanidm-client.nix
+    # `defaultShell` for users who don't have an explicit shell set.
     $C -X PUT "$KANIDM_URL/v1/person/testuser/_attr/loginshell" \
       -H "Authorization: Bearer $IDM_TOKEN" \
       -H "Content-Type: application/json" \
-      -d '["/bin/bash"]' > /dev/null 2>&1 || true
+      -d '["/run/current-system/sw/bin/bash"]' > /dev/null 2>&1 || true
     $C -X POST "$KANIDM_URL/v1/group/hearth-users/_attr/member" \
       -H "Authorization: Bearer $IDM_TOKEN" \
       -H "Content-Type: application/json" \
