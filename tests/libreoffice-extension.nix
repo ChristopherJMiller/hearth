@@ -23,8 +23,17 @@ pkgs.testers.nixosTest {
 
     users.users.testuser = {
       isNormalUser = true;
+      uid = 1000;
       home = "/home/testuser";
     };
+
+    # LibreOffice + unopkg need XDG_RUNTIME_DIR to exist and be writable
+    # by the running user. In a real login, pam_systemd creates
+    # /run/user/<uid> with mode 0700. `su -` doesn't go through
+    # logind, so pre-stage the directory here for the test.
+    systemd.tmpfiles.rules = [
+      "d /run/user/1000 0700 testuser users -"
+    ];
 
     environment.etc."skel/.config/hearth/office.toml".text = ''
       [nextcloud]
@@ -59,17 +68,34 @@ pkgs.testers.nixosTest {
 
       # Install the extension as the test user. unopkg unpacks both .so files
       # into the extension cache; the bridge's $ORIGIN-relative DT_NEEDED
-      # then resolves libhearth_office.so as a sibling.
+      # then resolves libhearth_office.so as a sibling. Set
+      # XDG_RUNTIME_DIR explicitly because `su -` doesn't create one.
+      # Capture stderr so we can assert it stays free of configmgr schema
+      # warnings — the OfficeMenuBar entry has to wrap menu items in a
+      # Submenu node per the PopupMenu schema (officecfg/registry/schema/
+      # org/openoffice/Office/Addons.xcs); a regression there silently
+      # surfaces as `unknown node "m1"` in unopkg's stderr.
       machine.succeed(
           "su - testuser -c '"
+          "export XDG_RUNTIME_DIR=/run/user/1000; "
           "$(find /nix/store -name unopkg -path \"*/libreoffice/program/*\" | head -1)"
           " add --suppress-license"
           " ${hearth-office-oxt}/hearth-office.oxt'"
+          " 2>/tmp/unopkg-add.stderr"
+      )
+
+      # Regression gate for nix/oxt/Addons.xcu OfficeMenuBar structure.
+      stderr = machine.succeed("cat /tmp/unopkg-add.stderr || true")
+      assert "unknown node" not in stderr, (
+          f"unopkg add emitted a configmgr schema warning — check "
+          f"Addons.xcu for PopupMenu/Submenu structure regressions. "
+          f"stderr:\n{stderr}"
       )
 
       # unopkg list must show the extension registered and active.
       result = machine.succeed(
           "su - testuser -c '"
+          "export XDG_RUNTIME_DIR=/run/user/1000; "
           "$(find /nix/store -name unopkg -path \"*/libreoffice/program/*\" | head -1)"
           " list'"
       )
@@ -87,7 +113,9 @@ pkgs.testers.nixosTest {
     # LO starts headless without crashing — proves the extension's component
     # loader doesn't blow up at registration time.
     machine.succeed(
-      "su - testuser -c 'timeout 30 soffice --headless --norestore --nofirststartwizard --calc --convert-to csv /dev/null 2>&1 || true'"
+      "su - testuser -c '"
+      "export XDG_RUNTIME_DIR=/run/user/1000; "
+      "timeout 30 soffice --headless --norestore --nofirststartwizard --calc --convert-to csv /dev/null 2>&1 || true'"
     )
   '';
 }

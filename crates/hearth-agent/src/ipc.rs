@@ -324,6 +324,18 @@ async fn handle_connection<C: HearthApiClient + 'static>(
                             return;
                         }
                     }
+
+                    AgentRequest::ApplyClosure { username, closure } => {
+                        handle_apply_closure(
+                            &username,
+                            &closure,
+                            &state,
+                            &mut writer,
+                            &event_tx,
+                            &shutdown,
+                        )
+                        .await;
+                    }
                 }
             }
 
@@ -731,6 +743,121 @@ fn resolve_and_ensure_home(username: &str) -> Result<ResolvedUser, String> {
 /// `nix-store --realise` outputs `copying path '...' from '...'` lines on
 /// stderr. We parse these and forward human-friendly messages (e.g.,
 /// "fetching firefox-147.0.3") as `AgentEvent::Progress` events.
+/// Dev-only fast-path handler: activate a closure the caller already has
+/// in the local Nix store, skipping the full control-plane → worker →
+/// Attic → poll roundtrip. See `docs/rfc-001-push-fast-path.md` for the
+/// design rationale.
+///
+/// Gated by the `HEARTH_ENABLE_DEV_PUSH=1` environment variable.
+/// Production deployments leave this unset; the agent rejects every
+/// `ApplyClosure` request with an error. Without this gate, anyone with
+/// write access to `/run/hearth/agent.sock` could activate arbitrary
+/// closures as arbitrary users — a meaningful privilege escalation.
+async fn handle_apply_closure<C: HearthApiClient + 'static>(
+    username: &str,
+    closure: &str,
+    state: &Arc<Mutex<IpcState<C>>>,
+    writer: &mut tokio::net::unix::OwnedWriteHalf,
+    event_tx: &mpsc::Sender<AgentEvent>,
+    shutdown: &CancellationToken,
+) {
+    if std::env::var("HEARTH_ENABLE_DEV_PUSH").as_deref() != Ok("1") {
+        let msg = "ApplyClosure rejected: HEARTH_ENABLE_DEV_PUSH is not set. \
+                   This is a dev-only fast-path; production agents must not enable it."
+            .to_string();
+        warn!(%username, %closure, "{}", msg);
+        let _ = send_event(
+            writer,
+            &AgentEvent::Error {
+                username: username.to_string(),
+                message: msg,
+            },
+        )
+        .await;
+        return;
+    }
+
+    if !hearth_common::nix_store::is_valid_store_path(closure) {
+        let msg = format!("invalid closure path: {closure}");
+        error!(%username, %closure, "{}", msg);
+        let _ = send_event(
+            writer,
+            &AgentEvent::Error {
+                username: username.to_string(),
+                message: msg,
+            },
+        )
+        .await;
+        return;
+    }
+
+    info!(%username, %closure, "dev-push: applying closure");
+
+    {
+        let mut st = state.lock().await;
+        st.prepare_status
+            .insert(username.to_string(), PrepareStatus::Preparing);
+    }
+
+    let _ = send_event(
+        writer,
+        &AgentEvent::Preparing {
+            username: username.to_string(),
+            message: "applying pushed closure".into(),
+        },
+    )
+    .await;
+
+    // Realise the closure — no-op when it's already in the local store
+    // (which is the dev-push happy path: the host just nix-copy'd it over).
+    if let Err(msg) = realise_closure_with_progress(closure, event_tx, username, shutdown).await {
+        error!(%username, %closure, %msg, "dev-push: realise failed");
+        let _ = send_event(
+            writer,
+            &AgentEvent::Error {
+                username: username.to_string(),
+                message: msg.clone(),
+            },
+        )
+        .await;
+        let mut st = state.lock().await;
+        st.prepare_status
+            .insert(username.to_string(), PrepareStatus::Error(msg));
+        return;
+    }
+
+    let activate_path = format!("{closure}/activate");
+    match run_as_user(username, &activate_path, &[], shutdown).await {
+        Ok(()) => {
+            info!(%username, %closure, "dev-push: closure activated");
+            let _ = send_event(
+                writer,
+                &AgentEvent::Ready {
+                    username: username.to_string(),
+                },
+            )
+            .await;
+            let mut st = state.lock().await;
+            st.prepare_status
+                .insert(username.to_string(), PrepareStatus::Ready);
+        }
+        Err(msg) => {
+            error!(%username, %closure, %msg, "dev-push: activate failed");
+            let _ = send_event(
+                writer,
+                &AgentEvent::Error {
+                    username: username.to_string(),
+                    message: msg.clone(),
+                },
+            )
+            .await;
+            let mut st = state.lock().await;
+            st.prepare_status
+                .insert(username.to_string(), PrepareStatus::Error(msg));
+        }
+    }
+}
+
 async fn realise_closure_with_progress(
     closure: &str,
     event_tx: &mpsc::Sender<AgentEvent>,
@@ -1108,12 +1235,48 @@ pub async fn sync_user_desktop_prefs<C: HearthApiClient>(
     }
 }
 
+/// Serialize an [`AgentEvent`] as a single JSON line and write it to the stream.
+async fn send_event(
+    writer: &mut tokio::net::unix::OwnedWriteHalf,
+    event: &AgentEvent,
+) -> std::io::Result<()> {
+    let mut payload = serde_json::to_string(event)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    payload.push('\n');
+    writer.write_all(payload.as_bytes()).await?;
+    writer.flush().await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         parse_dconf_string_array, parse_fetch_name, parse_nix_progress, parse_paths_to_fetch_count,
-        strip_dconf_string,
+        resolve_role, strip_dconf_string,
     };
+    use hearth_common::config::{
+        AgentConfig, AgentSettings, RoleMapping, RoleMappingEntry, ServerConnection, UpdateSettings,
+    };
+
+    // Minimal AgentConfig fixture for resolve_role tests. Everything outside
+    // role_mapping is irrelevant to the function under test, so we use the
+    // type-level defaults where they exist.
+    fn config_with_mapping(role_mapping: Option<RoleMapping>) -> AgentConfig {
+        AgentConfig {
+            server: ServerConnection {
+                url: "http://test".into(),
+                machine_id: None,
+                cert_path: None,
+                key_path: None,
+            },
+            agent: AgentSettings::default(),
+            update: UpdateSettings::default(),
+            role_mapping,
+            home: None,
+            cache: None,
+            headscale: None,
+        }
+    }
 
     #[test]
     fn test_copying_path() {
@@ -1284,17 +1447,54 @@ mod tests {
         let deserialized: DesktopPreferences = serde_json::from_str(&json).unwrap();
         assert_eq!(prefs, deserialized);
     }
-}
 
-/// Serialize an [`AgentEvent`] as a single JSON line and write it to the stream.
-async fn send_event(
-    writer: &mut tokio::net::unix::OwnedWriteHalf,
-    event: &AgentEvent,
-) -> std::io::Result<()> {
-    let mut payload = serde_json::to_string(event)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    payload.push('\n');
-    writer.write_all(payload.as_bytes()).await?;
-    writer.flush().await?;
-    Ok(())
+    // ----- resolve_role -----
+
+    #[test]
+    fn resolve_role_returns_default_when_no_mapping_configured() {
+        let cfg = config_with_mapping(None);
+        assert_eq!(resolve_role(&[], &cfg), "default");
+        assert_eq!(
+            resolve_role(&["engineering".into(), "ops".into()], &cfg),
+            "default"
+        );
+    }
+
+    #[test]
+    fn resolve_role_returns_first_matching_entry() {
+        // First match wins — pin this so a future reorder/refactor of the
+        // loop doesn't silently flip priority order.
+        let cfg = config_with_mapping(Some(RoleMapping {
+            mappings: vec![
+                RoleMappingEntry {
+                    group: "engineering".into(),
+                    role: "developer".into(),
+                },
+                RoleMappingEntry {
+                    group: "ops".into(),
+                    role: "admin".into(),
+                },
+            ],
+            default_role: "default".into(),
+        }));
+        let user_groups = vec!["ops".into(), "engineering".into()];
+        assert_eq!(resolve_role(&user_groups, &cfg), "developer");
+    }
+
+    #[test]
+    fn resolve_role_falls_back_to_mapping_default_when_no_group_matches() {
+        // Mapping is configured but the user belongs to none of the listed
+        // groups. Must return the mapping's own default_role, not the
+        // hard-coded "default" string (which only applies when role_mapping
+        // is None entirely).
+        let cfg = config_with_mapping(Some(RoleMapping {
+            mappings: vec![RoleMappingEntry {
+                group: "engineering".into(),
+                role: "developer".into(),
+            }],
+            default_role: "kiosk".into(),
+        }));
+        assert_eq!(resolve_role(&["marketing".into()], &cfg), "kiosk");
+        assert_eq!(resolve_role(&[], &cfg), "kiosk");
+    }
 }

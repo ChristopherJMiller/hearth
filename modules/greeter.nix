@@ -102,6 +102,37 @@ in
     # seatd provides seat/DRM access for the cage compositor.
     services.seatd.enable = true;
 
+    # The upstream nixpkgs seatd module wraps the daemon with
+    # sdnotify-wrapper (from s6) and uses Type=notify. With systemd v259+,
+    # sdnotify-wrapper's notify sequence ends with a stray message after
+    # BARRIER=1, which systemd rejects:
+    #
+    #   "Extra notification messages sent with BARRIER=1, ignoring everything."
+    #
+    # systemd then swallows READY=1, the unit never reaches active state,
+    # and it times out (default 90s, restart loop forever). Repro is
+    # deterministic in tests/full-login-flow.nix.
+    #
+    # Bypass the wrapper and run seatd directly with Type=simple. seatd
+    # opens /run/seatd.sock synchronously in main() before its event
+    # loop, so the race window for downstream After=seatd.service
+    # consumers (greetd via cage) is sub-millisecond.
+    #
+    # Revert this override when the wrapper / systemd interaction is
+    # fixed upstream.
+    systemd.services.seatd.serviceConfig = {
+      Type = lib.mkForce "simple";
+      ExecStart = lib.mkForce (
+        "${pkgs.seatd.bin}/bin/seatd"
+        + " -n 1"
+        + " -u ${config.services.seatd.user}"
+        + " -g ${config.services.seatd.group}"
+        + " -l ${config.services.seatd.logLevel}"
+      );
+      NotifyAccess = lib.mkForce "none";
+      TimeoutStartSec = 30;
+    };
+
     # Ensure greetd starts after the agent socket, seatd, and identity
     # provider are available. Without kanidm-unixd, PAM can't resolve
     # Kanidm users and the greeter socket lookup fails on startup.

@@ -73,6 +73,8 @@ async fn main() {
 
     let matrix_server_name = std::env::var("HEARTH_MATRIX_SERVER_NAME").ok();
 
+    let event_bus = hearth_api::events::EventBus::new();
+
     let state = AppState {
         pool,
         auth_config: auth_config.clone(),
@@ -81,10 +83,21 @@ async fn main() {
         package_allowlist,
         services,
         matrix_server_name,
+        event_bus: event_bus.clone(),
     };
 
     // Spawn background tasks
     let cancel = CancellationToken::new();
+
+    // SSE push-path LISTEN: forwards cross-replica pg_notify events
+    // into the local in-process EventBus.
+    let listener_pool = state.pool.clone();
+    let listener_bus = event_bus.clone();
+    tokio::spawn(hearth_api::event_listener_run(
+        listener_pool,
+        listener_bus,
+        cancel.clone(),
+    ));
 
     // Deployment monitor
     let monitor_pool = state.pool.clone();

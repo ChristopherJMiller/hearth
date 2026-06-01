@@ -141,6 +141,28 @@ imagePullSecrets:
 {{- end }}
 
 {{/*
+Hardened container securityContext — PSS restricted compliant.
+Use on every container that supports it. Components that need write paths
+must mount emptyDir volumes for those paths (see oauth2-proxy / api /
+build-worker — they only need /tmp). Components that legitimately need
+root or RW root (nextcloud apache, kanidm before TLS rework) must opt
+out and document the accepted risk.
+
+Usage:
+  securityContext:
+    {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
+*/}}
+{{- define "hearth-home.restrictedSecurityContext" -}}
+allowPrivilegeEscalation: false
+readOnlyRootFilesystem: true
+runAsNonRoot: true
+capabilities:
+  drop: [ALL]
+seccompProfile:
+  type: RuntimeDefault
+{{- end -}}
+
+{{/*
 cert-manager issuer reference. Resolves to the right ClusterIssuer or Issuer
 depending on the certManager.issuer.type setting. Only valid when
 .Values.certManager.enabled is true.

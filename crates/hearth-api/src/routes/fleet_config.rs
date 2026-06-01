@@ -5,7 +5,7 @@ use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -78,7 +78,10 @@ async fn ensure_cached(cache: &FlakeTarballCache) -> Result<(), AppError> {
 }
 
 /// Response for the `/latest` endpoint.
-#[derive(Serialize)]
+///
+/// `Deserialize` + `Debug` are for the test suite — the API itself only
+/// serializes this. They cost nothing at runtime.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FlakeLatestResponse {
     pub hash: String,
     pub tarball_url: String,
@@ -88,6 +91,15 @@ pub struct FlakeLatestResponse {
 ///
 /// Returns the current flake tarball content hash and the content-addressed URL.
 /// The build worker calls this before each build to get a cache-busting URL.
+///
+/// **Intentionally unauthenticated.** The build worker fetches this via a
+/// bare `reqwest::get` (no machine token plumbed in) and the agent's
+/// downstream `nix-store` fetch uses Nix's `tarball+...` syntax which has
+/// no clean way to inject custom auth headers. The tarball content
+/// (flake.nix, modules/, crates/, etc.) is the same open-source code as
+/// the public repo — no secrets are served from this endpoint. If the
+/// API is exposed via Ingress to a wider audience, restrict access at
+/// the Ingress / NetworkPolicy layer rather than re-plumbing auth here.
 pub async fn flake_latest(
     State(cache): State<FlakeTarballCache>,
 ) -> Result<Json<FlakeLatestResponse>, AppError> {
@@ -112,6 +124,10 @@ pub async fn flake_latest(
 ///
 /// Serves the flake tarball at a content-addressed URL. Nix caches by URL,
 /// so a new hash = new URL = forced re-fetch.
+///
+/// **Intentionally unauthenticated.** See `flake_latest` for the rationale —
+/// this endpoint is the downstream pair of `/latest` and inherits the same
+/// trust model (Ingress / NetworkPolicy enforces access, not the handler).
 pub async fn flake_tarball_by_hash(
     State(cache): State<FlakeTarballCache>,
     AxumPath(_hash): AxumPath<String>,
@@ -145,6 +161,8 @@ pub async fn flake_tarball_by_hash(
 /// `GET /api/v1/fleet-config/flake.tar.gz` (backwards compat)
 ///
 /// Serves the tarball at the static URL. Still works but Nix may cache it.
+///
+/// **Intentionally unauthenticated.** Same trust model as `flake_latest`.
 pub async fn flake_tarball(State(cache): State<FlakeTarballCache>) -> Result<Response, AppError> {
     ensure_cached(&cache).await?;
 

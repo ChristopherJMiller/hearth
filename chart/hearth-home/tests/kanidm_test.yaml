@@ -117,3 +117,13 @@ tests:
       - matchRegex:
           path: data["server.toml"]
           pattern: 'origin = "https://idm\.company\.com"'
+
+  # Kanidm version is pinned to 1.10 globally per CLAUDE.md. The chart
+  # used to ship 1.9.0 — keep this in lockstep with flake.nix overlay,
+  # docker-compose.yml, and nix/kanidm-cli.nix.
+  - it: should pin kanidm image to the 1.10 series
+    template: kanidm/statefulset.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "kanidm/server:1\\.10\\."

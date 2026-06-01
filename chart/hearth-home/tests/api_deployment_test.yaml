@@ -125,3 +125,36 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: 3000
+
+  # Regression gates for the PSS-restricted hardening (see CLAUDE.md
+  # "Helm chart security" section). Same pattern applies to attic,
+  # headscale, stalwart, synapse, oauth2-proxy.
+  - it: should run main container with restricted securityContext
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: should disable service account token automount
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: should pin image tag (not :latest)
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ":latest$"

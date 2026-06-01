@@ -32,8 +32,14 @@ pkgs.runCommand "rust-uno-crate" {
   cp -r rust_uno/* $out/
 
   # Patch Cargo.toml: change crate-type from cdylib to lib so it can be
-  # used as a regular Rust dependency by hearth-office
-  sed -i 's/crate-type = \["cdylib"\]/crate-type = ["lib"]/' $out/Cargo.toml
+  # used as a regular Rust dependency by hearth-office, and disable
+  # doctests. The upstream rust_uno source includes `///` examples that
+  # `use rust_uno::{Type, typelib_TypeClass}` from the crate root, but
+  # those identifiers live under nested modules (`ffi::type_ffi::*`,
+  # `core::*`) — the doctest fails with E0432 when included in the
+  # workspace test run. Disable rather than patch the doctest so a
+  # future rustmaker regen doesn't undo a per-test edit.
+  sed -i 's/crate-type = \["cdylib"\]/crate-type = ["lib"]\ndoctest = false/' $out/Cargo.toml
 
   # The generated/ module is normally created by rustmaker during the LO build.
   # We provide stubs for the interfaces hearth-office uses. These match the

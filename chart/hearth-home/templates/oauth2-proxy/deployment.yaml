@@ -20,10 +20,13 @@ spec:
       {{- end }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
       containers:
         - name: oauth2-proxy
           image: "{{ .Values.oauth2Proxy.image.repository }}:{{ .Values.oauth2Proxy.image.tag }}"
           imagePullPolicy: {{ .Values.oauth2Proxy.image.pullPolicy }}
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
           args:
             - --http-address=0.0.0.0:4180
             - --provider=oidc

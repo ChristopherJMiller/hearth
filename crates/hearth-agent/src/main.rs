@@ -7,6 +7,7 @@
 
 mod actions;
 mod config;
+mod event_stream;
 mod headscale;
 mod installer;
 mod ipc;
@@ -153,21 +154,58 @@ async fn async_main() {
         }
     };
 
+    // Optional SSE push fast-path (RFC-001). When `agent.push.enabled`
+    // is true, the agent holds a long-lived GET /events connection and
+    // gets near-instant "poll now" pings whenever its target state
+    // changes. The poll loop receives a `PushState` so it can shorten
+    // its sleep on a wakeup and lengthen the base interval while the
+    // stream is healthy.
+    let push_state = event_stream::PushState::new();
+    let push_settings = cfg.agent.push.clone();
+
+    let push_handle = if push_settings.enabled {
+        let stream_shutdown = shutdown.clone();
+        let stream_push = Arc::clone(&push_state);
+        let stream_url = api_url.to_string();
+        let stream_token_path = std::path::PathBuf::from(&cfg.agent.machine_token_path);
+        Some(tokio::spawn(async move {
+            event_stream::run_event_stream(
+                stream_url,
+                machine_id,
+                stream_token_path,
+                stream_push,
+                stream_shutdown,
+            )
+            .await;
+        }))
+    } else {
+        info!("push fast-path disabled (agent.push.enabled = false)");
+        None
+    };
+
     // Spawn the poll loop.
     let poll_shutdown = shutdown.clone();
     let poll_client = Arc::clone(&client);
-    let poll_interval = Duration::from_secs(cfg.agent.poll_interval_secs);
+    let poll_base_interval = Duration::from_secs(cfg.agent.poll_interval_secs);
+    let poll_pushed_interval = Duration::from_secs(push_settings.pushed_poll_interval_secs);
     let poll_queue = Arc::clone(&offline_queue);
     let poll_token_path = std::path::PathBuf::from(&cfg.agent.machine_token_path);
     let poll_local_cache_url = cfg.cache.as_ref().and_then(|c| c.url.clone());
+    let poll_push = if push_settings.enabled {
+        Some(Arc::clone(&push_state))
+    } else {
+        None
+    };
     let poll_handle = tokio::spawn(async move {
         poller::run_poll_loop(
             poll_client,
             machine_id,
-            poll_interval,
+            poll_base_interval,
+            poll_pushed_interval,
             poll_queue,
             poll_token_path,
             poll_local_cache_url,
+            poll_push,
             poll_shutdown,
         )
         .await;
@@ -219,6 +257,10 @@ async fn async_main() {
             // Signal handler completed normally; shutdown is already
             // triggered via the cancellation token.
         }
+    }
+
+    if let Some(handle) = push_handle {
+        let _ = tokio::time::timeout(Duration::from_secs(1), handle).await;
     }
 
     // Give tasks a moment to finish cleanly.

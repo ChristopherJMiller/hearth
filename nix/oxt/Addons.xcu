@@ -46,23 +46,33 @@
       </node>
     </node>
 
-    <!-- Menu entries (Tools menu) -->
+    <!-- Top-level menu in the office menubar.
+         The PopupMenu schema (officecfg/registry/schema/org/openoffice/Office/Addons.xcs)
+         is a group with named children Title/Context/Submenu — menu items
+         must go inside the Submenu set, NOT directly under the popup
+         node. Putting m1 directly here triggers a
+         `configmgr: unknown node "m1"` warning at install/list time. -->
     <node oor:name="OfficeMenuBar">
       <node oor:name="com.hearth.office.menu" oor:op="replace">
+        <prop oor:name="Title" oor:type="xs:string">
+          <value xml:lang="en-US">Hearth</value>
+        </prop>
+        <prop oor:name="Context" oor:type="xs:string">
+          <value>com.sun.star.text.TextDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument</value>
+        </prop>
 
-        <node oor:name="m1" oor:op="replace">
-          <prop oor:name="URL" oor:type="xs:string">
-            <value>hearth:ShareViaNextcloud</value>
-          </prop>
-          <prop oor:name="Title" oor:type="xs:string">
-            <value>Share via Nextcloud...</value>
-          </prop>
-          <prop oor:name="Target" oor:type="xs:string">
-            <value>_self</value>
-          </prop>
-          <prop oor:name="Context" oor:type="xs:string">
-            <value>com.sun.star.text.TextDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument</value>
-          </prop>
+        <node oor:name="Submenu">
+          <node oor:name="m1" oor:op="replace">
+            <prop oor:name="URL" oor:type="xs:string">
+              <value>hearth:ShareViaNextcloud</value>
+            </prop>
+            <prop oor:name="Title" oor:type="xs:string">
+              <value xml:lang="en-US">Share via Nextcloud...</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
         </node>
 
       </node>

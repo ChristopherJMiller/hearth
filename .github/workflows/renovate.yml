@@ -1,0 +1,60 @@
+name: Renovate
+
+# Self-hosted Renovate via the official GitHub Action. Alternative to
+# installing the Renovate GitHub App — useful when the repo owner hasn't
+# (or can't) install the App but the repo wants automated dependency PRs.
+#
+# Reads the repo-root renovate.json for configuration (weekly schedule,
+# per-manager grouping, auto-merge rules, etc.). The action authenticates
+# as the GitHub Actions bot via the default GITHUB_TOKEN.
+#
+# Triggers:
+#   - schedule: hourly probe (renovate.json's `schedule:` block limits the
+#     window to weekend-mornings, so the hourly run is mostly a no-op
+#     between Friday evening and Monday morning).
+#   - workflow_dispatch: manual kick from the Actions tab — useful for
+#     forcing a run after editing renovate.json or rotating tokens.
+#   - push to renovate.json: re-run after config edits so feedback loops
+#     are tight.
+
+on:
+  schedule:
+    # Hourly probe. Renovate's own `schedule:` setting in renovate.json
+    # constrains when it actually opens PRs; this just keeps the worker
+    # awake so the window isn't missed.
+    - cron: "0 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - renovate.json
+      - .github/workflows/renovate.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+# Don't stack runs on the same branch — Renovate is idempotent but
+# concurrent runs can race on the same branch and waste CI minutes.
+concurrency:
+  group: renovate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    name: Run Renovate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Renovate
+        uses: renovatebot/github-action@v40.3.6
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          # Log level: "info" is reasonable for routine runs; flip to
+          # "debug" temporarily via repo variable to diagnose missed
+          # updates without editing this file.
+          LOG_LEVEL: ${{ vars.RENOVATE_LOG_LEVEL || 'info' }}

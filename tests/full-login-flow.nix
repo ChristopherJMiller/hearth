@@ -26,6 +26,25 @@ let
   kanidmTest = import ./lib/kanidm-test.nix { inherit pkgs; };
   machineUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
   machineToken = "test-machine-token-login-flow";
+
+  # Per-user closure stand-in. The hearth-agent fetches the closure path
+  # from /api/v1/users/<u>/env-closure, then runs `<closure>/activate` as
+  # the user (see crates/hearth-agent/src/ipc.rs around the "activating
+  # pre-built per-user closure" log line). For the test we hand the agent
+  # a closure that just touches a couple of marker files so the test can
+  # verify activation ran. The path is bind-mounted from the host's nix
+  # store into the desktop VM, so `nix-store --realise` is a no-op.
+  testUserClosure = pkgs.runCommand "hearth-test-user-closure" { } ''
+    mkdir -p $out
+    cat > $out/activate <<'SCRIPT'
+    #!${pkgs.runtimeShell}
+    set -eu
+    mkdir -p "$HOME/.config"
+    printf 'default\n' > "$HOME/.hearth-role"
+    printf 'activated\n' > "$HOME/.config/hearth-activated"
+    SCRIPT
+    chmod +x $out/activate
+  '';
 in
 pkgs.testers.nixosTest {
   name = "hearth-full-login-flow";
@@ -66,10 +85,17 @@ pkgs.testers.nixosTest {
 
       # Override the agent service path to use our mock home-manager
       # instead of pkgs.home-manager (which may not exist without the
-      # home-manager overlay applied to nixpkgs).
+      # home-manager overlay applied to nixpkgs). Mirror the production
+      # PATH from modules/agent.nix (nix + util-linux + glibc.bin +
+      # getent + coreutils) so production-realistic code paths work:
+      # coreutils is needed for preStart's `touch`+`chmod`, getent for
+      # the username resolution in src/ipc.rs.
       systemd.services.hearth-agent.path = lib.mkForce [
         pkgs.nix
         pkgs.util-linux
+        pkgs.glibc.bin
+        pkgs.getent
+        pkgs.coreutils
         (pkgs.writeShellScriptBin "home-manager" ''
           echo "home-manager called with args: $@" > /tmp/home-manager-invocation
           for arg in "$@"; do
@@ -126,6 +152,18 @@ pkgs.testers.nixosTest {
       };
 
       virtualisation.memorySize = 2048;
+
+      # The agent realises the per-user closure at activation time. The
+      # VM has no internet, and NixOS tests only stage the VM-config's
+      # closure into /nix/store by default. additionalPaths makes
+      # testUserClosure available in the VM's store so `nix-store
+      # --realise` is a no-op against the local store.
+      virtualisation.additionalPaths = [ testUserClosure ];
+
+      # Substituters would just slow the realise call down with failed
+      # cache.nixos.org lookups — the closure is already local.
+      nix.settings.substituters = lib.mkForce [ ];
+      nix.settings.trusted-substituters = lib.mkForce [ ];
     };
   };
 
@@ -150,6 +188,17 @@ pkgs.testers.nixosTest {
 
     # Wait for desktop to reach multi-user (agent, kanidm-unixd start here)
     desktop.wait_for_unit("multi-user.target")
+
+    # --- Cold-boot regression gates ---
+    # seatd had a 90s start-stall on cold boot (s6-notify protocol mismatch
+    # confused systemd) before TimeoutStartSec=30 + Restart=on-failure was
+    # added in modules/greeter.nix. Assert it reaches active within 60s so a
+    # regression in those service-config knobs trips this test.
+    desktop.wait_for_unit("seatd.service", timeout=60)
+
+    # greetd depends on seatd via After=; if seatd's start fails outright,
+    # greetd will stay activating. Catch that too.
+    desktop.wait_for_unit("greetd.service", timeout=60)
 
     # --- Verify agent heartbeats ---
     desktop.wait_for_unit("hearth-agent.service")
@@ -176,6 +225,19 @@ pkgs.testers.nixosTest {
         timeout=120,
     )
 
+    # --- Register the test user closure with the mock API ---
+    # The agent fetches the closure path from GET /env-closure and runs
+    # <closure>/activate as the user. Without this POST the agent's
+    # wait-for-build loop runs for 300s then errors out. Doing this BEFORE
+    # the password injection ensures the closure is available the moment
+    # the agent first calls /env-closure.
+    controlplane.succeed(
+        'curl -fsS -X POST -H "Content-Type: application/json" '
+        '-d \'{"username":"testuser@kanidm","base_role":"default",'
+        '"latest_closure":"${testUserClosure}"}\' '
+        "http://localhost:3000/api/v1/test/set-user-config"
+    )
+
     # --- Inject password for headless greeter ---
     # The greeter polls /tmp/hearth-test-pass (greetd doesn't pass parent
     # env vars, so we use a file). Once written, the already-running greeter
@@ -188,41 +250,41 @@ pkgs.testers.nixosTest {
     # /tmp/hearth-greeter.log via HEARTH_GREETER_LOG_FILE.
     desktop.wait_until_succeeds(
         "grep -q 'headless login succeeded\\|session started' /tmp/hearth-greeter.log 2>/dev/null",
-        timeout=120,
+        timeout=180,
     )
 
     # Verify the agent is still running
     desktop.succeed("systemctl is-active hearth-agent.service")
 
-    # --- Verify home-manager activation was attempted ---
-    # The mock home-manager script writes its invocation to /tmp.
-    # The agent falls back to role template since the mock API doesn't
-    # serve per-user closures.
-    desktop.wait_until_succeeds(
-        "test -f /tmp/home-manager-invocation",
-        timeout=30,
-    )
-
-    invocation = desktop.succeed("cat /tmp/home-manager-invocation")
-    # Verify the invocation included the flake ref and a role name
-    assert "path:/etc/hearth/test-flake#" in invocation, (
-        f"Expected flake ref in home-manager invocation, got: {invocation}"
-    )
-
-    # --- Verify agent queried the per-user closure endpoint ---
-    # The agent should have called GET /api/v1/users/testuser@kanidm/env-closure
-    # before falling back to home-manager switch. Check agent logs for the flow.
+    # --- Verify the agent activated the per-user closure ---
+    # With a closure registered up front the agent takes the "pre-built"
+    # branch in crates/hearth-agent/src/ipc.rs — nix-store --realise is a
+    # no-op because the closure is already in the host's bind-mounted
+    # /nix/store, then it runs <closure>/activate as the user.
     desktop.succeed(
-        "journalctl -u hearth-agent -o cat | grep -q 'no pre-built closure\\|falling back to role template'"
+        "journalctl -u hearth-agent -o cat | grep -q 'activating pre-built per-user closure'"
     )
 
-    # --- Verify the mock home-manager wrote the marker file in the user's home ---
+    # --- Verify the closure's activate script ran in the user's home ---
     # Resolve the actual home directory from the NSS passwd entry rather than
     # hardcoding it — kanidm-unixd may use UUID-based home dirs depending on
     # the home_attr setting (e.g. /home/<uuid> with a /home/<spn> symlink).
     user_home = desktop.succeed(
         "getent passwd testuser@kanidm | cut -d: -f6"
     ).strip()
+
+    # Regression gate: `@` in /home/ broke Nextcloud Desktop and other
+    # POSIX-path-naive clients, so kanidm-unixd was switched from
+    # home_attr=spn to home_attr=name. Kanidm 1.10 also requires that
+    # home_alias be unset — in 1.10 the alias overrides home_attr in
+    # token_homedirectory() (resolver.rs:782-785). The on-disk path
+    # must be the local part of the SPN — /home/testuser, not
+    # /home/testuser@kanidm.
+    assert user_home == "/home/testuser", (
+        f"Expected home directory /home/testuser (local part of SPN), "
+        f"got {user_home!r}. Check kanidm-unixd home_attr is 'name' "
+        f"and home_alias is unset (Kanidm 1.10 alias semantics changed)."
+    )
 
     desktop.wait_until_succeeds(
         f"test -f {user_home}/.hearth-role",

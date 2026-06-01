@@ -104,6 +104,7 @@ pub async fn test_app() -> (Router, TestDb) {
         package_allowlist: None,
         services: Vec::new(),
         matrix_server_name: None,
+        event_bus: hearth_api::events::EventBus::new(),
     };
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
     (router, db)
@@ -155,6 +156,11 @@ pub struct AuthTestContext {
     pub db: TestDb,
     pub encoding_key: jsonwebtoken::EncodingKey,
     pub machine_secret: Vec<u8>,
+    /// Same event bus the router was built with — exposed so tests can
+    /// subscribe directly and observe the SSE fan-out without holding
+    /// open an actual SSE connection.
+    #[allow(dead_code)]
+    pub event_bus: std::sync::Arc<hearth_api::events::EventBus>,
 }
 
 impl AuthTestContext {
@@ -217,6 +223,8 @@ pub async fn test_app_with_auth() -> AuthTestContext {
 
     let machine_secret = TEST_MACHINE_SECRET.to_vec();
 
+    let event_bus = hearth_api::events::EventBus::new();
+
     let state = AppState {
         pool: db.pool.clone(),
         auth_config: AuthConfig {
@@ -230,6 +238,7 @@ pub async fn test_app_with_auth() -> AuthTestContext {
         package_allowlist: None,
         services: Vec::new(),
         matrix_server_name: None,
+        event_bus: event_bus.clone(),
     };
 
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
@@ -240,6 +249,7 @@ pub async fn test_app_with_auth() -> AuthTestContext {
         db,
         encoding_key,
         machine_secret,
+        event_bus,
     }
 }
 

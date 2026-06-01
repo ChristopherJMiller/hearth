@@ -12,6 +12,7 @@ pub mod environments;
 pub mod fleet_config;
 pub mod health;
 pub mod heartbeat;
+pub mod machine_events;
 pub mod machines;
 pub mod me_config;
 pub mod reports;

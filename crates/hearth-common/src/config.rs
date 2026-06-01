@@ -51,6 +51,9 @@ pub struct AgentSettings {
     /// Path to the machine auth token file.
     #[serde(default = "default_machine_token_path")]
     pub machine_token_path: String,
+    /// SSE push fast-path settings (RFC-001).
+    #[serde(default)]
+    pub push: PushSettings,
 }
 
 impl Default for AgentSettings {
@@ -60,8 +63,41 @@ impl Default for AgentSettings {
             socket_path: default_socket_path(),
             queue_path: default_queue_path(),
             machine_token_path: default_machine_token_path(),
+            push: PushSettings::default(),
         }
     }
+}
+
+/// Push fast-path tunables (RFC-001).
+///
+/// When `enabled` is true, the agent opens a long-lived SSE stream to
+/// `GET /api/v1/machines/{id}/events` and treats each event as an
+/// immediate "poll now" signal. The poll interval lengthens to
+/// `pushed_poll_interval_secs` while the stream is healthy and snaps
+/// back to the regular `poll_interval_secs` on disconnect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushSettings {
+    /// Master switch. Off by default — flipped to true in
+    /// `dev/fleet-vm.nix` first, then in the default agent config once
+    /// reconnect-storm metrics on the dev fleet look sane.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Poll interval while the SSE stream is healthy.
+    #[serde(default = "default_pushed_poll_interval")]
+    pub pushed_poll_interval_secs: u64,
+}
+
+impl Default for PushSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pushed_poll_interval_secs: default_pushed_poll_interval(),
+        }
+    }
+}
+
+fn default_pushed_poll_interval() -> u64 {
+    300
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

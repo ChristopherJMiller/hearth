@@ -23,6 +23,7 @@ spec:
         {{- include "hearth-home.selectorLabels" (dict "context" . "component" "nextcloud") | nindent 8 }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36

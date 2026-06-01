@@ -146,6 +146,123 @@ tests:
           path: data["config.toml"]
           pattern: "oauth2/openid/hearth-stalwart"
 
+  # ── Webadmin bundle (air-gapped support) ─────────────────
+  - it: should include local webadmin resource by default
+    template: stalwart/configmap.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - matchRegex:
+          path: data["config.toml"]
+          pattern: 'resource = "file:///opt/stalwart/etc/webadmin\.zip"'
+
+  - it: should omit webadmin section when bundle disabled
+    template: stalwart/configmap.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.webadmin.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: data["config.toml"]
+          pattern: "\\[webadmin\\]"
+
+  - it: should add fetch-webadmin init container by default
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers
+          content:
+            name: fetch-webadmin
+          any: true
+
+  - it: should pass webadmin url via env to init container
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.webadmin.url: "https://mirror.internal/stalwart/webadmin.zip"
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env[0].value
+          pattern: "https://mirror\\.internal/stalwart/webadmin\\.zip"
+
+  - it: should harden fetch-webadmin init container
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].securityContext.runAsNonRoot
+          value: true
+      - contains:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].securityContext.capabilities.drop
+          content: ALL
+
+  - it: should omit fetch-webadmin init container when bundle disabled
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.webadmin.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers
+          content:
+            name: fetch-webadmin
+          any: true
+
+  - it: should pass WEBADMIN_SHA256 env when sha256 is set
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.webadmin.sha256: "9c8245c4e147a0806dd7f947f7bb5f38761acbaa371b0b5bdc0a79036b3b5909"
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env
+          content:
+            name: WEBADMIN_SHA256
+            value: "9c8245c4e147a0806dd7f947f7bb5f38761acbaa371b0b5bdc0a79036b3b5909"
+          any: true
+
+  - it: should omit WEBADMIN_SHA256 env when sha256 is unset
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+      stalwart.webadmin.sha256: ""
+    asserts:
+      - notContains:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env
+          content:
+            name: WEBADMIN_SHA256
+          any: true
+
+  - it: should default webadmin url to a pinned version (not latest)
+    template: stalwart/deployment.yaml
+    set:
+      capabilities.mail: true
+      stalwart.hosted: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env[?(@.name == "WEBADMIN_URL")].value
+          pattern: "/latest/"
+      - matchRegex:
+          path: spec.template.spec.initContainers[?(@.name == "fetch-webadmin")].env[?(@.name == "WEBADMIN_URL")].value
+          pattern: "/v[0-9]+\\.[0-9]+\\.[0-9]+/"
+
   - it: should not render ConfigMap when not hosted
     template: stalwart/configmap.yaml
     set:

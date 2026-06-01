@@ -39,6 +39,13 @@
 , enableEnrollment ? false
 , kanidmUrl ? null
 , kanidmCaCert ? null
+# Optional list of CA certificate files to install into the system
+# trust store. Use this for an in-cluster Hearth CA (cert-manager
+# `certManager.issuer.type = "ca"` in the chart publishes one root —
+# point this at the resulting PEM and every Hearth ingress chains to
+# a trusted root automatically). Wired into
+# services.hearth.agent.trustedCaBundle (see modules/agent.nix).
+, clusterCaBundle ? [ ]
 , hardwareProfile ? null
 , secureBoot ? false
 , tpmFde ? false
@@ -110,6 +117,13 @@ nixpkgs.lib.nixosSystem {
         enable = true;
         inherit serverUrl machineId;
         inherit roleMapping defaultRole;
+        # Trust the in-cluster Hearth CA (if the operator pinned one)
+        # plus Kanidm's CA when the dedicated kanidm cert isn't already
+        # signed by that root. Both end up in the system trust store
+        # so every HTTPS hop from this host (API, Attic, Kanidm,
+        # Matrix, Nextcloud, Mail) chains to a trusted root.
+        trustedCaBundle = clusterCaBundle
+          ++ lib.optional (kanidmCaCert != null) kanidmCaCert;
       } // lib.optionalAttrs (binaryCacheUrl != null) {
         inherit binaryCacheUrl;
       } // lib.optionalAttrs (homeFlakeRef != null) {

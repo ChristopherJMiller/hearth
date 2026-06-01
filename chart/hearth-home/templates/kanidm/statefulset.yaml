@@ -21,6 +21,7 @@ spec:
         {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 8 }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
       containers:
         - name: kanidm
           image: "{{ .Values.kanidm.image.repository }}:{{ .Values.kanidm.image.tag }}"

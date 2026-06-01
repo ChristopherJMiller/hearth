@@ -138,6 +138,20 @@ self.lib.mkFleetHost {
       };
       security.sudo.wheelNeedsPassword = lib.mkForce false;
 
+      # --- Enable the AgentRequest::ApplyClosure dev-push fast-path ---
+      # See docs/rfc-001-push-fast-path.md. Without this env var, the
+      # agent rejects every ApplyClosure request — it must NEVER be set
+      # on production fleet devices.
+      systemd.services.hearth-agent.environment.HEARTH_ENABLE_DEV_PUSH = "1";
+
+      # --- Opt the dev fleet VM into the SSE prod-push fast-path ---
+      # docs/rfc-001-push-fast-path.md rollout step 4: flip
+      # `push.enabled = true` on the dev fleet first so reconnect-storm
+      # metrics get exercised before this becomes the default for
+      # production agents. The 300s pushed cadence + 60s base cadence
+      # come from the module defaults.
+      services.hearth.agent.push.enable = true;
+
       # --- Log export: dump Hearth service logs to the shared directory ---
       systemd.services.hearth-log-export = {
         description = "Export Hearth logs to shared directory for host debugging";

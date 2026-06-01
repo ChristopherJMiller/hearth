@@ -17,10 +17,22 @@ setup:
     # fails inside the container (no egress / DNS), leaving the admin UI 404.
     # Pre-fetch it on the host so the bind-mounted file exists when Stalwart
     # starts and config.resource.webadmin in config.toml loads it locally.
+    # Pinned + checksummed so the same setup run produces the same bundle
+    # bit-for-bit. Keep this version in lockstep with the Helm chart default
+    # at chart/hearth-home/values.yaml stalwart.webadmin.url.
+    WEBADMIN_VERSION="v0.1.37"
+    WEBADMIN_SHA256="9c8245c4e147a0806dd7f947f7bb5f38761acbaa371b0b5bdc0a79036b3b5909"
+    if [ -s dev/stalwart/webadmin.zip ] \
+       && ! echo "$WEBADMIN_SHA256  dev/stalwart/webadmin.zip" | sha256sum -c --quiet 2>/dev/null; then
+        echo "    Existing webadmin.zip checksum mismatch — re-downloading..."
+        rm -f dev/stalwart/webadmin.zip
+    fi
     if [ ! -s dev/stalwart/webadmin.zip ]; then
-        echo "    Downloading Stalwart webadmin bundle..."
-        curl -fsSL -o dev/stalwart/webadmin.zip \
-            https://github.com/stalwartlabs/webadmin/releases/latest/download/webadmin.zip
+        echo "    Downloading Stalwart webadmin bundle ($WEBADMIN_VERSION)..."
+        curl -fsSL -o dev/stalwart/webadmin.zip.tmp \
+            "https://github.com/stalwartlabs/webadmin/releases/download/$WEBADMIN_VERSION/webadmin.zip"
+        echo "$WEBADMIN_SHA256  dev/stalwart/webadmin.zip.tmp" | sha256sum -c --quiet
+        mv dev/stalwart/webadmin.zip.tmp dev/stalwart/webadmin.zip
     fi
     # Kanidm TLS cert must exist as a file before docker compose bind-mounts it,
     # otherwise Docker creates a directory placeholder that Kanidm can't read.
@@ -452,6 +464,64 @@ fleet-ssh:
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         -i dev/ssh/fleet-vm \
         -p 2222 dev@localhost
+
+# Push a per-user closure directly to the running fleet VM, bypassing the
+# build-worker → Attic → fan-out → poll roundtrip (~60-120s) for a sub-5s
+# host → agent push. See docs/rfc-001-push-fast-path.md.
+#
+# Usage:
+#   just push-user-env testuser@kanidm /nix/store/<hash>-hearth-user-env
+#
+# Requirements:
+#   - Fleet VM running (`just fleet-vm`) with SSH on port 2222.
+#   - Closure already built on the host (the recipe doesn't build it for
+#     you — build via `nix build` or whichever flow constructed the
+#     per-user closure, then pass the resulting /nix/store path).
+#   - Agent in the VM has HEARTH_ENABLE_DEV_PUSH=1 (dev/fleet-vm.nix
+#     sets this; production agents leave it unset and refuse the push).
+push-user-env user closure:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f dev/ssh/fleet-vm ]; then
+        echo "ERROR: dev/ssh/fleet-vm key not found. Run 'just setup' first."
+        exit 1
+    fi
+    if [ ! -d "{{closure}}" ]; then
+        echo "ERROR: closure path '{{closure}}' does not exist on the host"
+        exit 1
+    fi
+    if [ ! -x "{{closure}}/activate" ]; then
+        echo "ERROR: closure '{{closure}}' has no executable activate script"
+        exit 1
+    fi
+    echo "==> Copying closure to fleet VM..."
+    NIX_SSHOPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i dev/ssh/fleet-vm -p 2222" \
+        nix copy --to "ssh-ng://dev@localhost" "{{closure}}" --no-check-sigs
+    echo "==> Sending ApplyClosure IPC to /run/hearth/agent.sock..."
+    # Python is always available on NixOS; socket.SOCK_STREAM over AF_UNIX
+    # speaks the agent's newline-delimited JSON IPC protocol natively, and
+    # we read events back until EOF so the caller sees Ready or Error
+    # without needing a separate journalctl tail.
+    REQ=$(printf '{"type":"ApplyClosure","username":"%s","closure":"%s"}' "{{user}}" "{{closure}}")
+    PY_CLIENT='
+    import json, socket, sys
+    req = sys.argv[1]
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect("/run/hearth/agent.sock")
+    s.sendall((req + "\n").encode())
+    s.shutdown(socket.SHUT_WR)
+    buf = b""
+    while True:
+        chunk = s.recv(4096)
+        if not chunk: break
+        buf += chunk
+    for line in buf.decode().splitlines():
+        evt = json.loads(line)
+        print(json.dumps(evt))
+        if evt.get("type") in ("Ready", "Error"):
+            sys.exit(0 if evt["type"] == "Ready" else 1)
+    '
+    just fleet-exec "sudo python3 -c '$PY_CLIENT' '$REQ'"
 
 # Run all checks (clippy, fmt, tests)
 check:

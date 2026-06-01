@@ -19,10 +19,16 @@
     <src lang="en" xlink:href=""/>
   </extension-description>
 
-  <dependencies>
-    <!-- Requires LibreOffice 26.2+ for Rust UNO support -->
-    <LibreOffice-minimal-version value="26.2" d:name="LibreOffice 26.2"/>
-  </dependencies>
+  <!--
+    No LibreOffice-minimal-version dependency: the .components file
+    points at libhearth_office_bridge.so, a standard C++ UNO component
+    (component_getFactory / component_writeInfo ABI) that internally
+    dispatches into the Rust .so via a C ABI. Neither the bridge nor
+    the Rust library uses the Rust UNO bindings shipped in LO 26.2 — the
+    bridge speaks the long-stable UNO ABI, so older nixpkgs LibreOffice
+    (and other distros that haven't yet shipped 26.2) register the
+    components fine. Validated by tests/libreoffice-extension.nix.
+  -->
 
   <platform value="linux_x86_64"/>
 
