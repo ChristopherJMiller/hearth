@@ -249,6 +249,15 @@
             pkgs = kanidmPkgs;
             inherit lib hearth-agent hearth-greeter;
           };
+          # Slow sibling of vm-full-login-flow: drives a real cage + GNOME
+          # boot end-to-end to gate cage compositor + gnome-shell startup
+          # regressions. ~5 min cold boot vs ~3 min for vm-full-login-flow
+          # and needs 4 GB RAM, so leave it as a separate check that CI
+          # can skip on demand. See docs in tests/full-desktop-session.nix.
+          vm-full-desktop-session = import ./tests/full-desktop-session.nix {
+            pkgs = kanidmPkgs;
+            inherit lib hearth-agent hearth-greeter;
+          };
           # Pure-Nix eval tests for home-manager modules — no VM, ~1s each.
           home-firefox-eval = import ./tests/firefox-module-eval.nix { inherit pkgs lib; };
           home-libreoffice-eval = import ./tests/libreoffice-module-eval.nix { inherit pkgs lib; };
@@ -375,11 +384,16 @@
           # UNO libs also needed at runtime for test binaries
           LD_LIBRARY_PATH = "${libreoffice-uno-libs}/program";
 
-          # Symlink rust_uno crate for hearth-office path dep
+          # Symlink rust_uno crate for hearth-office path dep.
+          # Anchor to the repo root (git toplevel) rather than $PWD so
+          # `nix develop` from a subdirectory doesn't drop a stray
+          # symlink into wherever you happened to be standing.
           shellHook = ''
-            if [ ! -e "$PWD/rust_uno/Cargo.toml" ]; then
-              ln -sfn "${rust-uno}" "$PWD/rust_uno"
+            __hearth_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+            if [ -n "$__hearth_repo_root" ] && [ ! -e "$__hearth_repo_root/rust_uno/Cargo.toml" ]; then
+              ln -sfn "${rust-uno}" "$__hearth_repo_root/rust_uno"
             fi
+            unset __hearth_repo_root
           '';
 
           HEARTH_ATTIC_CACHE = "hearth";
