@@ -123,6 +123,7 @@ pub async fn get_env_closure(
                 cache_url: state.cache_url.clone(),
                 fallback_role: row.base_role,
                 build_status: Some(build_status),
+                build_error: row.build_error,
             }))
         }
         None => {
@@ -137,6 +138,7 @@ pub async fn get_env_closure(
                 cache_url: state.cache_url.clone(),
                 fallback_role: base_role.to_string(),
                 build_status: Some(hearth_common::api_types::UserEnvBuildStatus::Pending),
+                build_error: None,
             }))
         }
     }

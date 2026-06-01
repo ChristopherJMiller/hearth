@@ -59,6 +59,68 @@ fn resolve_role(groups: &[String], config: &AgentConfig) -> String {
     }
 }
 
+/// Fire a desktop notification to a logged-in user via `notify-send`.
+///
+/// Used to surface dev-push activations inside the user's GNOME/Wayland
+/// session so the developer who initiated the push can see at a glance
+/// that the new closure landed. If the user has no graphical session
+/// (or `notify-send` isn't on PATH yet from the new closure), the call
+/// fails silently — desktop notifications are best-effort UX.
+async fn notify_user_desktop(username: &str, uid: u32, title: &str, body: &str) {
+    // Try to find notify-send via PATH first (works inside dev sessions),
+    // fall back to a hardcoded common nixpkgs path if missing.
+    let bus = format!("unix:path=/run/user/{uid}/bus");
+    let xdg_runtime = format!("/run/user/{uid}");
+    let result = tokio::process::Command::new("runuser")
+        .args([
+            "-u", username, "--",
+            "env",
+            &format!("DBUS_SESSION_BUS_ADDRESS={bus}"),
+            &format!("XDG_RUNTIME_DIR={xdg_runtime}"),
+            "notify-send",
+            "--app-name=Hearth",
+            "--icon=system-software-update",
+            title,
+            body,
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await;
+    if let Ok(status) = result
+        && !status.success()
+    {
+        debug!(%username, %uid, "notify-send exited non-zero (no session?)");
+    }
+}
+
+/// Reduce a multi-line nix/home-manager build error to a short summary
+/// suitable for surfacing in the greeter or progress messages. Picks the
+/// last `error:` line (nix puts the actual cause near the bottom of its
+/// stack) and trims it to a reasonable length.
+fn summarize_build_error(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "(empty error)".into();
+    }
+    let last_error_line = trimmed
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| l.starts_with("error:") || l.starts_with("error "))
+        .unwrap_or_else(|| {
+            // Fall back to the last non-empty line.
+            trimmed.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or(trimmed)
+        });
+    const MAX_LEN: usize = 240;
+    let stripped = last_error_line.trim_start_matches("error:").trim();
+    if stripped.len() > MAX_LEN {
+        format!("{}…", &stripped[..MAX_LEN])
+    } else {
+        stripped.to_string()
+    }
+}
+
 /// Run the IPC server on the given Unix socket path.
 ///
 /// Listens for incoming connections, spawns a task per connection, and
@@ -500,7 +562,14 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
 
                     // Activate the home-manager generation.
                     let activate_path = format!("{closure}/activate");
-                    run_as_user(&user, &activate_path, &[], &bg_shutdown).await
+                    run_as_user_with_progress(
+                        &user,
+                        &activate_path,
+                        &[],
+                        &bg_shutdown,
+                        Some((&event_tx, &user)),
+                    )
+                    .await
                 }
             } else {
                 // No pre-built closure yet — the build may be in progress.
@@ -511,6 +580,19 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                 const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
                 let start = std::time::Instant::now();
                 let mut closure_path: Option<String> = None;
+                // Track last observed state so the timeout/failure error
+                // can distinguish "server reported build failed" from
+                // "control plane unreachable" from "still building".
+                use hearth_common::api_types::UserEnvBuildStatus;
+                let mut last_status: Option<UserEnvBuildStatus> = None;
+                let mut last_server_error: Option<String> = None;
+                let mut last_poll_error: Option<String> = None;
+                let mut consecutive_poll_errors: u32 = 0;
+                // If the server returns build_status=Failed we bail out
+                // immediately rather than waiting for the full timeout —
+                // the build won't recover on its own without a config
+                // change or a manual re-enqueue.
+                let mut bailed_on_failure = false;
 
                 while start.elapsed() < MAX_WAIT {
                     if bg_shutdown.is_cancelled() {
@@ -535,27 +617,46 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                             break;
                         }
                         Ok(resp) => {
-                            use hearth_common::api_types::UserEnvBuildStatus;
-                            let status_msg = match resp.build_status {
-                                Some(UserEnvBuildStatus::Pending) => "environment build queued...",
+                            consecutive_poll_errors = 0;
+                            last_poll_error = None;
+                            last_status = resp.build_status.clone();
+                            last_server_error = resp.build_error.clone();
+                            let status_msg: String = match &resp.build_status {
+                                Some(UserEnvBuildStatus::Pending) => {
+                                    "environment build queued on control plane...".into()
+                                }
                                 Some(UserEnvBuildStatus::Building) => {
-                                    "environment is being built..."
+                                    "environment is being built on control plane...".into()
                                 }
                                 Some(UserEnvBuildStatus::Failed) => {
-                                    "environment build failed, retrying..."
+                                    bailed_on_failure = true;
+                                    match &resp.build_error {
+                                        Some(err) => {
+                                            let summary = summarize_build_error(err);
+                                            format!("environment build failed on control plane: {summary}")
+                                        }
+                                        None => {
+                                            "environment build failed on control plane (no details reported)".into()
+                                        }
+                                    }
                                 }
-                                _ => "waiting for environment build...",
+                                _ => "waiting for environment build...".into(),
                             };
                             let _ = event_tx
                                 .send(AgentEvent::Progress {
                                     username: user.clone(),
                                     percent: 10 + elapsed_pct,
-                                    message: status_msg.into(),
+                                    message: status_msg,
                                 })
                                 .await;
                             debug!(%user, ?resp.build_status, "closure still not ready, polling...");
+                            if bailed_on_failure {
+                                break;
+                            }
                         }
                         Err(e) => {
+                            consecutive_poll_errors = consecutive_poll_errors.saturating_add(1);
+                            last_poll_error = Some(e.to_string());
                             debug!(%user, error = %e, "failed to poll for closure");
                         }
                     }
@@ -591,7 +692,14 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                                     })
                                     .await;
                                 let activate_path = format!("{closure}/activate");
-                                run_as_user(&user, &activate_path, &[], &bg_shutdown).await
+                                run_as_user_with_progress(
+                                    &user,
+                                    &activate_path,
+                                    &[],
+                                    &bg_shutdown,
+                                    Some((&event_tx, &user)),
+                                )
+                                .await
                             }
                         }
                     }
@@ -600,20 +708,46 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                         .report_user_env(machine_id, api_user, &role, UserEnvStatus::Failed)
                         .await;
 
+                    // Classify the failure based on what we observed during
+                    // polling so the message tells the user *why* — a server
+                    // build failure, a network outage, or just a slow build —
+                    // instead of the previous one-size-fits-all timeout text.
+                    let (kind, detail) = if bailed_on_failure
+                        || matches!(last_status, Some(UserEnvBuildStatus::Failed))
+                    {
+                        let detail = last_server_error
+                            .as_deref()
+                            .map(summarize_build_error)
+                            .unwrap_or_else(|| "no details reported by control plane".into());
+                        ("Build failed on control plane", detail)
+                    } else if consecutive_poll_errors >= 3 {
+                        let detail = last_poll_error
+                            .clone()
+                            .unwrap_or_else(|| "no response from server".into());
+                        ("Control plane unreachable", detail)
+                    } else {
+                        let status_label = match last_status {
+                            Some(UserEnvBuildStatus::Pending) => "still pending",
+                            Some(UserEnvBuildStatus::Building) => "still building",
+                            Some(UserEnvBuildStatus::Built) => "marked built but closure unavailable",
+                            Some(UserEnvBuildStatus::Failed) => "marked failed",
+                            None => "no status reported",
+                        };
+                        ("Timed out waiting for build", status_label.into())
+                    };
+
                     error!(
                         %user,
                         %role,
-                        "environment build timed out after {} seconds",
-                        MAX_WAIT.as_secs()
+                        elapsed_secs = start.elapsed().as_secs(),
+                        kind,
+                        detail,
+                        "user environment build did not produce a closure"
                     );
 
                     Err(format!(
-                        "Your environment could not be built within {} minutes. \
-                         The build server may be overloaded or unreachable. \
-                         Please contact IT support. (user: {}, role: {})",
-                        MAX_WAIT.as_secs() / 60,
-                        user,
-                        role
+                        "{kind} (user: {user}, role: {role}): {detail}. \
+                         Please contact IT support if this persists."
                     ))
                 }
             }
@@ -690,6 +824,9 @@ struct ResolvedUser {
     passwd_name: String,
     /// The user's home directory path.
     home: String,
+    /// The user's numeric UID. Needed to address their session bus
+    /// (`/run/user/<uid>/bus`) for desktop notifications.
+    uid: u32,
 }
 
 /// Resolve a user via getent and ensure their home directory exists.
@@ -735,7 +872,7 @@ fn resolve_and_ensure_home(username: &str) -> Result<ResolvedUser, String> {
         }
     }
 
-    Ok(ResolvedUser { passwd_name, home })
+    Ok(ResolvedUser { passwd_name, home, uid })
 }
 
 /// Realise a Nix store closure, streaming download progress to the greeter.
@@ -837,6 +974,18 @@ async fn handle_apply_closure<C: HearthApiClient + 'static>(
                 },
             )
             .await;
+            // Surface the push to the running graphical session so the
+            // developer sees the new bits land without tailing journals.
+            // We tag the closure by its 32-char nix-store hash so the
+            // notification is distinct between successive pushes.
+            if let Ok(resolved) = resolve_and_ensure_home(username) {
+                let short_id = closure
+                    .strip_prefix("/nix/store/")
+                    .and_then(|s| s.get(..8))
+                    .unwrap_or("closure");
+                let body = format!("New per-user closure {short_id} active");
+                notify_user_desktop(username, resolved.uid, "Hearth dev push", &body).await;
+            }
             let mut st = state.lock().await;
             st.prepare_status
                 .insert(username.to_string(), PrepareStatus::Ready);
@@ -851,6 +1000,13 @@ async fn handle_apply_closure<C: HearthApiClient + 'static>(
                 },
             )
             .await;
+            // Also surface failures to the desktop so the developer
+            // doesn't think the push silently succeeded.
+            if let Ok(resolved) = resolve_and_ensure_home(username) {
+                let summary = summarize_build_error(&msg);
+                let body = format!("Dev push failed: {summary}");
+                notify_user_desktop(username, resolved.uid, "Hearth dev push", &body).await;
+            }
             let mut st = state.lock().await;
             st.prepare_status
                 .insert(username.to_string(), PrepareStatus::Error(msg));
@@ -997,7 +1153,26 @@ async fn run_as_user_with_progress(
     shutdown: &CancellationToken,
     progress_tx: Option<(&mpsc::Sender<AgentEvent>, &str)>,
 ) -> Result<(), String> {
-    let mut cmd_args = vec!["-u", username, "--", command];
+    // Pin USER/LOGNAME to the short (non-SPN) username before invoking the
+    // target command. kanidm-unixd's NSS returns the SPN form
+    // (`testuser@kanidm.hearth.local`) as the passwd `name`, which `runuser`
+    // then propagates into $USER. home-manager's activate script does a
+    // strict `if [ "$USER" != "<short>" ]` check (the closure was built
+    // for the short name) and bails out. The `env -- USER=<short>` prefix
+    // overrides runuser's value without losing any other inherited env.
+    //
+    // Also set HOME_MANAGER_BACKUP_EXT — without it, a re-activation that
+    // would overwrite a managed file (e.g. dev-push of an updated closure)
+    // fails with "Existing file '...' would be clobbered". The activate
+    // script honors this env var to move the offending file aside instead
+    // of aborting. `hm-bak` matches upstream's typical example.
+    let user_var = format!("USER={username}");
+    let logname_var = format!("LOGNAME={username}");
+    let backup_var = "HOME_MANAGER_BACKUP_EXT=hm-bak";
+    let mut cmd_args = vec![
+        "-u", username, "--",
+        "env", &user_var, &logname_var, backup_var, command,
+    ];
     cmd_args.extend(args);
 
     let mut child = tokio::process::Command::new("runuser")
@@ -1009,8 +1184,11 @@ async fn run_as_user_with_progress(
 
     // Stream stderr for progress updates if a channel is provided.
     let stderr = child.stderr.take();
+    let stdout = child.stdout.take();
     let progress_user = progress_tx.as_ref().map(|(_, u)| u.to_string());
     let progress_sender = progress_tx.map(|(tx, _)| tx.clone());
+    let progress_user_stdout = progress_user.clone();
+    let progress_sender_stdout = progress_sender.clone();
 
     let stderr_task = tokio::spawn(async move {
         let mut collected = String::new();
@@ -1037,18 +1215,82 @@ async fn run_as_user_with_progress(
         collected
     });
 
+    // home-manager's activate script writes its step log to stdout
+    // ("Activating dconfSettings", "installing 'home-manager-path'",
+    // etc.). Surface those step labels through the progress channel so
+    // the greeter shows what's happening instead of sitting on a
+    // generic "activating per-user environment" string. Also keep
+    // capturing the full text for error reporting.
+    let stdout_task = tokio::spawn(async move {
+        let mut collected = String::new();
+        let Some(stdout) = stdout else {
+            return collected;
+        };
+        let reader = tokio::io::BufReader::new(stdout);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            collected.push_str(&line);
+            collected.push('\n');
+            if let (Some(tx), Some(user)) = (&progress_sender_stdout, &progress_user_stdout)
+                && let Some(msg) = parse_activate_progress(&line)
+            {
+                let _ = tx
+                    .send(AgentEvent::Progress {
+                        username: user.clone(),
+                        percent: 85,
+                        message: msg,
+                    })
+                    .await;
+            }
+        }
+        collected
+    });
+
     tokio::select! {
         status = child.wait() => {
             let stderr_output = stderr_task.await.unwrap_or_default();
+            let stdout_output = stdout_task.await.unwrap_or_default();
             match status {
                 Ok(s) if s.success() => Ok(()),
-                Ok(_) => Err(format!("{command} failed: {stderr_output}")),
+                Ok(s) => {
+                    let combined = format_command_output(&stderr_output, &stdout_output);
+                    Err(format!(
+                        "{command} failed (exit {}): {combined}",
+                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
+                    ))
+                }
                 Err(e) => Err(format!("failed to wait on {command}: {e}")),
             }
         }
         () = shutdown.cancelled() => {
             let _ = child.kill().await;
             Err("shutdown during preparation".into())
+        }
+    }
+}
+
+/// Combine captured stderr + stdout into a compact message: keep the
+/// last ~20 lines, prefer stderr, fall back to stdout if stderr is empty.
+fn format_command_output(stderr: &str, stdout: &str) -> String {
+    fn tail(text: &str, lines: usize) -> String {
+        let collected: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        let start = collected.len().saturating_sub(lines);
+        collected[start..].join("\n")
+    }
+    let err_tail = tail(stderr, 20);
+    if !err_tail.is_empty() {
+        let out_tail = tail(stdout, 5);
+        if out_tail.is_empty() {
+            err_tail
+        } else {
+            format!("{err_tail}\n--- stdout (tail) ---\n{out_tail}")
+        }
+    } else {
+        let out_tail = tail(stdout, 20);
+        if out_tail.is_empty() {
+            "(no output)".into()
+        } else {
+            out_tail
         }
     }
 }
@@ -1098,6 +1340,49 @@ fn parse_fetch_name(line: &str) -> Option<String> {
         basename
     };
     Some(name.to_string())
+}
+
+/// Parse a line of home-manager's activate stdout into a progress message.
+/// Activate prints "Starting Home Manager activation", then a series of
+/// "Activating <step>" lines (checkLinkTargets, linkGeneration,
+/// installPackages, dconfSettings, hearthLibreOfficeExtensions, ...) and
+/// some side messages. We surface the step names directly so the greeter
+/// stops sitting on a generic "activating per-user environment" string.
+fn parse_activate_progress(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    if let Some(step) = line.strip_prefix("Activating ") {
+        // Camel-case → spaces, lowercased first letter for a friendlier label.
+        // installPackages → "install packages"
+        let mut out = String::with_capacity(step.len() + 4);
+        for (i, ch) in step.chars().enumerate() {
+            if i > 0 && ch.is_ascii_uppercase() {
+                out.push(' ');
+                out.push(ch.to_ascii_lowercase());
+            } else if i == 0 {
+                out.push(ch.to_ascii_lowercase());
+            } else {
+                out.push(ch);
+            }
+        }
+        return Some(format!("activating {out}"));
+    }
+    if line.starts_with("Starting Home Manager activation") {
+        return Some("starting home-manager activation".into());
+    }
+    if line.starts_with("Creating new profile generation") {
+        return Some("creating profile generation".into());
+    }
+    if line.starts_with("Creating home file links") {
+        return Some("linking home files".into());
+    }
+    if let Some(pkg) = line.strip_prefix("installing '") {
+        let name = pkg.split('\'').next()?;
+        return Some(format!("installing {name}"));
+    }
+    None
 }
 
 /// Parse a non-fetch line of nix stderr into a progress message.

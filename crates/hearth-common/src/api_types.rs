@@ -685,6 +685,11 @@ pub struct UserEnvClosureResponse {
     /// Build pipeline status for this user's closure.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build_status: Option<UserEnvBuildStatus>,
+    /// Server-side build error (only set when build_status == Failed).
+    /// Surfaced to the user verbatim so login flows can distinguish a
+    /// real build failure from a network/timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_error: Option<String>,
 }
 
 /// Request body for reporting a broken closure from the agent.

@@ -198,15 +198,8 @@ dev:
     else
         echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
     fi
-    # Service directory URLs for dev environment
-    export HEARTH_SERVER_URL=http://localhost:3000
-    export HEARTH_CHAT_URL=http://localhost:8088
-    export HEARTH_CLOUD_URL=http://localhost:8089
-    export HEARTH_IDENTITY_URL=https://localhost:8443
-    export HEARTH_MATRIX_SERVER_NAME=hearth.local
-    export HEARTH_MAIL_IMAP_HOST=localhost
-    export HEARTH_MAIL_SMTP_HOST=localhost
-    export HEARTH_MAIL_DOMAIN=hearth.local
+    # Service URLs baked into per-user closures — single source of truth.
+    set -a; source dev/services.env; set +a
     export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}"
     # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
     export HEARTH_ATTIC_SERVER="http://10.0.2.2:8080"
@@ -234,14 +227,9 @@ dev-full:
     else
         echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
     fi
-    export HEARTH_SERVER_URL=http://localhost:3000
-    export HEARTH_CHAT_URL=http://localhost:8088
-    export HEARTH_CLOUD_URL=http://localhost:8089
-    export HEARTH_IDENTITY_URL=https://localhost:8443
-    export HEARTH_MATRIX_SERVER_NAME=hearth.local
-    export HEARTH_MAIL_IMAP_HOST=localhost
-    export HEARTH_MAIL_SMTP_HOST=localhost
-    export HEARTH_MAIL_DOMAIN=hearth.local
+    # Service URLs baked into per-user closures — single source of truth.
+    set -a; source dev/services.env; set +a
+    # Host-internal endpoints (worker dials these, not the VM).
     export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}"
     export ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}"
     # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
@@ -279,15 +267,8 @@ dev-watch:
     else
         echo "WARNING: dev/kanidm/.env not found — auth disabled. Run 'just setup' first."
     fi
-    # Service directory URLs for dev environment
-    export HEARTH_SERVER_URL=http://localhost:3000
-    export HEARTH_CHAT_URL=http://localhost:8088
-    export HEARTH_CLOUD_URL=http://localhost:8089
-    export HEARTH_IDENTITY_URL=https://localhost:8443
-    export HEARTH_MATRIX_SERVER_NAME=hearth.local
-    export HEARTH_MAIL_IMAP_HOST=localhost
-    export HEARTH_MAIL_SMTP_HOST=localhost
-    export HEARTH_MAIL_DOMAIN=hearth.local
+    # Service URLs baked into per-user closures — single source of truth.
+    set -a; source dev/services.env; set +a
     export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}"
     # Cache URL as seen by enrolled VMs (10.0.2.2 = QEMU host gateway).
     # Uses Attic's port directly — no Caddy proxy needed for HTTP binary cache.
@@ -296,19 +277,15 @@ dev-watch:
 
 # Start a build worker (HEARTH_FLAKE_REF defaults to API tarball endpoint)
 worker:
-    HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}" \
-    ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}" \
-    ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-dev:hearth}" \
-    HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}" \
-    HEARTH_SERVER_URL="${HEARTH_SERVER_URL:-http://localhost:3000}" \
-    HEARTH_CHAT_URL="${HEARTH_CHAT_URL:-http://localhost:8088}" \
-    HEARTH_CLOUD_URL="${HEARTH_CLOUD_URL:-http://localhost:8089}" \
-    HEARTH_IDENTITY_URL="${HEARTH_IDENTITY_URL:-https://localhost:8443}" \
-    HEARTH_MATRIX_SERVER_NAME="${HEARTH_MATRIX_SERVER_NAME:-hearth.local}" \
-    HEARTH_MAIL_IMAP_HOST="${HEARTH_MAIL_IMAP_HOST:-localhost}" \
-    HEARTH_MAIL_SMTP_HOST="${HEARTH_MAIL_SMTP_HOST:-localhost}" \
-    HEARTH_MAIL_DOMAIN="${HEARTH_MAIL_DOMAIN:-hearth.local}" \
-    cargo run -p hearth-build-worker
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Service URLs baked into per-user closures — single source of truth.
+    set -a; source dev/services.env; set +a
+    export HEARTH_FLAKE_REF="${HEARTH_FLAKE_REF:-http://localhost:3000}"
+    export ATTIC_CACHE_URL="${ATTIC_CACHE_URL:-http://localhost:8080}"
+    export ATTIC_CACHE_NAME="${ATTIC_CACHE_NAME:-dev:hearth}"
+    export HEARTH_CACHE_SIGNING_KEY="${HEARTH_CACHE_SIGNING_KEY:-dev/attic/signing-key.sec}"
+    exec cargo run -p hearth-build-worker
 
 # Start build worker with file watching
 worker-watch:
@@ -498,19 +475,23 @@ push-user-env user closure:
     NIX_SSHOPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i dev/ssh/fleet-vm -p 2222" \
         nix copy --to "ssh-ng://dev@localhost" "{{closure}}" --no-check-sigs
     echo "==> Sending ApplyClosure IPC to /run/hearth/agent.sock..."
+    # SSH the python directly via heredoc so the script body survives
+    # justfile + shell + ssh layered quoting (previous version went
+    # through `just fleet-exec` and broke on the script's parens/quotes).
     # Python is always available on NixOS; socket.SOCK_STREAM over AF_UNIX
-    # speaks the agent's newline-delimited JSON IPC protocol natively, and
-    # we read events back until EOF so the caller sees Ready or Error
-    # without needing a separate journalctl tail.
-    REQ=$(printf '{"type":"ApplyClosure","username":"%s","closure":"%s"}' "{{user}}" "{{closure}}")
-    PY_CLIENT='
+    # speaks the agent's newline-delimited JSON IPC protocol natively,
+    # and we read events back until EOF so the caller sees Ready or
+    # Error without needing a separate journalctl tail.
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR -i dev/ssh/fleet-vm -p 2222 dev@localhost \
+        "sudo python3 - <<'PYEOF'
     import json, socket, sys
-    req = sys.argv[1]
+    req = {'type': 'ApplyClosure', 'username': '{{user}}', 'closure': '{{closure}}'}
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect("/run/hearth/agent.sock")
-    s.sendall((req + "\n").encode())
+    s.connect('/run/hearth/agent.sock')
+    s.sendall((json.dumps(req) + '\n').encode())
     s.shutdown(socket.SHUT_WR)
-    buf = b""
+    buf = b''
     while True:
         chunk = s.recv(4096)
         if not chunk: break
@@ -518,10 +499,9 @@ push-user-env user closure:
     for line in buf.decode().splitlines():
         evt = json.loads(line)
         print(json.dumps(evt))
-        if evt.get("type") in ("Ready", "Error"):
-            sys.exit(0 if evt["type"] == "Ready" else 1)
-    '
-    just fleet-exec "sudo python3 -c '$PY_CLIENT' '$REQ'"
+        if evt.get('type') in ('Ready', 'Error'):
+            sys.exit(0 if evt['type'] == 'Ready' else 1)
+    PYEOF"
 
 # Run all checks (clippy, fmt, tests)
 check:

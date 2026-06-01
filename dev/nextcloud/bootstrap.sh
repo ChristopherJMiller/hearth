@@ -66,6 +66,14 @@ echo "==> Configuring trusted domains..."
 occ config:system:set trusted_domains 0 --value="localhost"
 occ config:system:set trusted_domains 1 --value="localhost:8089"
 occ config:system:set trusted_domains 2 --value="nextcloud"
+# Fleet VMs reach Nextcloud as `cloud.hearth.local:8089` (their /etc/hosts
+# maps *.hearth.local to the QEMU host gateway 10.0.2.2, which proxies to
+# the host's port 8089). Without these entries Nextcloud rejects the
+# request with HTTP 400 before any OIDC/login can happen.
+occ config:system:set trusted_domains 3 --value="cloud.hearth.local"
+occ config:system:set trusted_domains 4 --value="cloud.hearth.local:8089"
+# 10.0.2.2 too, for tools dialing the gateway IP directly.
+occ config:system:set trusted_domains 5 --value="10.0.2.2:8089"
 occ config:system:set overwrite.cli.url --value="$NEXTCLOUD_URL"
 occ config:system:set default_phone_region --value="US"
 echo "    Trusted domains configured"

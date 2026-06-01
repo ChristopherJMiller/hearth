@@ -127,8 +127,15 @@
   # --- dconf settings for GNOME ---
   dconf.settings = {
     # --- Dash to Panel: traditional bottom taskbar ---
+    # AppIndicator: surfaces StatusNotifierItem (SNI) DBus tray icons in
+    # the GNOME top bar. GNOME 3+ dropped legacy system tray support, so
+    # without this extension every Qt/Electron app that uses
+    # QSystemTrayIcon (Nextcloud Desktop, Element, Slack, Discord, …)
+    # runs invisibly. Baked into every role's closure because tray is
+    # baseline desktop UX, not a developer convenience.
     "org/gnome/shell" = {
       enabled-extensions = [
+        "appindicatorsupport@rgcjonas.gmail.com"
         "dash-to-panel@jderose9.github.com"
       ];
     };
@@ -189,6 +196,11 @@
     # GNOME integration
     gnome-keyring
     seahorse
+
+    # GNOME extensions — appindicator must be in home.packages (not just
+    # enabled in dconf) so the extension code is available on disk.
+    # Pairs with the dconf enabled-extensions entry above.
+    gnomeExtensions.appindicator
 
     # Fonts (ensure user-level font availability)
     noto-fonts

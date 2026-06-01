@@ -23,6 +23,7 @@ const INCLUDE_PATHS: &[&str] = &[
     "home-modules",
     "overlays",
     "nix",
+    "cpp",
     "Cargo.toml",
     "Cargo.lock",
     "crates",

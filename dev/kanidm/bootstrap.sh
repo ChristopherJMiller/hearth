@@ -199,6 +199,9 @@ create_group() {
     fi
     # Enable POSIX attributes so kanidm-unixd can resolve the group via NSS.
     idm_post "/v1/group/$name/_attr/class" '["posixgroup"]' > /dev/null 2>&1 || true
+    # Kanidm 1.10: groups also need an explicit POST /_unix to allocate a gidnumber
+    # before kanidm-unixd will resolve them. Empty body = auto-allocate.
+    idm_post "/v1/group/$name/_unix" '{}' > /dev/null 2>&1 || true
 }
 
 add_group_member() {
@@ -217,6 +220,12 @@ create_person() {
     # Enable POSIX attributes so kanidm-unixd can resolve the user via NSS
     # and authenticate them via PAM.
     idm_post "/v1/person/$name/_attr/class" '["posixaccount"]' > /dev/null 2>&1 || true
+    # Kanidm 1.10 split posix enablement out of the class push — the entity must
+    # additionally POST /_unix to allocate a gidnumber, otherwise
+    # /v1/account/$name/_unix/_token returns 404 and kanidm-unixd reports
+    # "No provider is willing to service authentication of unknown account".
+    # Empty body lets Kanidm auto-allocate gidnumber from the user's UUID hash.
+    idm_post "/v1/person/$name/_unix" '{}' > /dev/null 2>&1 || true
 }
 
 set_person_password() {

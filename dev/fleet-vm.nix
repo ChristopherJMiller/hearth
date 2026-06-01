@@ -62,8 +62,13 @@ self.lib.mkFleetHost {
         diskSize = 32768;
         resolution = { x = 1920; y = 1080; };
         qemu.options = [
-          "-device" "virtio-vga,xres=1920,yres=1080"
-          "-display" "gtk"
+          # virtio-vga-gl + gl=on enables host-accelerated OpenGL via
+          # virglrenderer. Without it, Mesa in the guest can't initialize
+          # a device and any Qt/GTK app that wants GL (Nextcloud client,
+          # WebEngine views, etc.) crashes at startup. virtio-vga-gl gives
+          # legacy VGA + virgl, virtio-gpu-gl-pci is the same minus VGA.
+          "-device" "virtio-vga-gl,xres=1920,yres=1080"
+          "-display" "gtk,gl=on,show-cursor=on"
           "-device" "virtio-tablet-pci"    # absolute pointing — no mouse grab
           "-audiodev" "pipewire,id=audio0" # audio passthrough to host
           "-device" "intel-hda"

@@ -150,10 +150,7 @@
       ] ++ lib.optionals config.hearth.thunderbird.enable [
         "thunderbird.desktop"
       ];
-      enabled-extensions = [
-        "appindicatorsupport@rgcjonas.gmail.com"
-        "dash-to-panel@jderose9.github.com"
-      ];
+      # enabled-extensions inherited from common.nix (appindicator + dash-to-panel)
     };
 
     "org/gnome/desktop/background" = {
@@ -216,7 +213,6 @@
     nerd-fonts.jetbrains-mono
     nerd-fonts.fira-code
 
-    # GNOME extensions
-    gnomeExtensions.appindicator
+    # gnomeExtensions.appindicator inherited from common.nix
   ];
 }

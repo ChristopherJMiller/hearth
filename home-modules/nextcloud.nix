@@ -47,19 +47,37 @@ in
 
     # --- Pre-configure Nextcloud Desktop client ---
     # Points at the Hearth Nextcloud instance. On first launch, the client
-    # will open a browser for OIDC login via Kanidm.
-    # Nextcloud Desktop config uses QSettings INI format with backslash-delimited
-    # array keys. authType=webflow triggers browser-based OIDC login via Kanidm.
-    # Keys: url, authType, version (from Nextcloud Desktop source: accountmanager.cpp)
-    xdg.configFile."Nextcloud/nextcloud.cfg".text = ''
-[General]
-optionalServerNotifications=true
+    # will open a browser for OIDC login via Kanidm. Config uses QSettings
+    # INI format with backslash-delimited array keys. authType=webflow
+    # triggers browser-based OIDC login via Kanidm. Keys: url, authType,
+    # version (from Nextcloud Desktop source: accountmanager.cpp).
+    #
+    # Why home.activation instead of xdg.configFile.text:
+    #   xdg.configFile.text installs a symlink into /nix/store (read-only).
+    #   Qt's QSettings opens the file with O_RDWR for atomic write-back,
+    #   the open fails with EACCES on the store target, QSettings reports
+    #   AccessError, the client treats it as "no accounts" and quits.
+    #   Installing a writable copy lets QSettings touch it (and lets the
+    #   OIDC webflow persist the auth token here on first login).
+    home.activation.hearthNextcloudCfg = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      CFG_DIR="$HOME/.config/Nextcloud"
+      CFG="$CFG_DIR/nextcloud.cfg"
+      TEMPLATE=${pkgs.writeText "nextcloud.cfg" ''
+        [General]
+        optionalServerNotifications=true
 
-[Accounts]
-version=2
-0\url=${cfg.serverUrl}
-0\authType=webflow
-0\version=1
+        [Accounts]
+        version=2
+        0\url=${cfg.serverUrl}
+        0\authType=webflow
+        0\version=1
+      ''}
+      $DRY_RUN_CMD mkdir -p "$CFG_DIR"
+      # Only seed if missing — preserve auth token + folder config the
+      # client writes after the user completes OIDC login.
+      if [ ! -f "$CFG" ]; then
+        $DRY_RUN_CMD install -m 0644 "$TEMPLATE" "$CFG"
+      fi
     '';
 
     # --- Auto-start Nextcloud sync client on GNOME login ---
