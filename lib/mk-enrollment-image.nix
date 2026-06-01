@@ -11,7 +11,15 @@
 #   }).config.system.build.image;
 #
 
-{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null, kanidmUrl ? null, kanidmClientId ? "hearth-enrollment", kanidmCaCert ? null }:
+{ self, nixpkgs, system ? "x86_64-linux", serverUrl ? "https://hearth.example.com", wifiSupport ? true, cacheUrl ? null, cachePublicKey ? null, kanidmUrl ? null, kanidmClientId ? "hearth-enrollment", kanidmCaCert ? null
+# Optional list of cluster CA certificate paths to bake into the ISO
+# image's system trust store. Used by the in-cluster CA pattern from
+# the Helm chart (`certManager.issuer.type = "ca"`): extract the
+# published `<release>-ca-cert` ConfigMap to a PEM and pass its path
+# here so first contact with the control plane already chains to a
+# trusted root.
+, clusterCaBundle ? [ ]
+}:
 
 let
   lib = nixpkgs.lib;
@@ -56,6 +64,8 @@ nixpkgs.lib.nixosSystem {
         inherit kanidmUrl kanidmClientId;
       } // lib.optionalAttrs (kanidmCaCert != null) {
         inherit kanidmCaCert;
+      } // lib.optionalAttrs (clusterCaBundle != [ ]) {
+        inherit clusterCaBundle;
       };
 
       # --- System basics ---

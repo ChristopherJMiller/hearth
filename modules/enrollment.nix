@@ -63,6 +63,19 @@ in
         the TLS connection without user interaction.
       '';
     };
+
+    clusterCaBundle = lib.mkOption {
+      type = lib.types.listOf lib.types.path;
+      default = [ ];
+      example = lib.literalExpression "[ ./hearth-cluster-ca.crt ]";
+      description = ''
+        Extra CA certificate files to bake into the ISO's system trust
+        store. Use this for the in-cluster Hearth CA published by the
+        Helm chart's `certManager.issuer.type = "ca"` path so the
+        enrollment image trusts every Hearth ingress on first boot
+        without an out-of-band trust bootstrap step.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -203,6 +216,7 @@ in
     # exist yet (fresh checkout, haven't run setup), we just skip it.
     security.pki.certificateFiles =
       lib.optional (cfg.kanidmCaCert != null) cfg.kanidmCaCert
+      ++ cfg.clusterCaBundle
       ++ lib.optional (builtins.pathExists ../dev/caddy/root.crt) ../dev/caddy/root.crt;
 
     # --- Disable unnecessary services for a minimal enrollment image ---
