@@ -249,6 +249,9 @@
             pkgs = kanidmPkgs;
             inherit lib hearth-agent hearth-greeter;
           };
+          # Pure-Nix eval tests for home-manager modules — no VM, ~1s each.
+          home-firefox-eval = import ./tests/firefox-module-eval.nix { inherit pkgs lib; };
+          home-libreoffice-eval = import ./tests/libreoffice-module-eval.nix { inherit pkgs lib; };
         } // lib.optionalAttrs (pkgs.stdenv.isLinux && pkgs.stdenv.hostPlatform.isx86_64) {
           # hearth-office-oxt only builds on x86_64-linux (LO 26.2 UNO libs
           # are x86_64-only in the libreoffice-uno-libs derivation).
