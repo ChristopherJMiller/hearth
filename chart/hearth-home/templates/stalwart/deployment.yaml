@@ -21,10 +21,13 @@ spec:
         {{- include "hearth-home.selectorLabels" (dict "context" . "component" "stalwart") | nindent 8 }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
           command: ['sh', '-c', 'until nc -z {{ if .Values.postgresql.enabled }}{{ .Release.Name }}-postgresql{{ else }}{{ .Values.externalDatabase.host }}{{ end }} 5432; do echo "Waiting for PostgreSQL..."; sleep 2; done']
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
         {{- if and .Values.capabilities.identity .Values.stalwart.oidc.enabled }}
         - name: inject-oidc-secret
           image: busybox:1.36
@@ -35,6 +38,8 @@ spec:
                 secretKeyRef:
                   name: {{ if .Values.stalwart.oidc.existingSecret }}{{ .Values.stalwart.oidc.existingSecret }}{{ else }}{{ include "hearth-home.fullname" . }}-kanidm-credentials{{ end }}
                   key: {{ .Values.stalwart.oidc.existingSecretKey | default "stalwart-oidc-secret" }}
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
           volumeMounts:
             - name: config-dir
               mountPath: /opt/stalwart/etc
@@ -97,6 +102,8 @@ spec:
         - name: stalwart
           image: "{{ .Values.stalwart.image.repository }}:{{ .Values.stalwart.image.tag }}"
           imagePullPolicy: {{ .Values.stalwart.image.pullPolicy }}
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
           ports:
             - name: http
               containerPort: 8080

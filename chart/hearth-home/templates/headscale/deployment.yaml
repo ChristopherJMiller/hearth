@@ -21,10 +21,13 @@ spec:
         {{- include "hearth-home.selectorLabels" (dict "context" . "component" "headscale") | nindent 8 }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
       containers:
         - name: headscale
           image: "{{ .Values.headscale.image.repository }}:{{ .Values.headscale.image.tag }}"
           imagePullPolicy: {{ .Values.headscale.image.pullPolicy }}
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
           command: ["headscale", "serve"]
           ports:
             - name: http

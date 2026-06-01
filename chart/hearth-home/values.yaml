@@ -61,7 +61,10 @@ certManager:
 api:
   image:
     repository: ghcr.io/your-org/hearth-api
-    tag: latest
+    # Pinned to a workspace version rather than `latest` so deploys are
+    # reproducible — override to a specific build tag (or @sha256:<digest>)
+    # in your environment's values overlay.
+    tag: "0.1.0"
     pullPolicy: IfNotPresent
 
   replicas: 2
@@ -158,7 +161,9 @@ externalDatabase:
 attic:
   image:
     repository: ghcr.io/zhaofengli/attic
-    tag: latest
+    # Pinned rather than `latest` for reproducible deploys. Override in
+    # your values overlay when a newer attic release is wanted.
+    tag: "main-9a37edb"
     pullPolicy: IfNotPresent
 
   replicas: 1
@@ -211,7 +216,11 @@ attic:
 kanidm:
   image:
     repository: kanidm/server
-    tag: "1.9.0"
+    # Pinned to 1.10.1 to match the global pin in CLAUDE.md (flake.nix
+    # overlay, docker-compose.yml, nix/kanidm-cli.nix). Bump all four
+    # together. Kanidm releases on a fast cadence; 1.9 reached EOL
+    # 2026-05-31.
+    tag: "1.10.1"
     pullPolicy: IfNotPresent
 
   resources:
@@ -244,7 +253,8 @@ kanidm:
     enabled: true
     image:
       repository: bitnami/kubectl
-      tag: latest
+      # Pinned (nextcloud bootstrap uses 1.31 — same convention).
+      tag: "1.31"
       pullPolicy: IfNotPresent
     groups:
       - hearth-users
@@ -347,7 +357,8 @@ headscale:
 buildWorker:
   image:
     repository: ghcr.io/your-org/hearth-build-worker
-    tag: latest
+    # Pinned rather than `latest` — bump in lockstep with api.image.tag.
+    tag: "0.1.0"
     pullPolicy: IfNotPresent
 
   replicas: 1

@@ -19,9 +19,10 @@ spec:
         {{- include "hearth-home.selectorLabels" (dict "context" . "component" "attic") | nindent 8 }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
       initContainers:
         - name: inject-secret
-          image: busybox:latest
+          image: busybox:1.36
           command:
             - sh
             - -c
@@ -35,6 +36,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "hearth-home.secretName" . }}
                   key: attic-token-secret
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
           volumeMounts:
             - name: config-template
               mountPath: /etc/attic-template
@@ -45,6 +48,8 @@ spec:
         - name: attic
           image: "{{ .Values.attic.image.repository }}:{{ .Values.attic.image.tag }}"
           imagePullPolicy: {{ .Values.attic.image.pullPolicy }}
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
           command:
             - atticd
           args:

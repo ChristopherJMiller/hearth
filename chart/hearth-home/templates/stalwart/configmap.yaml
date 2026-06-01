@@ -65,7 +65,14 @@ data:
     # Authentication — Kanidm OIDC/OAuth2
     # ---------------------------------------------------------------
     [auth.oauth]
-    key = "%{file:/opt/stalwart-mail/etc/oidc_client_secret}%"
+    # Path must match the volumeMount target in
+    # templates/stalwart/deployment.yaml's inject-oidc-secret init container
+    # (writes to /opt/stalwart/etc/oidc_client_secret). The legacy
+    # /opt/stalwart-mail/etc/ path was a leftover from the pre-v0.11
+    # image layout and silently produced an empty OIDC client secret at
+    # boot — auth was broken without anyone noticing in dev (where
+    # docker-compose uses /opt/stalwart/etc consistently).
+    key = "%{file:/opt/stalwart/etc/oidc_client_secret}%"
 
     [oauth."kanidm"]
     issuer-url = "{{ include "hearth-home.kanidmUrl" . }}/oauth2/openid/hearth-stalwart"

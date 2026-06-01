@@ -21,6 +21,7 @@ spec:
         {{- include "hearth-home.selectorLabels" (dict "context" . "component" "build-worker") | nindent 8 }}
     spec:
       {{- include "hearth-home.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
@@ -32,6 +33,14 @@ spec:
                 echo "Waiting for PostgreSQL..."
                 sleep 2
               done
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
+      # Note: main `build-worker` container intentionally has no
+      # restrictedSecurityContext — `nix build` historically needs
+      # /nix/store writable plus user-namespace support, and sandboxing
+      # may require SYS_ADMIN. Revisit once the worker is confirmed
+      # to work with drop=ALL + readOnlyRootFilesystem (see hardening
+      # review accepted-risk list).
       containers:
         - name: build-worker
           image: "{{ .Values.buildWorker.image.repository }}:{{ .Values.buildWorker.image.tag }}"
