@@ -5,18 +5,16 @@ metadata:
   name: {{ include "hearth-home.fullname" . }}-nextcloud
   labels:
     {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
-  {{- with .Values.nextcloud.ingress.annotations }}
   annotations:
+    {{- include "hearth-home.certManagerIngressAnnotation" (dict "context" . "userTls" .Values.nextcloud.ingress.tls) | nindent 4 }}
+    {{- with .Values.nextcloud.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   {{- if .Values.nextcloud.ingress.className }}
   ingressClassName: {{ .Values.nextcloud.ingress.className }}
   {{- end }}
-  {{- if .Values.nextcloud.ingress.tls }}
-  tls:
-    {{- toYaml .Values.nextcloud.ingress.tls | nindent 4 }}
-  {{- end }}
+  {{- include "hearth-home.ingressTls" (dict "context" . "userTls" .Values.nextcloud.ingress.tls "hosts" .Values.nextcloud.ingress.hosts "component" "nextcloud") | nindent 2 }}
   rules:
     {{- range .Values.nextcloud.ingress.hosts }}
     - host: {{ .host | quote }}

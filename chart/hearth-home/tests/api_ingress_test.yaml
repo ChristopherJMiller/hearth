@@ -65,3 +65,59 @@ tests:
       - equal:
           path: metadata.annotations.custom-annotation
           value: test-value
+
+  # ------------------------------------------------------------------
+  # H-006: cert-manager TLS auto-wiring (templates/_helpers.tpl)
+  # ------------------------------------------------------------------
+  - it: cert-manager off — no cert-manager annotation, tls preserved as-is
+    set:
+      certManager.enabled: false
+    asserts:
+      - notExists:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+      - notExists:
+          path: spec.tls
+
+  - it: cert-manager on + no user tls — auto-wires cluster-issuer annotation + tls block
+    set:
+      certManager.enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+          value: hearth-hearth-home-issuer
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: hearth.example.com
+      - equal:
+          path: spec.tls[0].secretName
+          value: hearth-hearth-home-api-tls
+
+  - it: cert-manager on + existing Issuer of kind Issuer — uses issuer annotation
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: existing
+      certManager.issuer.existing.name: my-existing-issuer
+      certManager.issuer.existing.kind: Issuer
+    asserts:
+      - equal:
+          path: metadata.annotations["cert-manager.io/issuer"]
+          value: my-existing-issuer
+      - notExists:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+
+  - it: cert-manager on + user-supplied tls — user-supplied wins, no auto-wire
+    set:
+      certManager.enabled: true
+      api.ingress.tls:
+        - hosts:
+            - user-host.example.com
+          secretName: user-supplied-tls
+    asserts:
+      - notExists:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+      - equal:
+          path: spec.tls[0].secretName
+          value: user-supplied-tls
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: user-host.example.com

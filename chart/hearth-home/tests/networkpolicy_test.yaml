@@ -1,0 +1,241 @@
+suite: NetworkPolicy (H-003)
+templates:
+  - networkpolicy.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  # ------------------------------------------------------------------
+  # Default-off render path
+  # ------------------------------------------------------------------
+  - it: renders nothing when networkPolicy.enabled=false
+    set:
+      networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ------------------------------------------------------------------
+  # Default-deny policy is always rendered when NPs are enabled
+  # ------------------------------------------------------------------
+  - it: emits a default-deny NetworkPolicy for the whole release
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-default-deny
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - contains:
+          path: spec.policyTypes
+          content: Ingress
+      - contains:
+          path: spec.policyTypes
+          content: Egress
+
+  - it: emits a DNS-egress allow rule by default
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-allow-dns
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels['kubernetes.io/metadata.name']
+          value: kube-system
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels.k8s-app
+          value: kube-dns
+
+  - it: DNS egress can be turned off
+    set:
+      networkPolicy.allowDnsEgress: false
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-allow-dns
+      matchMany: true
+      skipEmptyTemplates: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ------------------------------------------------------------------
+  # Always-on capabilities (api, attic, oauth2-proxy) render their NPs
+  # ------------------------------------------------------------------
+  - it: emits per-workload NP for hearth-api
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-api
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels['app.kubernetes.io/component']
+          value: api
+
+  - it: emits per-workload NP for attic
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-attic
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels['app.kubernetes.io/component']
+          value: attic
+
+  - it: emits per-workload NP for oauth2-proxy
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-oauth2-proxy
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels['app.kubernetes.io/component']
+          value: oauth2-proxy
+
+  # ------------------------------------------------------------------
+  # Capability-gated NPs only render when the capability is on
+  # ------------------------------------------------------------------
+  - it: kanidm NP renders when capabilities.identity=true
+    set:
+      capabilities.identity: true
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-kanidm
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+
+  - it: kanidm NP does NOT render when capabilities.identity=false
+    set:
+      capabilities.identity: false
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-kanidm
+      matchMany: true
+      skipEmptyTemplates: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: headscale NP does NOT render when capabilities.mesh=false
+    set:
+      capabilities.mesh: false
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-headscale
+      matchMany: true
+      skipEmptyTemplates: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: synapse NP does NOT render when capabilities.chat=false
+    set:
+      capabilities.chat: false
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-synapse
+      matchMany: true
+      skipEmptyTemplates: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: nextcloud NP does NOT render when capabilities.cloud=false
+    set:
+      capabilities.cloud: false
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-nextcloud
+      matchMany: true
+      skipEmptyTemplates: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: build-worker NP does NOT render when capabilities.builds=false
+    set:
+      capabilities.builds: false
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-build-worker
+      matchMany: true
+      skipEmptyTemplates: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ------------------------------------------------------------------
+  # Custom ingress controller selector flows into the from clauses
+  # ------------------------------------------------------------------
+  - it: ingress controller selector is honoured
+    set:
+      networkPolicy.ingressControllerSelector:
+        namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: traefik-system
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: traefik
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-api
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels['kubernetes.io/metadata.name']
+          value: traefik-system
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels['app.kubernetes.io/name']
+          value: traefik
+
+  # ------------------------------------------------------------------
+  # api NP egress targets Postgres + (optionally) Kanidm
+  # ------------------------------------------------------------------
+  - it: api NP allows egress to Postgres
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-api
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels['app.kubernetes.io/name']
+          value: postgresql
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 5432
+
+  - it: api NP allows egress to kanidm when identity capability is on
+    set:
+      capabilities.identity: true
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-api
+    asserts:
+      - matchRegex:
+          path: spec.egress[1].to[0].podSelector.matchLabels['app.kubernetes.io/component']
+          pattern: kanidm
+
+  # ------------------------------------------------------------------
+  # Extra-egress CIDR list emits a dedicated allow-NP
+  # ------------------------------------------------------------------
+  - it: extra egress CIDRs render an allowlist NP
+    set:
+      networkPolicy.extraEgressCidrs:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-extra-egress
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.egress[0].to[0].ipBlock.cidr
+          value: 10.0.0.0/8
+      - equal:
+          path: spec.egress[0].to[1].ipBlock.cidr
+          value: 172.16.0.0/12

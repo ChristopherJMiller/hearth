@@ -35,9 +35,28 @@ capabilities:
 certManager:
   enabled: false
 
-  # Issuer configuration. One of: selfSigned, acme, existing
+  # Issuer configuration. One of: selfSigned, ca, acme, existing
   issuer:
     type: selfSigned
+
+    # For type=ca — creates a self-signed root + a CA-backed ClusterIssuer
+    # that signs every ingress cert from a single in-cluster CA. The CA
+    # certificate is published to a Kubernetes Secret (and optionally a
+    # ConfigMap, see `publishCaConfigMap`) so fleet agents can pin one
+    # trust root for the whole deployment — air-gap-friendly and the
+    # cleanest path for local-cluster testing (kind / k3d / minikube)
+    # where ACME http01 challenges aren't reachable.
+    ca:
+      # Common name + duration of the root CA certificate. Bump
+      # `duration` to multi-year for production; the in-chart default
+      # mirrors cert-manager's own example.
+      commonName: "Hearth Home CA"
+      duration: 87600h  # 10 years
+      renewBefore: 720h # 30 days
+      # When true, also expose the CA cert in a ConfigMap named
+      # `<fullname>-ca-cert` (key: ca.crt). Easier for downstream
+      # tooling that can't read Secrets across namespaces.
+      publishCaConfigMap: false
 
     # For type=acme — creates an ACME ClusterIssuer (Let's Encrypt by default)
     acme:
@@ -54,6 +73,45 @@ certManager:
     existing:
       name: ""
       kind: ClusterIssuer  # or Issuer
+
+# ============================================================
+# NetworkPolicy (default-deny + per-capability allow rules)
+# ============================================================
+# Renders a default-deny NetworkPolicy plus one per-workload allow
+# policy per enabled capability. The goal is to stop a compromise in
+# one capability (e.g. Nextcloud) from reaching every other service in
+# the namespace (Postgres, Kanidm, Headscale) by default — see
+# H-003 in the hardening-reviewer audit.
+#
+# Requires a CNI with NetworkPolicy support (Calico, Cilium, Antrea,
+# the kindnet variant in kind, etc.). Disable for clusters using a
+# legacy CNI that ignores them — silently dropped policies are worse
+# than no policy at all.
+networkPolicy:
+  enabled: true
+
+  # The pod-selector label/value of the ingress controller deployment.
+  # Used by the per-capability allow rules to permit external HTTP
+  # traffic into the ingresses. Defaults match ingress-nginx; override
+  # for other controllers (Traefik: app=traefik, HAProxy: app=haproxy
+  # -ingress, etc.).
+  ingressControllerSelector:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: ingress-nginx
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: ingress-nginx
+
+  # Allow DNS egress from every pod in the release. Disable only if
+  # you have a cluster-wide policy that already permits this.
+  allowDnsEgress: true
+
+  # Additional CIDRs every workload may reach outbound. Empty by
+  # default — Hearth pulls images via the kubelet, not from inside the
+  # workload pods. Add entries here if a workload needs to reach an
+  # external API.
+  extraEgressCidrs: []
 
 # ============================================================
 # hearth-api (always deployed)
@@ -251,10 +309,22 @@ kanidm:
 
   bootstrap:
     enabled: true
+    # The bootstrap Job no longer kubectl-execs into the kanidm pod
+    # (H-002). It runs alpine + curl, reads pre-recovered admin
+    # credentials from a Secret the kanidm StatefulSet's init
+    # containers populate, then drives Kanidm's REST API. The image
+    # only needs sh + curl + jq, so the surface area is intentionally
+    # tiny.
     image:
-      repository: bitnami/kubectl
-      # Pinned (nextcloud bootstrap uses 1.31 — same convention).
-      tag: "1.31"
+      repository: alpine
+      tag: "3.20"
+      pullPolicy: IfNotPresent
+    # Image used by the in-pod kanidm credential-publisher init
+    # container (writes the recovered admin/idm_admin passwords into
+    # `<fullname>-kanidm-recovery`). Same minimal alpine + curl setup.
+    publisherImage:
+      repository: alpine
+      tag: "3.20"
       pullPolicy: IfNotPresent
     groups:
       - hearth-users

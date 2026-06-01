@@ -22,16 +22,26 @@ metadata:
     helm.sh/hook: post-install
     helm.sh/hook-weight: "5"
     helm.sh/hook-delete-policy: before-hook-creation
+# H-002: pods/exec is gone. The Job no longer execs into the kanidm
+# pod — the StatefulSet itself recovers admin credentials and hands
+# them off via the <fullname>-kanidm-recovery Secret. The Job's
+# secrets RBAC is restricted to the two specific Secrets it actually
+# touches: read the recovery Secret, upsert the final credentials
+# Secret. No wildcard resourceNames, no list/watch/delete.
 rules:
   - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ include "hearth-home.fullname" . }}-kanidm-recovery
+    verbs: ["get"]
   - apiGroups: [""]
-    resources: ["pods/exec"]
+    resources: ["secrets"]
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "create", "update", "patch"]
+    resourceNames:
+      - {{ include "hearth-home.fullname" . }}-kanidm-credentials
+    verbs: ["get", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -76,12 +86,28 @@ spec:
         - name: bootstrap
           image: "{{ .Values.kanidm.bootstrap.image.repository }}:{{ .Values.kanidm.bootstrap.image.tag }}"
           imagePullPolicy: {{ .Values.kanidm.bootstrap.image.pullPolicy }}
-          command: ["/bin/bash", "/scripts/bootstrap.sh"]
+          securityContext:
+            {{- include "hearth-home.restrictedSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "/scripts/bootstrap.sh"]
           env:
-            - name: KANIDM_POD
-              value: {{ include "hearth-home.fullname" . }}-kanidm-0
+            # Credentials are sourced from the recovery Secret the
+            # kanidm StatefulSet's publish-recovery init container
+            # writes. Direct env-var mount means the Job doesn't need
+            # RBAC to read the Secret — kubelet projects it.
+            - name: ADMIN_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.fullname" . }}-kanidm-recovery
+                  key: admin-password
+            - name: IDM_ADMIN_PW
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hearth-home.fullname" . }}-kanidm-recovery
+                  key: idm-admin-password
             - name: KANIDM_NAMESPACE
-              value: {{ .Release.Namespace }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: KANIDM_URL
               value: "https://{{ include "hearth-home.fullname" . }}-kanidm:{{ .Values.kanidm.service.port }}"
             - name: KANIDM_DOMAIN
@@ -94,9 +120,16 @@ spec:
             - name: scripts
               mountPath: /scripts
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: scripts
           configMap:
             name: {{ include "hearth-home.fullname" . }}-kanidm-bootstrap
+        # tmp is required because the alpine image's busybox sh + curl
+        # need a writable scratch dir and the security context pins
+        # readOnlyRootFilesystem.
+        - name: tmp
+          emptyDir: {}
 {{- end }}
 {{- end }}

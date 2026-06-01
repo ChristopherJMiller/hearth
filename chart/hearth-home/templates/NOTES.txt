@@ -80,3 +80,18 @@ Hearth Home Cluster has been deployed!
 3. Retrieve Kanidm admin credentials:
    $ kubectl get secret {{ include "hearth-home.fullname" . }}-kanidm-credentials -o jsonpath='{.data.admin-password}' | base64 -d
 {{- end }}
+{{- if and .Values.certManager.enabled (eq .Values.certManager.issuer.type "ca") }}
+
+4. Pin the in-cluster CA on fleet hosts. The chart published one root
+   that signs every Hearth ingress cert. Extract it once per cluster:
+   $ kubectl get secret {{ include "hearth-home.fullname" . }}-ca-key \
+       -o jsonpath='{.data.ca\.crt}' | base64 -d > hearth-cluster-ca.crt
+{{- if .Values.certManager.issuer.ca.publishCaConfigMap }}
+   # (or via the published ConfigMap)
+   $ kubectl get configmap {{ include "hearth-home.fullname" . }}-ca-cert \
+       -o jsonpath='{.data.ca\.crt}' > hearth-cluster-ca.crt
+{{- end }}
+   # …then pass the file path to lib.mkFleetHost as `clusterCaBundle`
+   # (or `services.hearth.agent.trustedCaBundle = [ ./hearth-cluster-ca.crt ];`).
+   # The enrollment ISO builder accepts the same parameter at build time.
+{{- end }}

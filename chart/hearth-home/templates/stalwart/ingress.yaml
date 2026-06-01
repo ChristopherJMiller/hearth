@@ -5,18 +5,16 @@ metadata:
   name: {{ include "hearth-home.fullname" . }}-stalwart
   labels:
     {{- include "hearth-home.componentLabels" (dict "context" . "component" "stalwart") | nindent 4 }}
-  {{- with .Values.stalwart.ingress.annotations }}
   annotations:
+    {{- include "hearth-home.certManagerIngressAnnotation" (dict "context" . "userTls" .Values.stalwart.ingress.tls) | nindent 4 }}
+    {{- with .Values.stalwart.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   {{- if .Values.stalwart.ingress.className }}
   ingressClassName: {{ .Values.stalwart.ingress.className }}
   {{- end }}
-  {{- if .Values.stalwart.ingress.tls }}
-  tls:
-    {{- toYaml .Values.stalwart.ingress.tls | nindent 4 }}
-  {{- end }}
+  {{- include "hearth-home.ingressTls" (dict "context" . "userTls" .Values.stalwart.ingress.tls "hosts" .Values.stalwart.ingress.hosts "component" "stalwart") | nindent 2 }}
   rules:
     {{- range .Values.stalwart.ingress.hosts }}
     - host: {{ .host | quote }}

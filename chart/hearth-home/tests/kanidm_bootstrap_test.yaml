@@ -2,6 +2,8 @@ suite: Kanidm Bootstrap
 templates:
   - kanidm/job-bootstrap.yaml
   - kanidm/bootstrap-configmap.yaml
+  - kanidm/serviceaccount.yaml
+  - kanidm/statefulset.yaml
 release:
   name: hearth
   namespace: default
@@ -39,25 +41,83 @@ tests:
       - isKind:
           of: ServiceAccount
 
-  - it: should create Role with pods/exec and secrets permissions
+  # ---------- H-002 hardening: RBAC narrowing ----------
+
+  - it: Job Role does NOT include pods/exec verb
     template: kanidm/job-bootstrap.yaml
     documentIndex: 1
     asserts:
       - isKind:
           of: Role
-      - contains:
+      - notContains:
           path: rules
           content:
             apiGroups: [""]
             resources: ["pods/exec"]
             verbs: ["create"]
           any: true
+
+  - it: Job Role does NOT include pods verbs at all
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+          any: true
+
+  - it: Job Role pins read access to the kanidm-recovery Secret by name
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 1
+    asserts:
       - contains:
           path: rules
           content:
             apiGroups: [""]
             resources: ["secrets"]
-            verbs: ["get", "create", "update", "patch"]
+            resourceNames:
+              - hearth-hearth-home-kanidm-recovery
+            verbs: ["get"]
+          any: true
+
+  - it: Job Role only allows create on secrets (no wildcard get/list)
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["create"]
+          any: true
+
+  - it: Job Role pins update/patch to the credentials Secret by name
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            resourceNames:
+              - hearth-hearth-home-kanidm-credentials
+            verbs: ["get", "update", "patch"]
+          any: true
+
+  - it: Job Role does NOT contain wildcard resource names
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 1
+    asserts:
+      # Wildcard resourceNames: ["*"] is invalid in RBAC but operators
+      # have been known to write it anyway. Ensure no rule uses it.
+      - notContains:
+          path: rules
+          content:
+            resourceNames: ["*"]
           any: true
 
   - it: should create RoleBinding for bootstrap
@@ -77,32 +137,71 @@ tests:
           path: metadata.annotations["helm.sh/hook"]
           value: post-install
 
-  - it: should set correct env vars in bootstrap Job
+  - it: Job image is NOT bitnami/kubectl
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 3
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: bitnami/kubectl
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^alpine:"
+
+  - it: Job applies the hardened securityContext
+    template: kanidm/job-bootstrap.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  - it: Job env reads admin creds from the recovery Secret via secretKeyRef
     template: kanidm/job-bootstrap.yaml
     documentIndex: 3
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: KANIDM_POD
+            name: ADMIN_PW
+            valueFrom:
+              secretKeyRef:
+                name: hearth-hearth-home-kanidm-recovery
+                key: admin-password
           any: true
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: KANIDM_NAMESPACE
-          any: true
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KANIDM_URL
-          any: true
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KANIDM_SECRET_NAME
+            name: IDM_ADMIN_PW
+            valueFrom:
+              secretKeyRef:
+                name: hearth-hearth-home-kanidm-recovery
+                key: idm-admin-password
           any: true
 
   # ---------- Bootstrap ConfigMap ----------
+
+  - it: bootstrap script does NOT call kubectl exec or recover-account
+    template: kanidm/bootstrap-configmap.yaml
+    asserts:
+      # Active calls (not header comments). Tighten to look for the
+      # actual invocation form so the comment that says "no longer
+      # uses kubectl exec" doesn't trigger a false positive.
+      - notMatchRegex:
+          path: data["bootstrap.sh"]
+          pattern: '\bkubectl exec\b.*--'
+      - notMatchRegex:
+          path: data["bootstrap.sh"]
+          pattern: 'kanidmd recover-account'
 
   - it: should render bootstrap script with configured groups
     template: kanidm/bootstrap-configmap.yaml
@@ -151,3 +250,79 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # ---------- Kanidm StatefulSet credential-recovery init containers ----------
+
+  - it: StatefulSet has the recover-credentials init container
+    template: kanidm/statefulset.yaml
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - contains:
+          path: spec.template.spec.initContainers
+          content:
+            name: recover-credentials
+          any: true
+      - contains:
+          path: spec.template.spec.initContainers
+          content:
+            name: publish-recovery
+          any: true
+
+  - it: StatefulSet mounts an in-memory recovery emptyDir
+    template: kanidm/statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: recovery
+            emptyDir:
+              medium: Memory
+          any: true
+
+  - it: StatefulSet uses the dedicated kanidm-server ServiceAccount
+    template: kanidm/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: hearth-hearth-home-kanidm-server
+
+  - it: StatefulSet drops the recovery init containers when bootstrap is off
+    template: kanidm/statefulset.yaml
+    set:
+      kanidm.bootstrap.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  # ---------- Kanidm-server SA + Role: scope is narrow ----------
+
+  - it: kanidm-server SA renders only when identity + bootstrap are on
+    template: kanidm/serviceaccount.yaml
+    set:
+      kanidm.bootstrap.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: kanidm-server Role can only get/update/patch the recovery Secret by name
+    template: kanidm/serviceaccount.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Role
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            resourceNames:
+              - hearth-hearth-home-kanidm-recovery
+            verbs: ["get", "update", "patch"]
+          any: true
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods/exec"]
+          any: true
