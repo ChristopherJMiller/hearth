@@ -81,8 +81,8 @@ Fan-out on the server side:
 
 ## Rollout
 
-1. RFC accepted (this doc).
-2. Land `AgentRequest::ApplyClosure` + `just push-user-env` behind the dev-only IPC gate. Zero impact on prod.
+1. ~~RFC accepted (this doc).~~
+2. ~~Land `AgentRequest::ApplyClosure` + `just push-user-env` behind the dev-only IPC gate. Zero impact on prod.~~ **Done.** Variant lives in `crates/hearth-common/src/ipc.rs`; handler in `crates/hearth-agent/src/ipc.rs::handle_apply_closure` gated by the `HEARTH_ENABLE_DEV_PUSH=1` env var (set in `dev/fleet-vm.nix`, unset in production). Wire-format tests in `crates/hearth-common/src/ipc.rs::tests`. CLI in the `push-user-env` justfile recipe (Python AF_UNIX client over the existing SSH:2222 fleet-VM shortcut).
 3. Add the SSE endpoint + broadcast plumbing on the API. Agent opts in via config (`push.enabled = false` initially).
 4. Flip `push.enabled = true` in the default agent config once observed reconnect-storm metrics look sane on the dev fleet.
 5. Drop poll cadence to 300s under healthy stream; ship.
