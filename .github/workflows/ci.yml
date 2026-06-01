@@ -1,5 +1,43 @@
 name: CI
 
+# Coverage map — what runs where:
+#
+#   check (nix flake check):
+#     - All VM tests under tests/*.nix (vm-full-login-flow,
+#       vm-libreoffice-extension, vm-agent-heartbeat, vm-kanidm-auth,
+#       vm-headscale-mesh, vm-full-enrollment, vm-disko-provision,
+#       vm-agent-config-roundtrip, vm-offline-fallback,
+#       vm-agent-polling, vm-agent-system-switch, vm-desktop-baseline)
+#     - workspaceClippy, workspaceFmt, workspaceTests, helmChartLint
+#
+#   cargo-lint (nix develop --command):
+#     - cargo fmt --check (workspace-wide)
+#     - cargo clippy --workspace --deny warnings
+#     - cargo test --workspace
+#       Includes the rust_uno path dep (the devShell shellHook
+#       symlinks ${rust-uno} → $PWD/rust_uno; doctests are disabled
+#       on rust_uno via nix/rust-uno/default.nix so this step stays
+#       green even though the vendored crate has stale `use` paths in
+#       its `///` examples).
+#
+#   cargo-integration (postgres service):
+#     - cargo test --workspace -- --ignored
+#       Picks up everything #[ignore]'d behind DATABASE_URL — the
+#       /api/v1/* HTTP route tests under crates/hearth-api/tests/api/.
+#       Non-DB integration tests (tests/api/fleet_config.rs) run in
+#       cargo-lint above.
+#
+#   web-check:
+#     - pnpm install --frozen-lockfile, tsc --build for @hearth/ui,
+#       pnpm typecheck + build for @hearth/web.
+#
+# The Helm chart has its own workflow (.github/workflows/helm.yml):
+# helm lint --strict, helm-unittest, kubeconform, and a kind-cluster
+# install smoke test via ct.
+#
+# When adding a new test target, decide which job runs it and update
+# this map.
+
 on:
   push:
     branches: [main]
