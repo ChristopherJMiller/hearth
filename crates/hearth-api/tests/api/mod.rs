@@ -9,6 +9,7 @@ mod deployments;
 mod desktop_prefs;
 mod enrollment;
 mod environments;
+mod events;
 mod fleet_config;
 mod health;
 mod heartbeat;

@@ -5,6 +5,7 @@ pub mod db;
 pub mod deployment_fsm;
 mod deployment_monitor;
 pub mod error;
+pub mod events;
 pub mod headscale;
 pub mod health_check;
 pub mod identity_sync;
@@ -111,6 +112,24 @@ pub struct AppState {
     pub services: Vec<hearth_common::api_types::ServiceInfo>,
     /// Matrix server name for directory contact derivation (e.g. `hearth.local`).
     pub matrix_server_name: Option<String>,
+    /// Per-machine event bus for the SSE push fast-path (RFC-001).
+    pub event_bus: std::sync::Arc<events::EventBus>,
+}
+
+/// Run the LISTEN/NOTIFY listener forever, forwarding cross-replica
+/// machine events into the local in-process [`events::EventBus`].
+///
+/// Spawn this once per API replica alongside the other background
+/// tasks in `main.rs`. Without it, an SSE subscriber on this replica
+/// would only see events triggered by writes that hit *this* replica
+/// (or this process, including the build worker if it's co-located —
+/// it's not).
+pub async fn event_listener_run(
+    pool: PgPool,
+    bus: std::sync::Arc<events::EventBus>,
+    cancel: CancellationToken,
+) {
+    events::run_listener(pool, bus, cancel).await;
 }
 
 pub fn machines_routes() -> Router<AppState> {
@@ -128,6 +147,10 @@ pub fn machines_routes() -> Router<AppState> {
         .route(
             "/{id}/target-state",
             get(routes::machines::get_target_state),
+        )
+        .route(
+            "/{id}/events",
+            get(routes::machine_events::machine_events_stream),
         )
         .route(
             "/{id}/actions",

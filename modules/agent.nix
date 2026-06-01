@@ -17,6 +17,10 @@ let
       poll_interval_secs = cfg.pollInterval;
       socket_path = cfg.socketPath;
       machine_token_path = cfg.machineTokenPath;
+      push = {
+        enabled = cfg.push.enable;
+        pushed_poll_interval_secs = cfg.push.pushedPollInterval;
+      };
     };
   } // lib.optionalAttrs (cfg.binaryCacheUrl != null) {
     cache.url = cfg.binaryCacheUrl;
@@ -139,6 +143,52 @@ in
         `home-manager switch --flake <ref>`. Null to disable
         home-manager based user environment management.
       '';
+    };
+
+    trustedCaBundle = lib.mkOption {
+      type = lib.types.listOf lib.types.path;
+      default = [ ];
+      example = lib.literalExpression "[ ./hearth-cluster-ca.crt ]";
+      description = ''
+        Extra CA certificate files to install into the system trust
+        store (security.pki.certificateFiles). Use this to trust an
+        in-cluster Hearth CA — the cert-manager
+        `certManager.issuer.type = "ca"` path in the Helm chart
+        publishes one root, and every ingress cert is signed by it.
+        Pinning that one PEM here means every *.hearth.example.com
+        endpoint (control plane, Attic, Kanidm, Matrix, Nextcloud,
+        Mail) chains to a trusted root without per-host self-signed
+        exceptions.
+
+        Each file is mounted verbatim into the system trust bundle.
+        Multiple bundles concatenate cleanly — list both an internal
+        CA and an external auditor CA, for example.
+      '';
+    };
+
+    push = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Opt into the SSE push fast-path (RFC-001). When true, the
+          agent keeps a long-lived GET /api/v1/machines/{id}/events
+          connection open and shortens the perceived latency of
+          target_closure changes from <= pollInterval to ~1s. Falls
+          back cleanly to polling whenever the stream is down — push
+          is an optimisation, never a correctness primitive.
+        '';
+      };
+
+      pushedPollInterval = lib.mkOption {
+        type = lib.types.int;
+        default = 300;
+        description = ''
+          Poll interval (seconds) used while the SSE stream is healthy.
+          On disconnect the agent snaps back to pollInterval. See
+          docs/rfc-001-push-fast-path.md §"Cadence and back-pressure".
+        '';
+      };
     };
 
     headscale = {
@@ -274,6 +324,11 @@ in
     systemd.tmpfiles.rules = [
       "d ${builtins.dirOf cfg.metricsPath} 0755 root root -"
     ];
+
+    # Install operator-supplied CA bundles into the system trust store.
+    # See the trustedCaBundle option doc above for the in-cluster CA
+    # rationale (cert-manager `issuer.type = "ca"`).
+    security.pki.certificateFiles = cfg.trustedCaBundle;
 
     # The agent only makes outbound connections — no firewall ports to open
     # But ensure the socket directory has correct permissions for greeter access

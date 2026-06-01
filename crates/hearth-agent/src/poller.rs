@@ -12,6 +12,7 @@ use uuid::Uuid;
 use hearth_common::api_client::HearthApiClient;
 use hearth_common::api_types::{ActionResultReport, HeartbeatRequest, MachineUpdateStatus};
 
+use crate::event_stream::PushState;
 use crate::queue::OfflineQueue;
 use crate::updater;
 
@@ -26,18 +27,23 @@ const METRICS_PATH: &str = "/var/lib/prometheus-node-exporter/hearth.prom";
 /// 3. Compares the target closure to the locally-tracked current closure.
 /// 4. If they differ, delegates to the updater, reporting deployment status.
 /// 5. Sends a heartbeat to the control plane.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_poll_loop<C: HearthApiClient>(
     client: Arc<C>,
     machine_id: Uuid,
-    interval: Duration,
+    base_interval: Duration,
+    pushed_interval: Duration,
     queue: Arc<OfflineQueue>,
     machine_token_path: PathBuf,
     local_cache_url: Option<String>,
+    push: Option<Arc<PushState>>,
     shutdown: CancellationToken,
 ) {
     info!(
         %machine_id,
-        interval_secs = interval.as_secs(),
+        base_interval_secs = base_interval.as_secs(),
+        pushed_interval_secs = pushed_interval.as_secs(),
+        push_enabled = push.is_some(),
         "starting poll loop"
     );
 
@@ -369,12 +375,31 @@ pub async fn run_poll_loop<C: HearthApiClient>(
             user_env_count,
         );
 
-        // --- Wait for the next tick or shutdown ---
+        // --- Wait for the next tick, shutdown, or a push wake-up ---
+        //
+        // While the SSE stream is healthy we stretch the interval to
+        // `pushed_interval` (default 5min) — push events take care of
+        // anything urgent. On disconnect we snap back to the base
+        // interval (default 60s). See RFC-001 §"Cadence and
+        // back-pressure".
+        let interval = match &push {
+            Some(p) if p.is_healthy() => pushed_interval,
+            _ => base_interval,
+        };
         tokio::select! {
             () = tokio::time::sleep(interval) => {}
             () = shutdown.cancelled() => {
                 info!("poll loop shutting down");
                 return;
+            }
+            () = async {
+                match &push {
+                    Some(p) => p.wait_poll().await,
+                    // No push configured — never wake from this branch.
+                    None => std::future::pending::<()>().await,
+                }
+            } => {
+                debug!("poll loop woken by push event");
             }
         }
     }

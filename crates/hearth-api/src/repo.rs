@@ -70,7 +70,7 @@ pub async fn update_machine(
     id: Uuid,
     req: &UpdateMachineRequest,
 ) -> Result<Option<MachineRow>, sqlx::Error> {
-    sqlx::query_as::<_, MachineRow>(&format!(
+    let row = sqlx::query_as::<_, MachineRow>(&format!(
         "UPDATE machines SET
             hostname = COALESCE($2, hostname),
             role = COALESCE($3, role),
@@ -88,7 +88,19 @@ pub async fn update_machine(
     .bind(&req.target_closure)
     .bind(&req.extra_config)
     .fetch_optional(pool)
-    .await
+    .await?;
+
+    // If the update set a new target_closure, ping the agent via the
+    // push fast-path (RFC-001). Best-effort — a notify failure is logged
+    // but does not roll the update back; the 60s poll is the fallback.
+    if row.is_some()
+        && req.target_closure.is_some()
+        && let Err(e) = crate::events::notify_machine(pool, id).await
+    {
+        tracing::warn!(machine_id = %id, error = %e, "pg_notify failed after machine update");
+    }
+
+    Ok(row)
 }
 
 pub async fn delete_machine(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
@@ -1809,6 +1821,18 @@ pub async fn complete_user_env_build(
     .await?;
 
     tx.commit().await?;
+
+    // After commit, ping every machine that hosts an environment for
+    // this user via the push fast-path (RFC-001). Best-effort — the
+    // 60s poll still catches the change for any device we miss here.
+    if let Err(e) = crate::events::notify_user_machines(pool, &job.username).await {
+        tracing::warn!(
+            username = %job.username,
+            error = %e,
+            "pg_notify fan-out failed after user env build"
+        );
+    }
+
     Ok(())
 }
 
