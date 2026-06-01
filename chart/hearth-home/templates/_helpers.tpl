@@ -178,3 +178,61 @@ kind: ClusterIssuer
 group: cert-manager.io
 {{- end -}}
 {{- end }}
+
+{{/*
+cert-manager Ingress annotation. Returns the `cert-manager.io/cluster-issuer`
+or `cert-manager.io/issuer` annotation line keyed to the configured issuer,
+so the ingress-shim controller will issue + auto-renew a cert for the host.
+
+Emits nothing when:
+  - certManager is disabled (passthrough — no auto-wiring), OR
+  - the user has supplied their own `*.ingress.tls` list (BYO certs win).
+
+Usage (inside metadata.annotations):
+  {{- include "hearth-home.certManagerIngressAnnotation" (dict "context" . "userTls" .Values.api.ingress.tls) | nindent 4 }}
+*/}}
+{{- define "hearth-home.certManagerIngressAnnotation" -}}
+{{- if and .context.Values.certManager.enabled (not .userTls) -}}
+{{- if eq .context.Values.certManager.issuer.type "existing" -}}
+{{- if eq .context.Values.certManager.issuer.existing.kind "ClusterIssuer" -}}
+cert-manager.io/cluster-issuer: {{ required "certManager.issuer.existing.name is required when issuer.type=existing" .context.Values.certManager.issuer.existing.name | quote }}
+{{- else -}}
+cert-manager.io/issuer: {{ required "certManager.issuer.existing.name is required when issuer.type=existing" .context.Values.certManager.issuer.existing.name | quote }}
+{{- end -}}
+{{- else -}}
+cert-manager.io/cluster-issuer: {{ printf "%s-issuer" (include "hearth-home.fullname" .context) | quote }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Ingress `spec.tls` block. The precedence is:
+
+  1. User-supplied `*.ingress.tls` always wins — emit verbatim. This
+     preserves the existing BYO-cert and wildcard-cert deployment paths
+     where the operator already manages secrets out of band.
+  2. Else if certManager is enabled, auto-populate one tls entry per
+     ingress host using a deterministic secret name
+     (`<release-fullname>-<component>-tls`). Pair with
+     `certManagerIngressAnnotation` so the ingress-shim controller
+     issues the cert.
+  3. Else emit nothing — same as today.
+
+Usage (inside spec):
+  {{- include "hearth-home.ingressTls" (dict "context" . "userTls" .Values.api.ingress.tls "hosts" .Values.api.ingress.hosts "component" "api") | nindent 2 }}
+*/}}
+{{- define "hearth-home.ingressTls" -}}
+{{- if .userTls -}}
+tls:
+{{ toYaml .userTls }}
+{{- else if .context.Values.certManager.enabled -}}
+tls:
+{{- $context := .context }}
+{{- $component := .component }}
+{{- range .hosts }}
+- hosts:
+    - {{ .host | quote }}
+  secretName: {{ printf "%s-%s-tls" (include "hearth-home.fullname" $context) $component | quote }}
+{{- end }}
+{{- end -}}
+{{- end -}}

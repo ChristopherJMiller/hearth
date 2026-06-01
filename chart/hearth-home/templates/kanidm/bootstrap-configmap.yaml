@@ -12,13 +12,24 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation
 data:
   bootstrap.sh: |
-    #!/bin/bash
-    set -euo pipefail
+    #!/bin/sh
+    # H-002: this script no longer uses `kubectl exec` to recover the
+    # admin password. ADMIN_PW / IDM_ADMIN_PW are projected via
+    # secretKeyRef from the <fullname>-kanidm-recovery Secret that
+    # the kanidm StatefulSet's init containers populate on first boot.
+    # The only kubernetes-side privilege this Job needs is `create` on
+    # secrets (+ get/update/patch on the named credentials Secret) —
+    # see kanidm/job-bootstrap.yaml.
+    set -eu
 
-    KANIDM_URL="${KANIDM_URL}"
-    KANIDM_POD="${KANIDM_POD}"
-    KANIDM_NAMESPACE="${KANIDM_NAMESPACE}"
-    KANIDM_SECRET_NAME="${KANIDM_SECRET_NAME}"
+    # Minimal alpine image — bring in curl + jq once.
+    apk add --no-cache --quiet curl jq >/dev/null
+
+    : "${KANIDM_URL:?missing KANIDM_URL}"
+    : "${KANIDM_NAMESPACE:?missing KANIDM_NAMESPACE}"
+    : "${KANIDM_SECRET_NAME:?missing KANIDM_SECRET_NAME}"
+    : "${ADMIN_PW:?missing ADMIN_PW (kanidm-recovery secret not populated yet?)}"
+    : "${IDM_ADMIN_PW:?missing IDM_ADMIN_PW (kanidm-recovery secret not populated yet?)}"
 
     C="curl -sk"
 
@@ -33,47 +44,17 @@ data:
     echo "Kanidm is ready."
 
     # -----------------------------------------------------------------------
-    # Recover admin credentials via kubectl exec
-    # -----------------------------------------------------------------------
-    echo "Recovering admin credentials..."
-    RECOVER_OUTPUT=$(kubectl exec -n "${KANIDM_NAMESPACE}" "${KANIDM_POD}" -- \
-      kanidmd recover-account admin 2>&1 || true)
-    ADMIN_PW=$(echo "$RECOVER_OUTPUT" | grep -oP 'new_password:\s*"\K[^"]+' || \
-               echo "$RECOVER_OUTPUT" | tail -1 | sed 's/.*: //')
-
-    if [ -z "$ADMIN_PW" ]; then
-      echo "ERROR: Could not recover admin password"
-      echo "Output: $RECOVER_OUTPUT"
-      exit 1
-    fi
-    echo "  admin password recovered"
-
-    echo "Recovering idm_admin credentials..."
-    IDM_RECOVER=$(kubectl exec -n "${KANIDM_NAMESPACE}" "${KANIDM_POD}" -- \
-      kanidmd recover-account idm_admin 2>&1 || true)
-    IDM_ADMIN_PW=$(echo "$IDM_RECOVER" | grep -oP 'new_password:\s*"\K[^"]+' || \
-                   echo "$IDM_RECOVER" | tail -1 | sed 's/.*: //')
-
-    if [ -z "$IDM_ADMIN_PW" ]; then
-      echo "ERROR: Could not recover idm_admin password"
-      exit 1
-    fi
-    echo "  idm_admin password recovered"
-
-    # -----------------------------------------------------------------------
     # Auth helper: authenticate via REST API, return bearer token
     # -----------------------------------------------------------------------
     auth_kanidm() {
-      local user="$1" pass="$2"
-      local cookies headers
-
+      user="$1"; pass="$2"
       cookies=$(mktemp)
       headers=$(mktemp)
 
       # Step 1: init
       $C -D "$headers" -c "$cookies" -X POST "${KANIDM_URL}/v1/auth" \
         -H "Content-Type: application/json" \
-        -d "{\"step\":{\"init\":\"${user}\"}}" > /dev/null
+        -d "$(jq -n --arg u "$user" '{"step":{"init":$u}}')" > /dev/null
 
       # Step 2: begin password method
       $C -b "$cookies" -c "$cookies" -X POST "${KANIDM_URL}/v1/auth" \
@@ -81,16 +62,13 @@ data:
         -d '{"step":{"begin":"password"}}' > /dev/null
 
       # Step 3: provide password
-      local auth_resp
       auth_resp=$($C -b "$cookies" -X POST "${KANIDM_URL}/v1/auth" \
         -H "Content-Type: application/json" \
-        -d "{\"step\":{\"cred\":{\"password\":\"${pass}\"}}}")
+        -d "$(jq -n --arg p "$pass" '{"step":{"cred":{"password":$p}}}')")
 
       rm -f "$headers" "$cookies"
 
-      # Extract token from success state
-      echo "$auth_resp" | grep -oP '"success":"[^"]*"' | cut -d'"' -f4 || \
-      echo "$auth_resp" | sed -n 's/.*"success":"\([^"]*\)".*/\1/p'
+      printf '%s' "$auth_resp" | jq -r '.state.success // empty'
     }
 
     echo "Authenticating as admin..."
@@ -113,8 +91,7 @@ data:
     # Helper functions
     # -----------------------------------------------------------------------
     resource_exists() {
-      local path="$1" token="${2:-$IDM_TOKEN}"
-      local body
+      path="$1"; token="${2:-$IDM_TOKEN}"
       body=$($C "${KANIDM_URL}${path}" -H "Authorization: Bearer ${token}")
       [ "$body" != "null" ] && [ -n "$body" ] && \
         ! echo "$body" | grep -qE '"(notauthenticated|accessdenied)"'
@@ -329,28 +306,68 @@ data:
       -d '{"label":"hearth-api","expiry":null}' 2>/dev/null | sed -n 's/^"\(.*\)"$/\1/p' || echo "")
 
     # -----------------------------------------------------------------------
-    # Store credentials in Kubernetes Secret
+    # Store credentials in Kubernetes Secret (via the K8s API — no kubectl)
     # -----------------------------------------------------------------------
     echo ""
     echo "==> Storing credentials in Kubernetes Secret..."
-    kubectl create secret generic "${KANIDM_SECRET_NAME}" \
-      --namespace "${KANIDM_NAMESPACE}" \
-      --from-literal=admin-password="${ADMIN_PW}" \
-      --from-literal=idm-admin-password="${IDM_ADMIN_PW}" \
-      --from-literal=api-service-token="${API_TOKEN}" \
+    API_SERVER=https://kubernetes.default.svc
+    K8S_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    K8S_CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+    # Build the Secret payload. Empty strings for capability-gated
+    # OIDC secrets keep the schema stable across re-runs.
+    SECRET_JSON=$(jq -n \
+      --arg name "$KANIDM_SECRET_NAME" \
+      --arg ns "$KANIDM_NAMESPACE" \
+      --arg admin "$(printf %s "$ADMIN_PW" | base64 -w0)" \
+      --arg idm "$(printf %s "$IDM_ADMIN_PW" | base64 -w0)" \
+      --arg api "$(printf %s "${API_TOKEN:-}" | base64 -w0)" \
       {{- if $.Values.capabilities.chat }}
-      --from-literal=matrix-oidc-secret="${MATRIX_SECRET:-}" \
+      --arg matrix "$(printf %s "${MATRIX_SECRET:-}" | base64 -w0)" \
       {{- end }}
       {{- if $.Values.capabilities.cloud }}
-      --from-literal=nextcloud-oidc-secret="${NEXTCLOUD_SECRET:-}" \
+      --arg nextcloud "$(printf %s "${NEXTCLOUD_SECRET:-}" | base64 -w0)" \
       {{- end }}
       {{- if $.Values.oauth2Proxy.enabled }}
-      --from-literal=proxy-oidc-secret="${PROXY_SECRET:-}" \
+      --arg proxy "$(printf %s "${PROXY_SECRET:-}" | base64 -w0)" \
       {{- end }}
       {{- if and $.Values.capabilities.mail $.Values.stalwart.hosted $.Values.stalwart.oidc.enabled }}
-      --from-literal=stalwart-oidc-secret="${STALWART_SECRET:-}" \
+      --arg stalwart "$(printf %s "${STALWART_SECRET:-}" | base64 -w0)" \
       {{- end }}
-      --dry-run=client -o yaml | kubectl apply -f -
+      '{
+        apiVersion:"v1",kind:"Secret",type:"Opaque",
+        metadata:{name:$name,namespace:$ns,labels:{"app.kubernetes.io/managed-by":"hearth-home"}},
+        data:{
+          "admin-password":$admin,
+          "idm-admin-password":$idm,
+          "api-service-token":$api
+          {{- if $.Values.capabilities.chat -}}
+          ,"matrix-oidc-secret":$matrix
+          {{- end -}}
+          {{- if $.Values.capabilities.cloud -}}
+          ,"nextcloud-oidc-secret":$nextcloud
+          {{- end -}}
+          {{- if $.Values.oauth2Proxy.enabled -}}
+          ,"proxy-oidc-secret":$proxy
+          {{- end -}}
+          {{- if and $.Values.capabilities.mail $.Values.stalwart.hosted $.Values.stalwart.oidc.enabled -}}
+          ,"stalwart-oidc-secret":$stalwart
+          {{- end -}}
+        }
+      }')
+
+    # PUT (idempotent update); if it doesn't exist yet, fall back to POST.
+    if ! printf '%s' "$SECRET_JSON" | curl -sf --cacert "$K8S_CA" \
+        -H "Authorization: Bearer $K8S_TOKEN" \
+        -H "Content-Type: application/json" \
+        -X PUT "$API_SERVER/api/v1/namespaces/$KANIDM_NAMESPACE/secrets/$KANIDM_SECRET_NAME" \
+        -d @- >/dev/null; then
+      printf '%s' "$SECRET_JSON" | curl -sf --cacert "$K8S_CA" \
+        -H "Authorization: Bearer $K8S_TOKEN" \
+        -H "Content-Type: application/json" \
+        -X POST "$API_SERVER/api/v1/namespaces/$KANIDM_NAMESPACE/secrets" \
+        -d @- >/dev/null
+    fi
 
     echo ""
     echo "=== Kanidm bootstrap complete ==="

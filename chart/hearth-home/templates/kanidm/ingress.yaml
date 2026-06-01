@@ -8,6 +8,7 @@ metadata:
     {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    {{- include "hearth-home.certManagerIngressAnnotation" (dict "context" . "userTls" .Values.kanidm.ingress.tls) | nindent 4 }}
     {{- with .Values.kanidm.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -15,16 +16,7 @@ spec:
   {{- if .Values.kanidm.ingress.className }}
   ingressClassName: {{ .Values.kanidm.ingress.className }}
   {{- end }}
-  {{- if .Values.kanidm.ingress.tls }}
-  tls:
-    {{- range .Values.kanidm.ingress.tls }}
-    - hosts:
-        {{- range .hosts }}
-        - {{ . | quote }}
-        {{- end }}
-      secretName: {{ .secretName }}
-    {{- end }}
-  {{- end }}
+  {{- include "hearth-home.ingressTls" (dict "context" . "userTls" .Values.kanidm.ingress.tls "hosts" .Values.kanidm.ingress.hosts "component" "kanidm") | nindent 2 }}
   rules:
     {{- range .Values.kanidm.ingress.hosts }}
     - host: {{ .host | quote }}

@@ -5,18 +5,16 @@ metadata:
   name: {{ include "hearth-home.fullname" . }}-synapse
   labels:
     {{- include "hearth-home.componentLabels" (dict "context" . "component" "synapse") | nindent 4 }}
-  {{- with .Values.synapse.ingress.annotations }}
   annotations:
+    {{- include "hearth-home.certManagerIngressAnnotation" (dict "context" . "userTls" .Values.synapse.ingress.tls) | nindent 4 }}
+    {{- with .Values.synapse.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   {{- if .Values.synapse.ingress.className }}
   ingressClassName: {{ .Values.synapse.ingress.className }}
   {{- end }}
-  {{- if .Values.synapse.ingress.tls }}
-  tls:
-    {{- toYaml .Values.synapse.ingress.tls | nindent 4 }}
-  {{- end }}
+  {{- include "hearth-home.ingressTls" (dict "context" . "userTls" .Values.synapse.ingress.tls "hosts" .Values.synapse.ingress.hosts "component" "synapse") | nindent 2 }}
   rules:
     {{- range .Values.synapse.ingress.hosts }}
     - host: {{ .host | quote }}

@@ -1,0 +1,519 @@
+{{- if .Values.networkPolicy.enabled }}
+# ===========================================================================
+# Default-deny NetworkPolicy
+# ===========================================================================
+#
+# Selects every pod in the release namespace and denies all ingress/egress
+# by default. Subsequent NPs in this file punch the necessary holes per
+# capability. Without this, a compromise in (say) Nextcloud could reach
+# Postgres / Kanidm / Headscale unimpeded — that's the hardening gap
+# H-003 closes.
+#
+# DNS egress is allowed up-front via the dedicated `*-dns-egress` policy
+# below — without it, every workload's lookup of `<release>-postgresql`,
+# `<release>-kanidm`, etc. would NXDOMAIN.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-default-deny
+  labels:
+    {{- include "hearth-home.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+{{- if .Values.networkPolicy.allowDnsEgress }}
+# Permit DNS to kube-dns (UDP/TCP 53) from every workload.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-allow-dns
+  labels:
+    {{- include "hearth-home.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+{{- end }}
+{{- with .Values.networkPolicy.extraEgressCidrs }}
+# Operator-supplied egress allowlist (e.g. external API the chart calls).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" $ }}-extra-egress
+  labels:
+    {{- include "hearth-home.labels" $ | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+{{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+{{- end }}
+---
+{{- end }}
+
+# ===========================================================================
+# hearth-api: ingress from the ingress controller (always-enabled component)
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-api
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "api") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "api") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Ingress controller (browser traffic via the public ingress).
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.service.port }}
+    # Sibling components in the same release (oauth2-proxy upstream,
+    # other workloads that hit the API directly inside the cluster).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.service.port }}
+  egress:
+    # Postgres.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- if .Values.capabilities.identity }}
+    # Kanidm: OIDC discovery + JWKS for user JWT validation.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+    {{- end }}
+    {{- if .Values.capabilities.mesh }}
+    # Headscale API (optional — only when the API talks to mesh).
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "headscale") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.headscale.service.port }}
+    {{- end }}
+---
+# ===========================================================================
+# Attic: external traffic via ingress for agent pulls; build-worker uploads
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-attic
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "attic") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "attic") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.attic.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.attic.service.port }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+
+{{- if .Values.capabilities.identity }}
+---
+# ===========================================================================
+# Kanidm: every component that does OIDC needs ingress to 8443
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-kanidm
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "kanidm") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+  # Kanidm itself doesn't need to talk to other Hearth components for
+  # OIDC — clients call into it. DNS egress is granted by the
+  # default-allow DNS rule.
+  egress: []
+{{- end }}
+
+{{- if .Values.capabilities.mesh }}
+---
+# ===========================================================================
+# Headscale
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-headscale
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "headscale") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.headscale.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.headscale.service.port }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- if .Values.capabilities.identity }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+    {{- end }}
+{{- end }}
+
+{{- if .Values.capabilities.chat }}
+---
+# ===========================================================================
+# Synapse (Matrix)
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-synapse
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "synapse") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "synapse") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.synapse.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.synapse.service.port }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- if .Values.capabilities.identity }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+    {{- end }}
+{{- end }}
+
+{{- if .Values.capabilities.cloud }}
+---
+# ===========================================================================
+# Nextcloud
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-nextcloud
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "nextcloud") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "nextcloud") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.nextcloud.service.port }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.nextcloud.service.port }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- if .Values.capabilities.identity }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+    {{- end }}
+{{- end }}
+
+{{- if and .Values.capabilities.mail .Values.stalwart.hosted }}
+---
+# ===========================================================================
+# Stalwart (mail)
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-stalwart
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "stalwart") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "stalwart") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # External SMTP/IMAP/submission via the LoadBalancer + admin via the ingress controller.
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- if .Values.capabilities.identity }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+    {{- end }}
+{{- end }}
+
+---
+# ===========================================================================
+# oauth2-proxy: HTTP/HTTPS ingress + upstream egress to API/Synapse/etc.
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-oauth2-proxy
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "oauth2-proxy") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "oauth2-proxy") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerSelector.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.oauth2Proxy.service.port }}
+  egress:
+    # Reach the API + every upstream the proxy fronts.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- if .Values.capabilities.identity }}
+    # OIDC issuer (Kanidm).
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "kanidm") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.kanidm.service.port }}
+    {{- end }}
+
+{{- if .Values.capabilities.builds }}
+---
+# ===========================================================================
+# hearth-build-worker: outbound to Postgres, Attic, API + nix substituters.
+# Workers don't listen on any port — no ingress block.
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "hearth-home.fullname" . }}-build-worker
+  labels:
+    {{- include "hearth-home.componentLabels" (dict "context" . "component" "build-worker") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "hearth-home.selectorLabels" (dict "context" . "component" "build-worker") | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "attic") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.attic.service.port }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "hearth-home.selectorLabels" (dict "context" . "component" "api") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.service.port }}
+{{- end }}
+{{- end }}

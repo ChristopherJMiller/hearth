@@ -5,18 +5,16 @@ metadata:
   name: {{ include "hearth-home.fullname" . }}-headscale
   labels:
     {{- include "hearth-home.componentLabels" (dict "context" . "component" "headscale") | nindent 4 }}
-  {{- with .Values.headscale.ingress.annotations }}
   annotations:
+    {{- include "hearth-home.certManagerIngressAnnotation" (dict "context" . "userTls" .Values.headscale.ingress.tls) | nindent 4 }}
+    {{- with .Values.headscale.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   {{- if .Values.headscale.ingress.className }}
   ingressClassName: {{ .Values.headscale.ingress.className }}
   {{- end }}
-  {{- if .Values.headscale.ingress.tls }}
-  tls:
-    {{- toYaml .Values.headscale.ingress.tls | nindent 4 }}
-  {{- end }}
+  {{- include "hearth-home.ingressTls" (dict "context" . "userTls" .Values.headscale.ingress.tls "hosts" .Values.headscale.ingress.hosts "component" "headscale") | nindent 2 }}
   rules:
     {{- range .Values.headscale.ingress.hosts }}
     - host: {{ .host | quote }}

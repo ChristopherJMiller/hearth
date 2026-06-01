@@ -1,0 +1,118 @@
+suite: cert-manager CA issuer (in-cluster CA path)
+templates:
+  - cert-manager/issuer.yaml
+release:
+  name: hearth
+  namespace: default
+tests:
+  - it: renders nothing when certManager.enabled=false
+    set:
+      certManager.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: type=selfSigned emits a single selfSigned ClusterIssuer (unchanged)
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: selfSigned
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ClusterIssuer
+      - equal:
+          path: metadata.name
+          value: hearth-hearth-home-issuer
+      - exists:
+          path: spec.selfSigned
+
+  - it: type=ca emits bootstrap issuer + CA cert + CA-backed cluster issuer
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: ca
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: type=ca bootstrap issuer is self-signed
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: ca
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-bootstrap-issuer
+    asserts:
+      - isKind:
+          of: ClusterIssuer
+      - exists:
+          path: spec.selfSigned
+
+  - it: type=ca CA Certificate references the bootstrap issuer
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: ca
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-ca
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: spec.isCA
+          value: true
+      - equal:
+          path: spec.issuerRef.name
+          value: hearth-hearth-home-bootstrap-issuer
+      - equal:
+          path: spec.secretName
+          value: hearth-hearth-home-ca-key
+
+  - it: type=ca final ClusterIssuer is CA-backed and reuses the legacy name
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: ca
+    documentSelector:
+      path: metadata.name
+      value: hearth-hearth-home-issuer
+    asserts:
+      - isKind:
+          of: ClusterIssuer
+      - equal:
+          path: spec.ca.secretName
+          value: hearth-hearth-home-ca-key
+
+  - it: type=ca + publishCaConfigMap=true emits Job/SA/Role/RoleBinding for ConfigMap publish
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: ca
+      certManager.issuer.ca.publishCaConfigMap: true
+    asserts:
+      - hasDocuments:
+          # 3 base + Job + ServiceAccount + Role + RoleBinding = 7
+          count: 7
+
+  - it: type=ca + publishCaConfigMap=true Role grants only get on the CA Secret
+    set:
+      certManager.enabled: true
+      certManager.issuer.type: ca
+      certManager.issuer.ca.publishCaConfigMap: true
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - equal:
+          path: rules[0].resources[0]
+          value: secrets
+      - equal:
+          path: rules[0].resourceNames[0]
+          value: hearth-hearth-home-ca-key
+      - contains:
+          path: rules[0].verbs
+          content: get
+      - notContains:
+          path: rules[0].verbs
+          content: list
+      - notContains:
+          path: rules[0].verbs
+          content: watch
