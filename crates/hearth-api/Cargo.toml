@@ -32,6 +32,9 @@ sha2 = "0.10"
 tempfile = "3"
 tar = "0.4"
 flate2 = "1.0"
+p256 = { version = "0.13", features = ["pem", "ecdsa", "jwk"] }
+ecdsa = { version = "0.16", features = ["signing"] }
+pem = "3"
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
