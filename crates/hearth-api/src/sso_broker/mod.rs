@@ -1,8 +1,7 @@
 pub mod config;
-pub mod sessions;
 
-use axum::Router;
 use crate::AppState;
+use axum::Router;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
