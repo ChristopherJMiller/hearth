@@ -122,6 +122,10 @@ pub struct AppState {
     pub sso_broker: std::sync::Arc<sso_broker::config::SsoBrokerConfig>,
     /// In-memory stash for pending authorize requests (keyed by upstream_state sent to Kanidm).
     pub sso_authorize_stash: std::sync::Arc<sso_broker::sessions::AuthorizeStash>,
+    /// In-memory stash for broker-issued authorization codes (TTL 60 s).
+    pub sso_broker_code_stash: std::sync::Arc<sso_broker::sessions::BrokerCodeStash>,
+    /// Shared HTTP client for upstream calls (Kanidm token endpoint, etc.).
+    pub http_client: reqwest::Client,
 }
 
 /// Run the LISTEN/NOTIFY listener forever, forwarding cross-replica

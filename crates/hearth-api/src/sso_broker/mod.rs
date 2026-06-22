@@ -1,6 +1,7 @@
 pub mod clients;
 pub mod config;
 pub mod handlers;
+pub mod kanidm_upstream;
 pub mod keys;
 pub mod sessions;
 
@@ -20,6 +21,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/authorize",
             axum::routing::get(handlers::authorize::authorize),
+        )
+        .route(
+            "/callback",
+            axum::routing::get(handlers::callback::callback),
         )
 }
 

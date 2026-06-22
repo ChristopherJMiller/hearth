@@ -86,6 +86,14 @@ async fn main() {
         info!("sso_broker disabled (set HEARTH_SSO_BROKER_* env vars to enable)");
     }
 
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        // Dev only: accept self-signed Kanidm certs, matching identity_sync.rs pattern.
+        // Never enable in production without a valid CA chain.
+        .danger_accept_invalid_certs(std::env::var("HEARTH_KANIDM_INSECURE").is_ok())
+        .build()
+        .expect("build reqwest client");
+
     let state = AppState {
         pool,
         auth_config: auth_config.clone(),
@@ -101,6 +109,12 @@ async fn main() {
                 600,
             )),
         ),
+        sso_broker_code_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::BrokerCodeStash::new(std::time::Duration::from_secs(
+                60,
+            )),
+        ),
+        http_client,
     };
 
     // Spawn background tasks

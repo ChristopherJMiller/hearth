@@ -3,6 +3,10 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+// ---------------------------------------------------------------------------
+// AuthorizeStash — pending /authorize requests keyed by upstream_state
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone)]
 pub struct AuthorizeRequest {
     pub client_id: String,
@@ -79,5 +83,60 @@ mod tests {
         // Trigger GC by inserting another.
         let _ = s.insert(req());
         assert!(s.take(&key).is_none(), "expired entry should be gone");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BrokerCodeStash — short-lived codes the broker issues to downstream apps
+// ---------------------------------------------------------------------------
+
+/// The broker's authorization code, stashed for 60 s until the downstream
+/// app exchanges it at /oidc/token.
+#[derive(Debug, Clone)]
+pub struct BrokerCode {
+    pub client_id: String,
+    pub redirect_uri: String,
+    pub code_challenge: String,
+    pub code_challenge_method: String,
+    pub user_sub: String,
+    pub user_username: Option<String>,
+    pub user_email: Option<String>,
+    pub user_name: Option<String>,
+    pub user_groups: Vec<String>,
+    pub scope: String,
+    pub nonce: Option<String>,
+    pub created_at: Instant,
+}
+
+/// Thread-safe stash for broker-issued authorization codes.
+#[derive(Default)]
+pub struct BrokerCodeStash {
+    inner: Mutex<HashMap<String, BrokerCode>>,
+    ttl: Duration,
+}
+
+impl BrokerCodeStash {
+    pub fn new(ttl: Duration) -> Self {
+        BrokerCodeStash {
+            inner: Mutex::new(HashMap::new()),
+            ttl,
+        }
+    }
+
+    /// Stash `code`, assign a random key, and return that key.
+    pub fn insert(&self, mut code: BrokerCode) -> String {
+        code.created_at = Instant::now();
+        let key = Uuid::new_v4().to_string();
+        let mut guard = self.inner.lock().expect("code stash poisoned");
+        let now = Instant::now();
+        guard.retain(|_, v| now.duration_since(v.created_at) < self.ttl);
+        guard.insert(key.clone(), code);
+        key
+    }
+
+    /// Remove and return the code for `key`, or `None` if missing/expired.
+    pub fn take(&self, key: &str) -> Option<BrokerCode> {
+        let mut guard = self.inner.lock().expect("code stash poisoned");
+        guard.remove(key)
     }
 }

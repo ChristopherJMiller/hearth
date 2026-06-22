@@ -112,6 +112,12 @@ pub async fn test_app() -> (Router, TestDb) {
                 600,
             )),
         ),
+        sso_broker_code_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::BrokerCodeStash::new(std::time::Duration::from_secs(
+                60,
+            )),
+        ),
+        http_client: reqwest::Client::new(),
     };
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
     (router, db)
@@ -252,6 +258,12 @@ pub async fn test_app_with_auth() -> AuthTestContext {
                 600,
             )),
         ),
+        sso_broker_code_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::BrokerCodeStash::new(std::time::Duration::from_secs(
+                60,
+            )),
+        ),
+        http_client: reqwest::Client::new(),
     };
 
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());

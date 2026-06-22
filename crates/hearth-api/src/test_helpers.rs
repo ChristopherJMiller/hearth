@@ -30,5 +30,9 @@ pub fn test_app_state() -> AppState {
         sso_authorize_stash: Arc::new(crate::sso_broker::sessions::AuthorizeStash::new(
             std::time::Duration::from_secs(600),
         )),
+        sso_broker_code_stash: Arc::new(crate::sso_broker::sessions::BrokerCodeStash::new(
+            std::time::Duration::from_secs(60),
+        )),
+        http_client: reqwest::Client::new(),
     }
 }
