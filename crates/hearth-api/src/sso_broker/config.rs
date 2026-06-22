@@ -17,6 +17,7 @@ pub struct SsoBrokerConfig {
     pub kanidm_userinfo_url: Option<String>,
     pub access_token_ttl: Duration,
     pub id_token_ttl: Duration,
+    pub clients: Vec<crate::sso_broker::clients::BrokerClient>,
 }
 
 impl Default for SsoBrokerConfig {
@@ -32,6 +33,7 @@ impl Default for SsoBrokerConfig {
             kanidm_userinfo_url: None,
             access_token_ttl: Duration::from_secs(3600),
             id_token_ttl: Duration::from_secs(3600),
+            clients: Vec::new(),
         }
     }
 }
@@ -76,6 +78,7 @@ impl SsoBrokerConfig {
             kanidm_userinfo_url: userinfo_url,
             access_token_ttl: Duration::from_secs(3600),
             id_token_ttl: Duration::from_secs(3600),
+            clients: crate::sso_broker::clients::from_env(),
         }
     }
 }
