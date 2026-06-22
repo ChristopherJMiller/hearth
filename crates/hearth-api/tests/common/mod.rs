@@ -91,6 +91,7 @@ fn metrics_handle() -> PrometheusHandle {
 /// Build a test app with auth disabled (dev mode).
 pub async fn test_app() -> (Router, TestDb) {
     let db = TestDb::new().await;
+    let event_bus = hearth_api::events::EventBus::new();
     let state = AppState {
         pool: db.pool.clone(),
         auth_config: AuthConfig {
@@ -104,7 +105,13 @@ pub async fn test_app() -> (Router, TestDb) {
         package_allowlist: None,
         services: Vec::new(),
         matrix_server_name: None,
-        event_bus: hearth_api::events::EventBus::new(),
+        event_bus: event_bus.clone(),
+        sso_broker: std::sync::Arc::new(Default::default()),
+        sso_authorize_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::AuthorizeStash::new(
+                std::time::Duration::from_secs(600),
+            ),
+        ),
     };
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
     (router, db)
@@ -239,6 +246,12 @@ pub async fn test_app_with_auth() -> AuthTestContext {
         services: Vec::new(),
         matrix_server_name: None,
         event_bus: event_bus.clone(),
+        sso_broker: std::sync::Arc::new(Default::default()),
+        sso_authorize_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::AuthorizeStash::new(
+                std::time::Duration::from_secs(600),
+            ),
+        ),
     };
 
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());

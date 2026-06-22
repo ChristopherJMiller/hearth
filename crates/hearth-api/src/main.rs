@@ -75,6 +75,8 @@ async fn main() {
 
     let event_bus = hearth_api::events::EventBus::new();
 
+    let sso_broker = std::sync::Arc::new(hearth_api::sso_broker::config::SsoBrokerConfig::default());
+
     let state = AppState {
         pool,
         auth_config: auth_config.clone(),
@@ -84,6 +86,12 @@ async fn main() {
         services,
         matrix_server_name,
         event_bus: event_bus.clone(),
+        sso_broker,
+        sso_authorize_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::AuthorizeStash::new(
+                std::time::Duration::from_secs(600),
+            ),
+        ),
     };
 
     // Spawn background tasks

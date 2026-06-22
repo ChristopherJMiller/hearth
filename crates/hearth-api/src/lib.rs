@@ -13,6 +13,10 @@ pub mod metrics;
 pub mod repo;
 pub mod rollout;
 mod routes;
+pub mod sso_broker;
+
+#[cfg(test)]
+mod test_helpers;
 
 // Re-exported so integration tests can construct minimal sub-routers
 // without spinning up a DB-backed AppState. The cache type and handler
@@ -114,6 +118,10 @@ pub struct AppState {
     pub matrix_server_name: Option<String>,
     /// Per-machine event bus for the SSE push fast-path (RFC-001).
     pub event_bus: std::sync::Arc<events::EventBus>,
+    /// SSO broker configuration.
+    pub sso_broker: std::sync::Arc<sso_broker::config::SsoBrokerConfig>,
+    /// In-memory stash for OIDC authorize requests in flight (TTL 10 min).
+    pub sso_authorize_stash: std::sync::Arc<sso_broker::sessions::AuthorizeStash>,
 }
 
 /// Run the LISTEN/NOTIFY listener forever, forwarding cross-replica
@@ -456,6 +464,7 @@ pub fn build_router(state: AppState, web_dist: &str, metrics_handle: PrometheusH
             "/api/v1/cache-token",
             post(routes::cache_token::get_cache_token),
         )
+        .nest("/oidc", sso_broker::routes())
         .fallback_service(spa)
         .layer(middleware::from_fn(metrics::track_request))
         .layer(cors)
