@@ -27,5 +27,8 @@ pub fn test_app_state() -> AppState {
         matrix_server_name: None,
         event_bus: crate::events::EventBus::new(),
         sso_broker: Arc::new(Default::default()),
+        sso_authorize_stash: Arc::new(crate::sso_broker::sessions::AuthorizeStash::new(
+            std::time::Duration::from_secs(600),
+        )),
     }
 }

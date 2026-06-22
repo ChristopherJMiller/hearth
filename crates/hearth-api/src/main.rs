@@ -96,6 +96,11 @@ async fn main() {
         matrix_server_name,
         event_bus: event_bus.clone(),
         sso_broker,
+        sso_authorize_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::AuthorizeStash::new(std::time::Duration::from_secs(
+                600,
+            )),
+        ),
     };
 
     // Spawn background tasks

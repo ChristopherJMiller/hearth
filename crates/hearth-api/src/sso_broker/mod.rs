@@ -2,6 +2,7 @@ pub mod clients;
 pub mod config;
 pub mod handlers;
 pub mod keys;
+pub mod sessions;
 
 use crate::AppState;
 use axum::Router;
@@ -15,6 +16,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/.well-known/jwks.json",
             axum::routing::get(handlers::jwks::jwks),
+        )
+        .route(
+            "/authorize",
+            axum::routing::get(handlers::authorize::authorize),
         )
 }
 

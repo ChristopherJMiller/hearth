@@ -36,6 +36,7 @@ p256 = { version = "0.13", features = ["pem", "ecdsa", "jwk"] }
 ecdsa = { version = "0.16", features = ["signing"] }
 pem = "3"
 subtle = "2"
+urlencoding = "2"
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

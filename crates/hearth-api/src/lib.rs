@@ -120,6 +120,8 @@ pub struct AppState {
     pub event_bus: std::sync::Arc<events::EventBus>,
     /// SSO broker configuration.
     pub sso_broker: std::sync::Arc<sso_broker::config::SsoBrokerConfig>,
+    /// In-memory stash for pending authorize requests (keyed by upstream_state sent to Kanidm).
+    pub sso_authorize_stash: std::sync::Arc<sso_broker::sessions::AuthorizeStash>,
 }
 
 /// Run the LISTEN/NOTIFY listener forever, forwarding cross-replica

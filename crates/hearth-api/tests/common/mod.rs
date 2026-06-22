@@ -107,6 +107,11 @@ pub async fn test_app() -> (Router, TestDb) {
         matrix_server_name: None,
         event_bus: event_bus.clone(),
         sso_broker: std::sync::Arc::new(Default::default()),
+        sso_authorize_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::AuthorizeStash::new(std::time::Duration::from_secs(
+                600,
+            )),
+        ),
     };
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
     (router, db)
@@ -242,6 +247,11 @@ pub async fn test_app_with_auth() -> AuthTestContext {
         matrix_server_name: None,
         event_bus: event_bus.clone(),
         sso_broker: std::sync::Arc::new(Default::default()),
+        sso_authorize_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::AuthorizeStash::new(std::time::Duration::from_secs(
+                600,
+            )),
+        ),
     };
 
     let router = hearth_api::build_router(state, "/nonexistent", metrics_handle());
