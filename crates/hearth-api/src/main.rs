@@ -76,7 +76,15 @@ async fn main() {
     let event_bus = hearth_api::events::EventBus::new();
 
     let sso_broker =
-        std::sync::Arc::new(hearth_api::sso_broker::config::SsoBrokerConfig::default());
+        std::sync::Arc::new(hearth_api::sso_broker::config::SsoBrokerConfig::from_env());
+    if sso_broker.enabled {
+        info!(
+            "sso_broker enabled with issuer {}",
+            sso_broker.issuer_url.as_deref().unwrap_or("?")
+        );
+    } else {
+        info!("sso_broker disabled (set HEARTH_SSO_BROKER_* env vars to enable)");
+    }
 
     let state = AppState {
         pool,
