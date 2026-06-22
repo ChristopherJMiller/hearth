@@ -1,11 +1,15 @@
 pub mod config;
+pub mod handlers;
 pub mod keys;
 
 use crate::AppState;
 use axum::Router;
 
 pub fn routes() -> Router<AppState> {
-    Router::new()
+    Router::new().route(
+        "/.well-known/openid-configuration",
+        axum::routing::get(handlers::discovery::discovery),
+    )
 }
 
 #[cfg(test)]
