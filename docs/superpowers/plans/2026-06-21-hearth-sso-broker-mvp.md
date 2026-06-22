@@ -73,7 +73,7 @@
 
 ## Phase A: Broker module scaffolding + signing key
 
-### Task A1: Create sso_broker module skeleton, wire empty router
+### Task 1: Create sso_broker module skeleton, wire empty router
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/mod.rs`
@@ -198,7 +198,7 @@ git commit -m "feat(sso-broker): scaffold module and /oidc router"
 
 ---
 
-### Task A2: ES256 signing key loading
+### Task 2: ES256 signing key loading
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/keys.rs`
@@ -397,7 +397,7 @@ git commit -m "feat(sso-broker): ES256 signing key loading + JWK rendering"
 
 ---
 
-### Task A3: SsoBrokerConfig from env + AppState wiring
+### Task 3: SsoBrokerConfig from env + AppState wiring
 
 **Files:**
 - Modify: `crates/hearth-api/src/sso_broker/config.rs`
@@ -408,7 +408,7 @@ git commit -m "feat(sso-broker): ES256 signing key loading + JWK rendering"
 - Produces:
   - `pub struct SsoBrokerConfig { pub enabled: bool, pub issuer_url: Option<String>, pub signing_key: Option<Arc<SigningKey>>, pub kanidm_oauth2_client_id: Option<String>, pub kanidm_oauth2_client_secret: Option<String>, pub kanidm_authorize_url: Option<String>, pub kanidm_token_url: Option<String>, pub kanidm_userinfo_url: Option<String>, pub access_token_ttl: Duration, pub id_token_ttl: Duration }`
   - `impl SsoBrokerConfig { pub fn from_env() -> Self }` — reads `HEARTH_SSO_BROKER_*` env vars; returns disabled config when any required var missing.
-- Consumes: `keys::SigningKey` from Task A2.
+- Consumes: `keys::SigningKey` from Task 2.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -538,7 +538,7 @@ git commit -m "feat(sso-broker): SsoBrokerConfig from env + AppState wiring"
 
 ## Phase B: OIDC issuer endpoints
 
-### Task B1: OIDC discovery document
+### Task 4: OIDC discovery document
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/handlers/mod.rs`
@@ -672,7 +672,7 @@ git commit -m "feat(sso-broker): OIDC discovery endpoint"
 
 ---
 
-### Task B2: JWKS endpoint
+### Task 5: JWKS endpoint
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/handlers/jwks.rs`
@@ -751,7 +751,7 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
 }
 ```
 
-Note: this test requires `SigningKey: Clone` — verify it is in Task A2; if not, derive `Clone` on `SigningKey` (the inner `EcdsaSigning` is clone-able since it wraps a scalar).
+Note: this test requires `SigningKey: Clone` — verify it is in Task 2; if not, derive `Clone` on `SigningKey` (the inner `EcdsaSigning` is clone-able since it wraps a scalar).
 
 - [ ] **Step 2: Run test (should fail to compile)**
 
@@ -788,7 +788,7 @@ git commit -m "feat(sso-broker): JWKS endpoint"
 
 ---
 
-### Task B3: Broker clients registry (declarative for MVP)
+### Task 6: Broker clients registry (declarative for MVP)
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/clients.rs`
@@ -921,7 +921,7 @@ git commit -m "feat(sso-broker): declarative OAuth2 client registry"
 
 ---
 
-### Task B4: Authorize endpoint (redirect to Kanidm)
+### Task 7: Authorize endpoint (redirect to Kanidm)
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/sessions.rs` (in-memory authorize-request stash, TTL 10 min)
@@ -1211,7 +1211,7 @@ git commit -m "feat(sso-broker): /oidc/authorize endpoint redirects to Kanidm"
 
 ---
 
-### Task B5: Callback endpoint (Kanidm code → broker code)
+### Task 8: Callback endpoint (Kanidm code → broker code)
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/kanidm_upstream.rs`
@@ -1558,7 +1558,7 @@ git commit -m "feat(sso-broker): /oidc/callback exchanges Kanidm code + stashes 
 
 ---
 
-### Task B6: Token endpoint (PKCE code exchange → broker-signed tokens)
+### Task 9: Token endpoint (PKCE code exchange → broker-signed tokens)
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/tokens.rs`
@@ -1934,7 +1934,7 @@ git commit -m "feat(sso-broker): /oidc/token mints ES256 id+access tokens"
 
 ---
 
-### Task B7: UserInfo endpoint
+### Task 10: UserInfo endpoint
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/handlers/userinfo.rs`
@@ -2097,7 +2097,7 @@ git commit -m "feat(sso-broker): /oidc/userinfo endpoint"
 
 ## Phase C: DB schema + audit + revocation
 
-### Task C1: Migration for sso_issued_tokens table
+### Task 11: Migration for sso_issued_tokens table
 
 **Files:**
 - Create: `migrations/<next-NNNN>_sso_broker.sql` — the next available migration number; check `migrations/` directory before writing.
@@ -2160,7 +2160,7 @@ git commit -m "feat(sso-broker): sso_issued_tokens migration"
 
 ---
 
-### Task C2: Record minted tokens; revocation check on userinfo
+### Task 12: Record minted tokens; revocation check on userinfo
 
 **Files:**
 - Modify: `crates/hearth-api/src/sso_broker/handlers/token.rs` (insert into sso_issued_tokens after mint)
@@ -2352,7 +2352,7 @@ git commit -m "feat(sso-broker): record issued tokens + revocation check"
 
 ---
 
-### Task C3: Revoke endpoint + audit events
+### Task 13: Revoke endpoint + audit events
 
 **Files:**
 - Create: `crates/hearth-api/src/sso_broker/handlers/revoke.rs`
@@ -2486,7 +2486,7 @@ git commit -m "feat(sso-broker): revoke endpoint + audit emission"
 
 ## Phase D: Helm wiring + Kanidm bootstrap
 
-### Task D1: Capability toggle + values
+### Task 14: Capability toggle + values
 
 **Files:**
 - Modify: `chart/hearth-home/values.yaml`
@@ -2557,7 +2557,7 @@ git commit -m "feat(sso-broker): capability toggle and values stanza"
 
 ---
 
-### Task D2: Bootstrap creates hearth-broker-svc SA + registers Kanidm OAuth2 client
+### Task 15: Bootstrap creates hearth-broker-svc SA + registers Kanidm OAuth2 client
 
 **Files:**
 - Modify: `chart/hearth-home/templates/kanidm/bootstrap-configmap.yaml`
@@ -2659,7 +2659,7 @@ git commit -m "feat(sso-broker): bootstrap registers broker SA + Kanidm OAuth2 c
 
 ---
 
-### Task D3: Signing-key keypair generation Job + Secret
+### Task 16: Signing-key keypair generation Job + Secret
 
 **Files:**
 - Create: `chart/hearth-home/templates/sso-broker/job-genkey.yaml`
@@ -2791,7 +2791,7 @@ git commit -m "feat(sso-broker): signing key generation Job + helm-unittest"
 
 ---
 
-### Task D4: hearth-api Deployment mounts signing key + env
+### Task 17: hearth-api Deployment mounts signing key + env
 
 **Files:**
 - Modify: `chart/hearth-home/templates/api/deployment.yaml`
@@ -2920,7 +2920,7 @@ git commit -m "feat(sso-broker): hearth-api Deployment wires signing key + env"
 
 ---
 
-### Task D5: NetworkPolicy + broker helm-unittest coverage
+### Task 18: NetworkPolicy + broker helm-unittest coverage
 
 **Files:**
 - Modify: `chart/hearth-home/templates/networkpolicy.yaml` (allow Synapse → API for OIDC; add ingress allow from internal apps when ssoBroker is enabled)
@@ -3038,7 +3038,7 @@ git commit -m "feat(sso-broker): NetworkPolicy + helm-unittest for API env wirin
 
 ## Phase E: Synapse migration + end-to-end VM test
 
-### Task E1: Synapse OIDC reconfig to broker
+### Task 19: Synapse OIDC reconfig to broker
 
 **Files:**
 - Modify: `chart/hearth-home/templates/synapse/configmap.yaml`
@@ -3190,7 +3190,7 @@ git commit -m "feat(sso-broker): Synapse OIDC switches to broker when capability
 
 ---
 
-### Task E2: Operator-facing docs
+### Task 20: Operator-facing docs
 
 **Files:**
 - Create: `docs/sso-broker.md`
@@ -3345,7 +3345,7 @@ git commit -m "docs(sso-broker): operator overview + threat-model entry"
 
 ---
 
-### Task E3: End-to-end VM test (Synapse login via broker)
+### Task 21: End-to-end VM test (Synapse login via broker)
 
 **Files:**
 - Create: `tests/vm-sso-broker-synapse-login.nix`
@@ -3455,7 +3455,7 @@ git commit -m "test(sso-broker): VM check for discovery + jwks + authorize redir
 
 ---
 
-### Task E4: Final integration check
+### Task 22: Final integration check
 
 - [ ] **Step 1: Full Rust check**
 
@@ -3540,13 +3540,13 @@ These ship after Phase 1 lands and the broker is proven by Synapse migration. Th
 
 **Spec coverage check:**
 - Broker's API surface — covered (Phase B: discovery, JWKS, authorize, callback, token, userinfo, revoke).
-- Signing-key handling — covered (Task A2 keys; Task D3 Job + Secret; Task D4 mount).
+- Signing-key handling — covered (Task 2 keys; Task 16 Job + Secret; Task 17 mount).
 - Trust boundary with device daemons — explicitly deferred to follow-up plans (Future plans section #1); doc and threat-model note this.
-- App reconfiguration (Synapse) — covered (Task E1). Element/Fractal/Firefox deferred to follow-ups.
-- Refresh / revocation / audit — revocation covered (Task C3); audit covered (Task C3). Refresh deferred (Future #7), with note that initial TTL is 1 hour.
+- App reconfiguration (Synapse) — covered (Task 19). Element/Fractal/Firefox deferred to follow-ups.
+- Refresh / revocation / audit — revocation covered (Task 13); audit covered (Task 13). Refresh deferred (Future #7), with note that initial TTL is 1 hour.
 - Phased rollout keeping Kanidm as source of truth — explicit (broker is downstream of Kanidm; Synapse can flip back via `synapse.oidc.useBroker=false`).
 
-**Placeholder scan:** no `TBD`/`TODO`/`later` in any task. The `decode_jti` duplication is marked as a deliberate temporary inline note in Task C3 (acknowledged not a placeholder).
+**Placeholder scan:** no `TBD`/`TODO`/`later` in any task. The `decode_jti` duplication is marked as a deliberate temporary inline note in Task 13 (acknowledged not a placeholder).
 
 **Type consistency:** `SigningKey`, `SsoBrokerConfig`, `BrokerClient`, `AuthorizeRequest`, `BrokerCode`, `BrokerClaims`, `TokenKind` — all defined once and referenced consistently across handlers. The handler test scaffolding pattern (`enabled_state*()`) is reused but redeclared per test file because tests are not shared across modules; this is intentional and not a drift.
 
