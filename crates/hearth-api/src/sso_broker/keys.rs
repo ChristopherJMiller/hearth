@@ -15,6 +15,8 @@ pub enum SigningKeyError {
     InvalidPem(String),
     #[error("io error: {0}")]
     Io(#[from] io::Error),
+    #[error("key too short")]
+    KeyTooShort,
 }
 
 #[derive(Clone, Debug)]
