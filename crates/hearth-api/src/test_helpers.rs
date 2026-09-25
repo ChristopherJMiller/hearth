@@ -1,5 +1,4 @@
-//! Test helpers shared across module-level tests. Compiled only under `#[cfg(test)]`.
-#![cfg(test)]
+//! Test helpers shared across module-level tests. Compiled only under `#[cfg(test)]` (gated at the `mod` declaration in lib.rs).
 
 use crate::{AppState, auth::AuthConfig};
 use sqlx::PgPool;
