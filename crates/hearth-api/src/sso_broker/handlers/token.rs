@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
+use crate::repo;
 use crate::sso_broker::{client_auth, pkce, store, tokens};
 
 #[derive(Debug, Deserialize)]
@@ -73,7 +74,13 @@ pub async fn token(
         &state.sso_broker.clients,
     ) {
         Ok(client) => client,
-        Err(e) => return oauth_error(e.status(), e.code(), e.description()),
+        Err(e) => {
+            let mut resp = oauth_error(e.status(), e.code(), e.description());
+            if let Some(v) = client_auth::www_authenticate(e, &headers) {
+                resp.headers_mut().insert(header::WWW_AUTHENTICATE, v);
+            }
+            return resp;
+        }
     };
 
     let Some(broker_code) = state.sso_broker_code_stash.take(code) else {
@@ -174,44 +181,50 @@ pub async fn token(
         }
     };
 
-    // Persist both jtis so `/oidc/userinfo` (and later `/oidc/revoke`) can
-    // look them up for revocation. Fail closed: a token we failed to record
-    // could never be revoked, so don't hand it out.
-    if let Err(e) = store::record_token(
+    // Persist both jtis so `/oidc/userinfo` and `/oidc/revoke` can look them
+    // up. Both rows go in a single transaction (a partial write would leave
+    // one token unrevocable) and this stays fail-closed: a record failure
+    // means neither token is handed to the client, since a token that
+    // couldn't be recorded could never be revoked.
+    if let Err(e) = store::record_token_pair(
         &state.pool,
-        &id_jti,
         &broker_code.user_sub,
         &client.audience,
         &client.client_id,
-        store::TokenKind::Id,
+        &id_jti,
         id_expires_at,
+        &access_jti,
+        access_expires_at,
     )
     .await
     {
-        tracing::error!(error = %e, "failed to record id_token");
+        tracing::error!(error = %e, "failed to record issued tokens");
         return oauth_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "server_error",
             "failed to record issued token",
         );
     }
-    if let Err(e) = store::record_token(
+
+    // Audit the issuance. Unlike the recording above this is best-effort,
+    // not fail-closed — the tokens are already durably recorded and usable,
+    // so a logging failure here shouldn't turn into a 500 for the client.
+    if let Err(e) = repo::create_audit_event(
         &state.pool,
-        &access_jti,
-        &broker_code.user_sub,
-        &client.audience,
-        &client.client_id,
-        store::TokenKind::Access,
-        access_expires_at,
+        "sso_broker.token_issued",
+        Some(&broker_code.user_sub),
+        None,
+        &json!({
+            "client_id": client.client_id,
+            "audience": client.audience,
+            "scope": broker_code.scope,
+            "id_jti": id_jti,
+            "access_jti": access_jti,
+        }),
     )
     .await
     {
-        tracing::error!(error = %e, "failed to record access_token");
-        return oauth_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "server_error",
-            "failed to record issued token",
-        );
+        tracing::error!(error = %e, "failed to record sso_broker.token_issued audit event");
     }
 
     json_response(
@@ -462,6 +475,41 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
     }
 
     #[tokio::test]
+    async fn rejects_code_redeemed_by_a_different_client() {
+        // A code minted for "synapse" must not be redeemable by a second,
+        // fully-legitimate confidential client ("nextcloud") even though
+        // its own credentials check out fine — this is the check at
+        // `broker_code.client_id != client.client_id` above, and doesn't
+        // touch the DB (it returns before any `store::` call), so it's a
+        // plain unit test.
+        let state = enabled_state();
+        let mut cfg = (*state.sso_broker).clone();
+        cfg.clients.push(BrokerClient {
+            client_id: "nextcloud".into(),
+            client_secret_hash: format!("{:x}", Sha256::digest(b"other-sekret")),
+            redirect_uris: vec!["https://cloud.hearth.local/cb".into()],
+            scopes: vec!["openid".into()],
+            audience: "nextcloud".into(),
+        });
+        let mut state = state;
+        state.sso_broker = std::sync::Arc::new(cfg);
+
+        let verifier = "abcdef123456abcdef123456abcdef123456abcdef123456";
+        let code_key = insert_valid_code(&state, verifier);
+        let body = format!(
+            "grant_type=authorization_code&code={}&redirect_uri=https%3A%2F%2Fchat.hearth.local%2Fcb&client_id=nextcloud&client_secret=other-sekret&code_verifier={}",
+            urlencoding::encode(&code_key),
+            verifier,
+        );
+        let resp = post_form(state, body, vec![]).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error"], "invalid_grant");
+        assert_eq!(v["error_description"], "code was not issued to this client");
+    }
+
+    #[tokio::test]
     async fn rejects_missing_grant_type_as_oauth_error_not_422() {
         let state = enabled_state();
         let body = "code=whatever".to_string();
@@ -494,6 +542,37 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["error"], "invalid_client");
+    }
+
+    #[tokio::test]
+    async fn basic_auth_401_carries_www_authenticate() {
+        let state = enabled_state();
+        let body =
+            "grant_type=authorization_code&code=x&redirect_uri=https%3A%2F%2Fchat.hearth.local%2Fcb&code_verifier=x"
+                .to_string();
+        let basic = STANDARD.encode("synapse:wrong-secret");
+        let resp = post_form(
+            state,
+            body,
+            vec![("authorization", format!("Basic {basic}"))],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            resp.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "Basic realm=\"hearth-sso-broker\""
+        );
+    }
+
+    #[tokio::test]
+    async fn post_auth_401_has_no_www_authenticate() {
+        let state = enabled_state();
+        let body =
+            "grant_type=authorization_code&code=x&redirect_uri=https%3A%2F%2Fchat.hearth.local%2Fcb&client_id=synapse&client_secret=wrong&code_verifier=x"
+                .to_string();
+        let resp = post_form(state, body, vec![]).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        assert!(resp.headers().get(header::WWW_AUTHENTICATE).is_none());
     }
 
     #[tokio::test]

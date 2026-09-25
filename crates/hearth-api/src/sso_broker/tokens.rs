@@ -113,6 +113,32 @@ pub fn verify_jwt(
     Ok(data.claims)
 }
 
+/// Extracts the `jti` claim from a JWT's payload segment without verifying
+/// its signature or expiry.
+///
+/// This is the single jti-extraction helper in the broker (it must not be
+/// duplicated) — used by `/oidc/revoke`, where RFC 7009 §2.2 says a token
+/// the server doesn't recognize or can't even parse is a silent no-op, not
+/// an error, so revocation must be able to look at a possibly-malformed or
+/// already-expired token without `verify_jwt`'s signature/`exp` checks
+/// rejecting it outright. This can't be used as an oracle: the caller still
+/// has to hold a valid client credential, and [`crate::sso_broker::store::revoke`]
+/// scopes the update to that client's own `client_id`, so guessing a
+/// foreign jti here verifies nothing and revokes nothing outside the
+/// caller's own tokens.
+pub fn extract_jti_unverified(token: &str) -> Option<String> {
+    let mut parts = token.split('.');
+    let _header = parts.next()?;
+    let payload = parts.next()?;
+    let _signature = parts.next()?;
+    if parts.next().is_some() {
+        return None; // not a 3-segment JWT
+    }
+    let payload = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&payload).ok()?;
+    value.get("jti")?.as_str().map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +226,62 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
         let tampered = segs.join(".");
         let err = verify_jwt(&tampered, &key, &claims.iss).unwrap_err();
         assert!(matches!(err, VerifyError::Jwt(_)));
+    }
+
+    #[test]
+    fn extract_jti_unverified_reads_jti_from_valid_jwt() {
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let claims = sample_claims();
+        let token = mint_jwt(&claims, &key).unwrap();
+        assert_eq!(extract_jti_unverified(&token), Some(claims.jti));
+    }
+
+    #[test]
+    fn extract_jti_unverified_works_on_expired_token() {
+        // Revocation must be able to read the jti out of a token whose exp
+        // has already passed — verify_jwt would reject it outright.
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let mut claims = sample_claims();
+        claims.exp = 1_000;
+        let token = mint_jwt(&claims, &key).unwrap();
+        assert_eq!(extract_jti_unverified(&token), Some(claims.jti));
+    }
+
+    #[test]
+    fn extract_jti_unverified_ignores_signature() {
+        // No signature verification happens at all — a tampered/garbage
+        // signature segment still yields the jti from the payload.
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let claims = sample_claims();
+        let token = mint_jwt(&claims, &key).unwrap();
+        let mut segs: Vec<&str> = token.split('.').collect();
+        segs[2] = "not-a-real-signature";
+        let tampered = segs.join(".");
+        assert_eq!(extract_jti_unverified(&tampered), Some(claims.jti));
+    }
+
+    #[test]
+    fn extract_jti_unverified_rejects_wrong_segment_count() {
+        assert_eq!(extract_jti_unverified("only.two"), None);
+        assert_eq!(extract_jti_unverified("a.b.c.d"), None);
+        assert_eq!(extract_jti_unverified("no-dots-at-all"), None);
+    }
+
+    #[test]
+    fn extract_jti_unverified_rejects_non_base64_payload() {
+        assert_eq!(extract_jti_unverified("header.not!base64.sig"), None);
+    }
+
+    #[test]
+    fn extract_jti_unverified_rejects_payload_without_jti() {
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&serde_json::json!({
+                "sub": "u-1",
+            }))
+            .unwrap(),
+        );
+        let token = format!("header.{payload}.sig");
+        assert_eq!(extract_jti_unverified(&token), None);
     }
 
     #[test]

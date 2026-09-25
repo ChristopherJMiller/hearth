@@ -14,11 +14,16 @@
 //! `/oidc/revoke` (Task 13) can reuse it and format the resulting error
 //! however suits their own response contract.
 
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
 use crate::sso_broker::clients::{self, BrokerClient};
+
+/// `WWW-Authenticate` value for a 401 triggered by a request that attempted
+/// HTTP Basic auth. RFC 6749 §5.2 requires the realm be present; the value
+/// is otherwise opaque to clients.
+const WWW_AUTHENTICATE_BASIC: &str = "Basic realm=\"hearth-sso-broker\"";
 
 /// An OAuth2 client-authentication failure, per RFC 6749 §5.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,13 +89,51 @@ fn parse_basic_auth(headers: &HeaderMap) -> Result<Option<(String, String)>, Cli
         .ok_or(ClientAuthError::InvalidRequest(
             "malformed Basic credentials",
         ))?;
-    let id = urlencoding::decode(id)
-        .map_err(|_| ClientAuthError::InvalidRequest("malformed Basic credentials"))?
-        .into_owned();
-    let secret = urlencoding::decode(secret)
-        .map_err(|_| ClientAuthError::InvalidRequest("malformed Basic credentials"))?
-        .into_owned();
+    let id = decode_form_component(id)?;
+    let secret = decode_form_component(secret)?;
     Ok(Some((id, secret)))
+}
+
+/// Decodes one `application/x-www-form-urlencoded` component (RFC 6749
+/// §2.3.1 requires the client_id/client_secret each be encoded this way
+/// before being joined with `:`). `urlencoding::decode` alone only handles
+/// `%XX` escapes — form-urlencoding also uses a literal `+` for space, so
+/// that has to be turned into `%20` before percent-decoding or a `+` in a
+/// client_id/secret round-trips as itself instead of a space.
+fn decode_form_component(s: &str) -> Result<String, ClientAuthError> {
+    let percent_escaped = s.replace('+', "%20");
+    urlencoding::decode(&percent_escaped)
+        .map(|c| c.into_owned())
+        .map_err(|_| ClientAuthError::InvalidRequest("malformed Basic credentials"))
+}
+
+/// True if the request's `Authorization` header names the `Basic` scheme,
+/// regardless of whether its credentials are well-formed. Used to decide
+/// whether a 401 response must carry `WWW-Authenticate` (RFC 6749 §5.2:
+/// "If the client attempted to authenticate via the Authorization request
+/// header field, the authorization server MUST ... include the
+/// WWW-Authenticate response header field matching the authentication
+/// scheme used by the client").
+pub fn attempted_basic_auth(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split_whitespace().next())
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("basic"))
+}
+
+/// Builds the `WWW-Authenticate` header value a caller should attach to the
+/// response for `err`, or `None` when RFC 6749 §5.2 doesn't call for one
+/// (anything other than a 401, or a 401 that didn't come from an attempted
+/// Basic-auth request — e.g. `client_secret_post` with a bad secret).
+/// Handler-independent like the rest of this module: callers attach it to
+/// whatever response shape they use.
+pub fn www_authenticate(err: ClientAuthError, headers: &HeaderMap) -> Option<HeaderValue> {
+    if err.status() == StatusCode::UNAUTHORIZED && attempted_basic_auth(headers) {
+        Some(HeaderValue::from_static(WWW_AUTHENTICATE_BASIC))
+    } else {
+        None
+    }
 }
 
 /// Authenticates a confidential OAuth2 client against `clients`, accepting
@@ -156,6 +199,58 @@ mod tests {
         let value = format!("Basic {}", STANDARD.encode(raw));
         headers.insert(header::AUTHORIZATION, value.parse().unwrap());
         headers
+    }
+
+    #[test]
+    fn basic_auth_plus_decodes_to_space() {
+        // Simulate a client that form-encoded each half before joining with
+        // ':' and base64-encoding (RFC 6749 §2.3.1) — a literal '+' in the
+        // wire format must decode to a space, not survive as '+'.
+        let clients = vec![client("synapse client", "sekret value")];
+        let raw = "synapse+client:sekret+value";
+        let value = format!("Basic {}", STANDARD.encode(raw));
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, value.parse().unwrap());
+        let result = authenticate(&headers, None, None, &clients).unwrap();
+        assert_eq!(result.client_id, "synapse client");
+    }
+
+    #[test]
+    fn attempted_basic_auth_true_for_basic_scheme() {
+        assert!(attempted_basic_auth(&basic_header("synapse", "sekret")));
+    }
+
+    #[test]
+    fn attempted_basic_auth_false_without_header() {
+        assert!(!attempted_basic_auth(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn attempted_basic_auth_false_for_other_scheme() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Bearer sometoken".parse().unwrap());
+        assert!(!attempted_basic_auth(&headers));
+    }
+
+    #[test]
+    fn www_authenticate_present_for_basic_401() {
+        let headers = basic_header("synapse", "wrong");
+        let err = ClientAuthError::InvalidClient("bad client secret");
+        let value = www_authenticate(err, &headers).unwrap();
+        assert_eq!(value, WWW_AUTHENTICATE_BASIC);
+    }
+
+    #[test]
+    fn www_authenticate_absent_for_post_401() {
+        let err = ClientAuthError::InvalidClient("bad client secret");
+        assert!(www_authenticate(err, &HeaderMap::new()).is_none());
+    }
+
+    #[test]
+    fn www_authenticate_absent_for_400_even_with_basic_header() {
+        let headers = basic_header("synapse", "sekret");
+        let err = ClientAuthError::InvalidRequest("must not use more than one method");
+        assert!(www_authenticate(err, &headers).is_none());
     }
 
     #[test]

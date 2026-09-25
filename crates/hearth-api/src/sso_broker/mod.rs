@@ -35,6 +35,7 @@ pub fn routes() -> Router<AppState> {
             "/userinfo",
             axum::routing::get(handlers::userinfo::userinfo),
         )
+        .route("/revoke", axum::routing::post(handlers::revoke::revoke))
 }
 
 #[cfg(test)]

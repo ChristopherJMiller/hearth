@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sso_issued_tokens SET revoked_at = now()\n         WHERE jti = $1 AND client_id = $2 AND revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8a4269850fb7de22a45b11b97ea2a92a1db1b18c581b78c40bfde35c8f595edd"
+}

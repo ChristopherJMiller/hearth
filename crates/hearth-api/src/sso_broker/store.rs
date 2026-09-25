@@ -1,11 +1,10 @@
 //! Persistence for broker-minted tokens.
 //!
 //! Every id_token and access_token the broker mints is recorded here by
-//! jti so `/oidc/userinfo` (and, eventually, `/oidc/revoke` in Task 13) can
-//! check whether a presented token has been revoked. Recording is on the
-//! hot path of `/oidc/token` and is fail-closed there: a token that can't
-//! be recorded is a token that could never be revoked, so the handler
-//! must not hand it out.
+//! jti so `/oidc/userinfo` and `/oidc/revoke` can check whether a presented
+//! token has been revoked. Recording is on the hot path of `/oidc/token`
+//! and is fail-closed there: a token that can't be recorded is a token
+//! that could never be revoked, so the handler must not hand it out.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -64,17 +63,70 @@ pub async fn is_revoked(pool: &PgPool, jti: &str) -> Result<bool, sqlx::Error> {
     Ok(row.and_then(|r| r.revoked_at).is_some())
 }
 
-/// Marks `jti` revoked. Returns `true` if a row was updated (it existed and
-/// was not already revoked); `false` for an unknown jti or a no-op repeat
-/// revoke of an already-revoked token.
-pub async fn revoke(pool: &PgPool, jti: &str) -> Result<bool, sqlx::Error> {
+/// Marks `jti` revoked, scoped to `client_id`. Returns `true` if a row was
+/// updated (it existed, belonged to `client_id`, and was not already
+/// revoked); `false` for an unknown jti, a no-op repeat revoke of an
+/// already-revoked token, or — deliberately — a jti that exists but was
+/// issued to a *different* client. Scoping the `UPDATE` itself (rather than
+/// checking `client_id` separately) means a client can never learn from the
+/// response whether some other client's jti exists at all: unknown and
+/// foreign both come back `false`.
+pub async fn revoke(pool: &PgPool, jti: &str, client_id: &str) -> Result<bool, sqlx::Error> {
     let r = sqlx::query!(
-        "UPDATE sso_issued_tokens SET revoked_at = now() WHERE jti = $1 AND revoked_at IS NULL",
-        jti
+        "UPDATE sso_issued_tokens SET revoked_at = now()
+         WHERE jti = $1 AND client_id = $2 AND revoked_at IS NULL",
+        jti,
+        client_id,
     )
     .execute(pool)
     .await?;
     Ok(r.rows_affected() == 1)
+}
+
+/// Records both tokens minted by a single `/oidc/token` grant (an id_token
+/// and an access_token) in one transaction, so a partial write — one row
+/// persisted, the other lost to an error — can never happen. The caller
+/// still treats this fail-closed: on `Err`, neither token may be handed to
+/// the client, since a token that couldn't be recorded could never be
+/// revoked.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_token_pair(
+    pool: &PgPool,
+    user_sub: &str,
+    audience: &str,
+    client_id: &str,
+    id_jti: &str,
+    id_expires_at: DateTime<Utc>,
+    access_jti: &str,
+    access_expires_at: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "INSERT INTO sso_issued_tokens (jti, user_sub, audience, client_id, kind, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+        id_jti,
+        user_sub,
+        audience,
+        client_id,
+        TokenKind::Id.as_str(),
+        id_expires_at,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO sso_issued_tokens (jti, user_sub, audience, client_id, kind, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+        access_jti,
+        user_sub,
+        audience,
+        client_id,
+        TokenKind::Access.as_str(),
+        access_expires_at,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Revokes every currently-active token for a user (e.g. on account
