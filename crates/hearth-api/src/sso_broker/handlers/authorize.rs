@@ -11,7 +11,6 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use std::time::Instant;
 
 use crate::AppState;
 use crate::sso_broker::clients;
@@ -65,7 +64,6 @@ pub async fn authorize(State(state): State<AppState>, Query(q): Query<AuthorizeQ
         code_challenge_method: q.code_challenge_method.clone(),
         nonce: q.nonce.clone(),
         upstream_pkce_verifier,
-        created_at: Instant::now(),
     });
     let broker_redirect = format!(
         "{}/callback",

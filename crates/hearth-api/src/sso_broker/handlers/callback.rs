@@ -12,7 +12,6 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use std::time::Instant;
 
 use crate::AppState;
 use crate::sso_broker::kanidm_upstream;
@@ -24,17 +23,18 @@ pub struct CallbackQuery {
     pub state: String,
 }
 
-pub async fn callback(
-    State(state): State<AppState>,
-    Query(q): Query<CallbackQuery>,
-) -> Response {
+pub async fn callback(State(state): State<AppState>, Query(q): Query<CallbackQuery>) -> Response {
     if !state.sso_broker.enabled {
         return (StatusCode::SERVICE_UNAVAILABLE, "sso broker disabled").into_response();
     }
     let Some(original) = state.sso_authorize_stash.take(&q.state) else {
         return (StatusCode::BAD_REQUEST, "unknown or expired state").into_response();
     };
-    let token_url = state.sso_broker.kanidm_token_url.as_deref().unwrap_or_default();
+    let token_url = state
+        .sso_broker
+        .kanidm_token_url
+        .as_deref()
+        .unwrap_or_default();
     let our_redirect = format!(
         "{}/callback",
         state.sso_broker.issuer_url.as_deref().unwrap_or_default()
@@ -89,7 +89,6 @@ pub async fn callback(
         user_groups: claims.groups,
         scope: original.scope.clone(),
         nonce: original.nonce.clone(),
-        created_at: Instant::now(),
     });
     let url = format!(
         "{}?code={}&state={}",
