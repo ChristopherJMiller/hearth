@@ -1,6 +1,6 @@
 -- SSO broker: track issued tokens for revocation and audit.
 
-CREATE TABLE IF NOT EXISTS sso_issued_tokens (
+CREATE TABLE sso_issued_tokens (
     jti          TEXT PRIMARY KEY,
     user_sub     TEXT NOT NULL,
     audience     TEXT NOT NULL,
@@ -14,11 +14,11 @@ CREATE TABLE IF NOT EXISTS sso_issued_tokens (
     kind         TEXT NOT NULL CHECK (kind IN ('access', 'id'))
 );
 
-CREATE INDEX IF NOT EXISTS sso_issued_tokens_user_idx
+CREATE INDEX idx_sso_issued_tokens_user
     ON sso_issued_tokens (user_sub);
-CREATE INDEX IF NOT EXISTS sso_issued_tokens_expires_idx
+CREATE INDEX idx_sso_issued_tokens_expires
     ON sso_issued_tokens (expires_at)
     WHERE revoked_at IS NULL;
-CREATE INDEX IF NOT EXISTS sso_issued_tokens_active_per_user_idx
+CREATE INDEX idx_sso_issued_tokens_active_per_user
     ON sso_issued_tokens (user_sub, audience)
     WHERE revoked_at IS NULL;
