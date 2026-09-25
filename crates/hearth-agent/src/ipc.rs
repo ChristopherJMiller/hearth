@@ -73,7 +73,9 @@ async fn notify_user_desktop(username: &str, uid: u32, title: &str, body: &str) 
     let xdg_runtime = format!("/run/user/{uid}");
     let result = tokio::process::Command::new("runuser")
         .args([
-            "-u", username, "--",
+            "-u",
+            username,
+            "--",
             "env",
             &format!("DBUS_SESSION_BUS_ADDRESS={bus}"),
             &format!("XDG_RUNTIME_DIR={xdg_runtime}"),
@@ -110,7 +112,12 @@ fn summarize_build_error(raw: &str) -> String {
         .find(|l| l.starts_with("error:") || l.starts_with("error "))
         .unwrap_or_else(|| {
             // Fall back to the last non-empty line.
-            trimmed.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or(trimmed)
+            trimmed
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .unwrap_or(trimmed)
         });
     const MAX_LEN: usize = 240;
     let stripped = last_error_line.trim_start_matches("error:").trim();
@@ -729,7 +736,9 @@ async fn handle_prepare_user_env<C: HearthApiClient + 'static>(
                         let status_label = match last_status {
                             Some(UserEnvBuildStatus::Pending) => "still pending",
                             Some(UserEnvBuildStatus::Building) => "still building",
-                            Some(UserEnvBuildStatus::Built) => "marked built but closure unavailable",
+                            Some(UserEnvBuildStatus::Built) => {
+                                "marked built but closure unavailable"
+                            }
                             Some(UserEnvBuildStatus::Failed) => "marked failed",
                             None => "no status reported",
                         };
@@ -872,7 +881,11 @@ fn resolve_and_ensure_home(username: &str) -> Result<ResolvedUser, String> {
         }
     }
 
-    Ok(ResolvedUser { passwd_name, home, uid })
+    Ok(ResolvedUser {
+        passwd_name,
+        home,
+        uid,
+    })
 }
 
 /// Realise a Nix store closure, streaming download progress to the greeter.
@@ -1170,8 +1183,14 @@ async fn run_as_user_with_progress(
     let logname_var = format!("LOGNAME={username}");
     let backup_var = "HOME_MANAGER_BACKUP_EXT=hm-bak";
     let mut cmd_args = vec![
-        "-u", username, "--",
-        "env", &user_var, &logname_var, backup_var, command,
+        "-u",
+        username,
+        "--",
+        "env",
+        &user_var,
+        &logname_var,
+        backup_var,
+        command,
     ];
     cmd_args.extend(args);
 
