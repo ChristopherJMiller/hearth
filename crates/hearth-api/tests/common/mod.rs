@@ -124,6 +124,74 @@ pub async fn test_app() -> (Router, TestDb) {
 }
 
 // ---------------------------------------------------------------------------
+// SSO broker test app
+// ---------------------------------------------------------------------------
+
+/// Test EC private key (SEC1/PKCS#8 PEM) for the SSO broker's ES256 signing
+/// key — matches the constant duplicated across the in-module
+/// `sso_broker::handlers::{token,userinfo}` unit tests.
+const SSO_BROKER_TEST_PEM: &str = "\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgevZzL1gdAFr88hb2
+OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
+1RTwjmYSi9R/zpBnuQ4EiMnCqfMPWiZqB4QdbAd0E7oH50VpuZ1P087G
+-----END PRIVATE KEY-----";
+
+#[allow(dead_code)]
+pub const SSO_BROKER_TEST_ISSUER: &str = "https://api.hearth.local/oidc";
+
+/// Build a test app with the SSO broker enabled and the given client
+/// registry, backed by a real per-test Postgres database — needed since
+/// `/oidc/token` and `/oidc/userinfo` read and write `sso_issued_tokens`.
+/// Returns the `AppState` (so tests can reach `sso_broker_code_stash` and
+/// `pool` directly) alongside a router built from a clone of it.
+#[allow(dead_code)]
+pub async fn test_app_with_sso_broker(
+    clients: Vec<hearth_api::sso_broker::clients::BrokerClient>,
+) -> (Router, AppState, TestDb) {
+    let db = TestDb::new().await;
+    let event_bus = hearth_api::events::EventBus::new();
+    let signing_key = hearth_api::sso_broker::keys::SigningKey::load_from_pem(SSO_BROKER_TEST_PEM)
+        .expect("valid test signing key");
+    let sso_broker = hearth_api::sso_broker::config::SsoBrokerConfig {
+        enabled: true,
+        issuer_url: Some(SSO_BROKER_TEST_ISSUER.to_string()),
+        signing_key: Some(std::sync::Arc::new(signing_key)),
+        clients,
+        ..Default::default()
+    };
+    let state = AppState {
+        pool: db.pool.clone(),
+        auth_config: AuthConfig {
+            oidc_issuers: vec![],
+            oidc_audiences: vec![],
+            machine_token_secret: Some(b"test-secret-key-for-machine-tokens".to_vec()),
+            jwks_cache: Default::default(),
+        },
+        headscale: None,
+        cache_url: None,
+        package_allowlist: None,
+        services: Vec::new(),
+        matrix_server_name: None,
+        event_bus: event_bus.clone(),
+        sso_broker: std::sync::Arc::new(sso_broker),
+        sso_authorize_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::AuthorizeStash::new(std::time::Duration::from_secs(
+                600,
+            )),
+        ),
+        sso_broker_code_stash: std::sync::Arc::new(
+            hearth_api::sso_broker::sessions::BrokerCodeStash::new(std::time::Duration::from_secs(
+                60,
+            )),
+        ),
+        http_client: reqwest::Client::new(),
+    };
+    let router = hearth_api::build_router(state.clone(), "/nonexistent", metrics_handle());
+    (router, state, db)
+}
+
+// ---------------------------------------------------------------------------
 // Auth-enabled test app
 // ---------------------------------------------------------------------------
 

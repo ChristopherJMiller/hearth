@@ -9,9 +9,12 @@ use axum::response::{IntoResponse, Json, Response};
 use serde_json::json;
 
 use crate::AppState;
-use crate::sso_broker::tokens;
+use crate::sso_broker::{store, tokens};
 
 pub async fn userinfo(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !state.sso_broker.enabled {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sso broker disabled").into_response();
+    }
     let Some(token) = bearer(&headers) else {
         return (StatusCode::UNAUTHORIZED, "missing bearer").into_response();
     };
@@ -26,6 +29,14 @@ pub async fn userinfo(State(state): State<AppState>, headers: HeaderMap) -> Resp
             return (StatusCode::UNAUTHORIZED, "invalid token").into_response();
         }
     };
+    match store::is_revoked(&state.pool, &claims.jti).await {
+        Ok(true) => return (StatusCode::UNAUTHORIZED, "revoked").into_response(),
+        Ok(false) => {}
+        Err(e) => {
+            tracing::error!(error = %e, "revocation check failed");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
     Json(json!({
         "sub": claims.sub,
         "preferred_username": claims.preferred_username,
@@ -49,7 +60,6 @@ mod tests {
     use crate::sso_broker::tokens::{self, BrokerClaims};
     use axum::body::Body;
     use axum::http::Request;
-    use http_body_util::BodyExt;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -95,8 +105,16 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
         }
     }
 
+    // Used to assert 200 + claims against `test_helpers::test_app_state()`'s
+    // dangling lazy pool. Now that userinfo checks revocation in the DB
+    // (fail-closed on a lookup error), that pool can never reach a 200
+    // here — the DB-backed success/revocation path lives in
+    // `crates/hearth-api/tests/api/sso_broker.rs` against a real Postgres.
+    // What's left worth asserting in-module is the fail-closed contract: a
+    // revocation-check failure must produce a 500, not silently let the
+    // token through.
     #[tokio::test]
-    async fn returns_claims_for_valid_token() {
+    async fn revocation_check_failure_returns_500() {
         let state = enabled_state();
         let key = SigningKey::load_from_pem(PEM).unwrap();
         let now = chrono::Utc::now().timestamp();
@@ -108,15 +126,19 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
             .body(Body::empty())
             .unwrap();
         let resp = router(state).oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
-        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["sub"], "u-1");
-        assert_eq!(v["preferred_username"], "alice");
-        assert_eq!(v["email"], "a@b");
-        assert_eq!(v["email_verified"], true);
-        assert_eq!(v["name"], "Alice");
-        assert_eq!(v["groups"], json!(["hearth-users"]));
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn returns_503_when_disabled() {
+        let state = crate::test_helpers::test_app_state();
+        let req = Request::builder()
+            .uri("/oidc/userinfo")
+            .header(header::AUTHORIZATION, "Bearer whatever")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]

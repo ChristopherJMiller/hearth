@@ -16,3 +16,4 @@ mod heartbeat;
 mod machines;
 mod reports;
 mod requests;
+mod sso_broker;

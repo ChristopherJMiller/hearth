@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::AppState;
-use crate::sso_broker::{client_auth, pkce, tokens};
+use crate::sso_broker::{client_auth, pkce, store, tokens};
 
 #[derive(Debug, Deserialize)]
 pub struct TokenForm {
@@ -151,9 +151,17 @@ pub async fn token(
             );
         }
     };
+    // Capture the id_token's jti before it's reassigned below. We deliberately
+    // don't recover it by decoding the minted JWT back apart — we already
+    // have it in `claims.jti` right here.
+    let id_jti = claims.jti.clone();
+    let id_expires_at = timestamp_to_utc(id_exp);
+
     // Access token: fresh jti + its own (typically shorter) TTL, same key.
     claims.jti = tokens::new_jti();
     claims.exp = access_exp;
+    let access_jti = claims.jti.clone();
+    let access_expires_at = timestamp_to_utc(access_exp);
     let access_token = match tokens::mint_access_token(&claims, key) {
         Ok(t) => t,
         Err(e) => {
@@ -165,7 +173,46 @@ pub async fn token(
             );
         }
     };
-    // Persist jtis for revocation — done in Phase C (Task 13).
+
+    // Persist both jtis so `/oidc/userinfo` (and later `/oidc/revoke`) can
+    // look them up for revocation. Fail closed: a token we failed to record
+    // could never be revoked, so don't hand it out.
+    if let Err(e) = store::record_token(
+        &state.pool,
+        &id_jti,
+        &broker_code.user_sub,
+        &client.audience,
+        &client.client_id,
+        store::TokenKind::Id,
+        id_expires_at,
+    )
+    .await
+    {
+        tracing::error!(error = %e, "failed to record id_token");
+        return oauth_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "server_error",
+            "failed to record issued token",
+        );
+    }
+    if let Err(e) = store::record_token(
+        &state.pool,
+        &access_jti,
+        &broker_code.user_sub,
+        &client.audience,
+        &client.client_id,
+        store::TokenKind::Access,
+        access_expires_at,
+    )
+    .await
+    {
+        tracing::error!(error = %e, "failed to record access_token");
+        return oauth_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "server_error",
+            "failed to record issued token",
+        );
+    }
 
     json_response(
         StatusCode::OK,
@@ -177,6 +224,14 @@ pub async fn token(
             "scope": broker_code.scope,
         }),
     )
+}
+
+/// Converts a `exp`-style Unix timestamp (seconds) into a `DateTime<Utc>`
+/// for storage. Falls back to "now" for an out-of-range timestamp rather
+/// than panicking — this only affects the stored `expires_at` audit value,
+/// never the JWT's own `exp` claim.
+fn timestamp_to_utc(ts: i64) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(ts, 0).unwrap_or_else(chrono::Utc::now)
 }
 
 fn oauth_error(status: StatusCode, error: &str, description: &str) -> Response {
@@ -280,8 +335,18 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
         router(state).oneshot(req).await.unwrap()
     }
 
+    // These two used to assert a 200 with minted tokens against
+    // `test_helpers::test_app_state()`'s dangling lazy pool. Now that
+    // `/oidc/token` persists every minted jti (fail-closed on a record
+    // error), that pool can never reach a 200 here — the DB-backed success
+    // path lives in `crates/hearth-api/tests/api/sso_broker.rs` against a
+    // real Postgres instead. What's left worth asserting in-module is the
+    // fail-closed contract itself: a record failure must produce a 500
+    // `server_error` and leak no tokens, regardless of which client-auth
+    // method got the request that far.
+
     #[tokio::test]
-    async fn issues_tokens_on_valid_code() {
+    async fn record_failure_returns_500_and_no_tokens_via_form_auth() {
         let state = enabled_state();
         let verifier = "abcdef123456abcdef123456abcdef123456abcdef123456";
         let code_key = insert_valid_code(&state, verifier);
@@ -291,20 +356,20 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
             verifier,
         );
         let resp = post_form(state, body, vec![]).await;
-        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
             resp.headers().get(header::CACHE_CONTROL).unwrap(),
             "no-store"
         );
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert!(v["id_token"].as_str().unwrap().contains('.'));
-        assert!(v["access_token"].as_str().unwrap().contains('.'));
-        assert_eq!(v["token_type"], "Bearer");
+        assert_eq!(v["error"], "server_error");
+        assert!(v.get("id_token").is_none());
+        assert!(v.get("access_token").is_none());
     }
 
     #[tokio::test]
-    async fn issues_tokens_via_client_secret_basic() {
+    async fn record_failure_returns_500_and_no_tokens_via_client_secret_basic() {
         let state = enabled_state();
         let verifier = "abcdef123456abcdef123456abcdef123456abcdef123456";
         let code_key = insert_valid_code(&state, verifier);
@@ -320,11 +385,12 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
             vec![("authorization", format!("Basic {basic}"))],
         )
         .await;
-        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert!(v["id_token"].as_str().unwrap().contains('.'));
-        assert!(v["access_token"].as_str().unwrap().contains('.'));
+        assert_eq!(v["error"], "server_error");
+        assert!(v.get("id_token").is_none());
+        assert!(v.get("access_token").is_none());
     }
 
     #[tokio::test]
