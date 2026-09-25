@@ -30,6 +30,10 @@ pub fn routes() -> Router<AppState> {
             axum::routing::get(handlers::callback::callback),
         )
         .route("/token", axum::routing::post(handlers::token::token))
+        .route(
+            "/userinfo",
+            axum::routing::get(handlers::userinfo::userinfo),
+        )
 }
 
 #[cfg(test)]

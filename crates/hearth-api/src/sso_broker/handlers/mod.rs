@@ -3,3 +3,4 @@ pub mod callback;
 pub mod discovery;
 pub mod jwks;
 pub mod token;
+pub mod userinfo;

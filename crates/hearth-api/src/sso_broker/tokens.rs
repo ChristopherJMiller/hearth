@@ -6,6 +6,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -18,6 +19,14 @@ pub enum MintError {
     Signing(#[from] SigningKeyError),
     #[error("json serialize: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum VerifyError {
+    #[error("malformed signing key: {0}")]
+    MalformedKey(String),
+    #[error("token validation failed: {0}")]
+    Jwt(#[from] jsonwebtoken::errors::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,6 +83,36 @@ pub fn mint_access_token(claims: &BrokerClaims, key: &SigningKey) -> Result<Stri
     mint_jwt(claims, key)
 }
 
+/// Verifies a broker-issued ES256 JWT (id_token or access_token) and returns
+/// its claims.
+///
+/// Checks signature, `exp` (both handled by `jsonwebtoken`), and that `iss`
+/// equals `expected_issuer`. Shared by the userinfo handler today and
+/// intended for the token-revocation check added in a later task.
+pub fn verify_jwt(
+    token: &str,
+    key: &SigningKey,
+    expected_issuer: &str,
+) -> Result<BrokerClaims, VerifyError> {
+    let jwk = key.jwk_public();
+    let x = jwk["x"]
+        .as_str()
+        .ok_or_else(|| VerifyError::MalformedKey("missing x coordinate".into()))?;
+    let y = jwk["y"]
+        .as_str()
+        .ok_or_else(|| VerifyError::MalformedKey("missing y coordinate".into()))?;
+    let decoding_key = DecodingKey::from_ec_components(x, y)
+        .map_err(|e| VerifyError::MalformedKey(e.to_string()))?;
+
+    let mut validation = Validation::new(Algorithm::ES256);
+    // userinfo/introspection accept any aud the broker issued for.
+    validation.validate_aud = false;
+    validation.set_issuer(&[expected_issuer]);
+
+    let data = decode::<BrokerClaims>(token, &decoding_key, &validation)?;
+    Ok(data.claims)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +163,52 @@ OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
     #[test]
     fn new_jti_generates_distinct_values() {
         assert_ne!(new_jti(), new_jti());
+    }
+
+    #[test]
+    fn verify_jwt_round_trips_valid_token() {
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let claims = sample_claims();
+        let token = mint_jwt(&claims, &key).unwrap();
+        let verified = verify_jwt(&token, &key, &claims.iss).unwrap();
+        assert_eq!(verified.sub, claims.sub);
+        assert_eq!(verified.preferred_username, claims.preferred_username);
+    }
+
+    #[test]
+    fn verify_jwt_rejects_wrong_issuer() {
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let claims = sample_claims();
+        let token = mint_jwt(&claims, &key).unwrap();
+        let err = verify_jwt(&token, &key, "https://not-the-issuer.example").unwrap_err();
+        assert!(matches!(err, VerifyError::Jwt(_)));
+    }
+
+    #[test]
+    fn verify_jwt_rejects_tampered_payload() {
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let claims = sample_claims();
+        let token = mint_jwt(&claims, &key).unwrap();
+        let mut segs: Vec<&str> = token.split('.').collect();
+        // Swap in a payload for a different subject, signed with the same
+        // header/signature — the signature check must reject this.
+        let mut tampered_claims = sample_claims();
+        tampered_claims.sub = "attacker".into();
+        let tampered_payload =
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&tampered_claims).unwrap());
+        segs[1] = &tampered_payload;
+        let tampered = segs.join(".");
+        let err = verify_jwt(&tampered, &key, &claims.iss).unwrap_err();
+        assert!(matches!(err, VerifyError::Jwt(_)));
+    }
+
+    #[test]
+    fn verify_jwt_rejects_expired_token() {
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let mut claims = sample_claims();
+        claims.exp = 1_000; // long past, well outside the default leeway
+        let token = mint_jwt(&claims, &key).unwrap();
+        let err = verify_jwt(&token, &key, &claims.iss).unwrap_err();
+        assert!(matches!(err, VerifyError::Jwt(_)));
     }
 }
