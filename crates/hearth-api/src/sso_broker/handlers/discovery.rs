@@ -25,7 +25,8 @@ fn build_discovery_doc(issuer: &str) -> Value {
         "jwks_uri": format!("{issuer}/.well-known/jwks.json"),
         "revocation_endpoint": format!("{issuer}/revoke"),
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
+        // No refresh_token grant — not implemented.
+        "grant_types_supported": ["authorization_code"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["ES256"],
         "scopes_supported": ["openid", "profile", "email", "groups"],
@@ -49,6 +50,7 @@ mod tests {
         );
         assert_eq!(doc["id_token_signing_alg_values_supported"][0], "ES256");
         assert!(doc["jwks_uri"].as_str().unwrap().ends_with("/jwks.json"));
+        assert_eq!(doc["grant_types_supported"], json!(["authorization_code"]));
     }
 
     use axum::body::Body;

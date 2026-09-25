@@ -1,0 +1,128 @@
+//! Broker token claims + minting.
+//!
+//! PKCE verification for the downstream app's (broker's own) code exchange
+//! lives in [`crate::sso_broker::pkce::verify_s256`] — this module only
+//! handles claim shaping and JWT minting.
+
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
+
+use crate::sso_broker::keys::{SigningKey, SigningKeyError};
+
+#[derive(Debug, Error)]
+pub enum MintError {
+    #[error("signing failed: {0}")]
+    Signing(#[from] SigningKeyError),
+    #[error("json serialize: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BrokerClaims {
+    pub iss: String,
+    pub sub: String,
+    pub aud: String,
+    pub exp: i64,
+    pub iat: i64,
+    pub jti: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_verified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+}
+
+pub fn new_jti() -> String {
+    Uuid::new_v4().to_string()
+}
+
+pub fn mint_jwt(claims: &BrokerClaims, key: &SigningKey) -> Result<String, MintError> {
+    let header = serde_json::json!({
+        "alg": "ES256",
+        "typ": "JWT",
+        "kid": key.kid(),
+    });
+    let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header)?);
+    let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims)?);
+    let sig = key.sign(&header_b64, &payload_b64)?;
+    Ok(format!("{header_b64}.{payload_b64}.{sig}"))
+}
+
+/// Mints a broker id_token. For MVP this is identical in shape to
+/// [`mint_access_token`] — both are ES256 JWTs signed with the broker's
+/// signing key — but they are kept as distinct functions since the `aud`
+/// semantics (and possibly claim sets) are expected to diverge once the
+/// broker grows a real userinfo/introspection story.
+pub fn mint_id_token(claims: &BrokerClaims, key: &SigningKey) -> Result<String, MintError> {
+    mint_jwt(claims, key)
+}
+
+/// Mints a broker access_token. See [`mint_id_token`] for why this is kept
+/// separate despite sharing an implementation for MVP.
+pub fn mint_access_token(claims: &BrokerClaims, key: &SigningKey) -> Result<String, MintError> {
+    mint_jwt(claims, key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PEM: &str = "\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgevZzL1gdAFr88hb2
+OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
+1RTwjmYSi9R/zpBnuQ4EiMnCqfMPWiZqB4QdbAd0E7oH50VpuZ1P087G
+-----END PRIVATE KEY-----";
+
+    fn sample_claims() -> BrokerClaims {
+        BrokerClaims {
+            iss: "https://api.hearth.local/oidc".into(),
+            sub: "u-1".into(),
+            aud: "synapse".into(),
+            exp: 1_999_999_999,
+            iat: 1_700_000_000,
+            jti: "j-1".into(),
+            scope: "openid profile email".into(),
+            preferred_username: Some("alice".into()),
+            email: Some("a@b".into()),
+            email_verified: Some(true),
+            name: Some("Alice".into()),
+            groups: vec!["hearth-users".into()],
+            nonce: None,
+        }
+    }
+
+    #[test]
+    fn mint_jwt_produces_three_segments() {
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let jwt = mint_jwt(&sample_claims(), &key).unwrap();
+        let segs: Vec<&str> = jwt.split('.').collect();
+        assert_eq!(segs.len(), 3);
+    }
+
+    #[test]
+    fn mint_id_token_and_mint_access_token_both_produce_valid_jwts() {
+        let key = SigningKey::load_from_pem(PEM).unwrap();
+        let claims = sample_claims();
+        let id_token = mint_id_token(&claims, &key).unwrap();
+        let access_token = mint_access_token(&claims, &key).unwrap();
+        assert_eq!(id_token.split('.').count(), 3);
+        assert_eq!(access_token.split('.').count(), 3);
+    }
+
+    #[test]
+    fn new_jti_generates_distinct_values() {
+        assert_ne!(new_jti(), new_jti());
+    }
+}

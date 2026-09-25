@@ -1,3 +1,4 @@
+pub mod client_auth;
 pub mod clients;
 pub mod config;
 pub mod handlers;
@@ -5,6 +6,7 @@ pub mod kanidm_upstream;
 pub mod keys;
 pub mod pkce;
 pub mod sessions;
+pub mod tokens;
 
 use crate::AppState;
 use axum::Router;
@@ -27,6 +29,7 @@ pub fn routes() -> Router<AppState> {
             "/callback",
             axum::routing::get(handlers::callback::callback),
         )
+        .route("/token", axum::routing::post(handlers::token::token))
 }
 
 #[cfg(test)]
