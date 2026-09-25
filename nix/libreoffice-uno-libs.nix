@@ -13,7 +13,7 @@
 
 let
   deb-tarball = pkgs.fetchurl {
-    url = "https://download.documentfoundation.org/libreoffice/stable/26.2.2/deb/x86_64/LibreOffice_26.2.2_Linux_x86-64_deb.tar.gz";
+    url = "https://downloadarchive.documentfoundation.org/libreoffice/old/26.2.2.2/deb/x86_64/LibreOffice_26.2.2.2_Linux_x86-64_deb.tar.gz";
     sha256 = "1s3283bha7l7bp4q247f3aa7h79g4cj3xi26wh1dqibyx6piaa5a";
   };
 in
