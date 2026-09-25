@@ -356,8 +356,19 @@
             # binary); kubernetes-helm-wrapped accepts a `plugins` override
             # that bakes the plugin into the helm binary's plugin path so
             # `helm unittest` works out of the box in `nix develop`.
+            # nixpkgs' helm-unittest 1.1.0 installs the binary as `untt`, but
+            # its plugin.yaml platformCommand expects `untt-<os>-<arch>`; alias
+            # the per-platform names so `helm unittest` can exec it.
             (kubernetes-helm-wrapped.override {
-              plugins = [ kubernetes-helmPlugins.helm-unittest ];
+              plugins = [
+                (kubernetes-helmPlugins.helm-unittest.overrideAttrs (old: {
+                  postInstall = (old.postInstall or "") + ''
+                    for p in linux-amd64 linux-arm64 macos-amd64 macos-arm64; do
+                      ln -s untt "$out/helm-unittest/untt-$p"
+                    done
+                  '';
+                }))
+              ];
             })
             chart-testing
             kubeconform
