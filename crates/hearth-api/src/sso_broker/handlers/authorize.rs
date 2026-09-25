@@ -15,6 +15,7 @@ use std::time::Instant;
 
 use crate::AppState;
 use crate::sso_broker::clients;
+use crate::sso_broker::pkce;
 use crate::sso_broker::sessions::AuthorizeRequest;
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +27,10 @@ pub struct AuthorizeQuery {
     pub state: String,
     pub code_challenge: String,
     pub code_challenge_method: String,
+    /// Synapse (and OIDC clients generally) always send this and reject
+    /// id_tokens that don't echo it back.
+    #[serde(default)]
+    pub nonce: Option<String>,
 }
 
 pub async fn authorize(State(state): State<AppState>, Query(q): Query<AuthorizeQuery>) -> Response {
@@ -44,6 +49,12 @@ pub async fn authorize(State(state): State<AppState>, Query(q): Query<AuthorizeQ
     if !client.redirect_uris.iter().any(|u| u == &q.redirect_uri) {
         return bad_request("invalid_request", "redirect_uri not registered");
     }
+    // Fresh PKCE pair for the broker's own (upstream) leg toward Kanidm —
+    // independent of the downstream app's PKCE pair above. Kanidm 1.10
+    // enforces PKCE on OAuth2 clients by default.
+    let upstream_pkce_verifier = pkce::generate_verifier();
+    let upstream_pkce_challenge = pkce::s256_challenge(&upstream_pkce_verifier);
+
     // Stash request keyed by an upstream_state we send to Kanidm.
     let upstream_state = state.sso_authorize_stash.insert(AuthorizeRequest {
         client_id: q.client_id.clone(),
@@ -52,6 +63,8 @@ pub async fn authorize(State(state): State<AppState>, Query(q): Query<AuthorizeQ
         state: q.state.clone(),
         code_challenge: q.code_challenge.clone(),
         code_challenge_method: q.code_challenge_method.clone(),
+        nonce: q.nonce.clone(),
+        upstream_pkce_verifier,
         created_at: Instant::now(),
     });
     let broker_redirect = format!(
@@ -69,10 +82,11 @@ pub async fn authorize(State(state): State<AppState>, Query(q): Query<AuthorizeQ
         .as_deref()
         .unwrap_or_default();
     let url = format!(
-        "{kanidm_authz}?response_type=code&client_id={cid}&redirect_uri={rd}&scope=openid+profile+email+groups&state={st}",
+        "{kanidm_authz}?response_type=code&client_id={cid}&redirect_uri={rd}&scope=openid+profile+email+groups&state={st}&code_challenge={cc}&code_challenge_method=S256",
         cid = urlencoding::encode(kanidm_client_id),
         rd = urlencoding::encode(&broker_redirect),
         st = urlencoding::encode(&upstream_state),
+        cc = urlencoding::encode(&upstream_pkce_challenge),
     );
     let mut resp = (StatusCode::FOUND, "").into_response();
     resp.headers_mut().insert(
@@ -139,6 +153,69 @@ mod tests {
         assert!(loc.starts_with("https://kanidm.hearth.local:8443/ui/oauth2?"));
         assert!(loc.contains("client_id=hearth-sso-broker"));
         assert!(loc.contains("state="));
+    }
+
+    #[tokio::test]
+    async fn round_trips_nonce_and_generates_upstream_pkce() {
+        let state = enabled_state_with_client();
+        let router = axum::Router::new()
+            .route("/oidc/authorize", axum::routing::get(authorize))
+            .with_state(state.clone());
+        let q = "response_type=code&client_id=synapse&redirect_uri=https%3A%2F%2Fchat.hearth.local%2Fcb&scope=openid&state=xyz&code_challenge=abc&code_challenge_method=S256&nonce=n-0S6_WzA2Mj";
+        let req = Request::builder()
+            .uri(format!("/oidc/authorize?{q}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let loc = resp
+            .headers()
+            .get(axum::http::header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        // The broker must present its own PKCE challenge to Kanidm.
+        assert!(
+            loc.contains("code_challenge_method=S256"),
+            "missing upstream code_challenge_method in {loc}"
+        );
+        let upstream_challenge =
+            query_param(&loc, "code_challenge").expect("missing upstream code_challenge param");
+        let upstream_state = query_param(&loc, "state").expect("missing upstream state param");
+
+        // Pull the stashed request back out via the upstream state and check
+        // both the nonce round-trip and that the verifier matches the
+        // challenge sent to Kanidm.
+        let stashed = state
+            .sso_authorize_stash
+            .take(&upstream_state)
+            .expect("upstream state should be stashed");
+        assert_eq!(stashed.nonce.as_deref(), Some("n-0S6_WzA2Mj"));
+        assert!(
+            !stashed.upstream_pkce_verifier.is_empty(),
+            "upstream_pkce_verifier should be generated"
+        );
+        assert!(
+            crate::sso_broker::pkce::verify_s256(
+                &stashed.upstream_pkce_verifier,
+                &upstream_challenge
+            ),
+            "stashed verifier must match the challenge sent to Kanidm"
+        );
+    }
+
+    fn query_param(url: &str, key: &str) -> Option<String> {
+        let query = url.split('?').nth(1)?;
+        query.split('&').find_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            if k == key {
+                Some(urlencoding::decode(v).ok()?.into_owned())
+            } else {
+                None
+            }
+        })
     }
 
     #[tokio::test]

@@ -56,6 +56,7 @@ pub async fn callback(
         &q.code,
         &our_redirect,
         token_url,
+        &original.upstream_pkce_verifier,
     )
     .await
     {
@@ -83,10 +84,11 @@ pub async fn callback(
         user_sub: claims.sub,
         user_username: claims.preferred_username,
         user_email: claims.email,
+        user_email_verified: claims.email_verified,
         user_name: claims.name,
         user_groups: claims.groups,
         scope: original.scope.clone(),
-        nonce: None,
+        nonce: original.nonce.clone(),
         created_at: Instant::now(),
     });
     let url = format!(

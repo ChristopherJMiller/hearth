@@ -31,11 +31,13 @@ pub async fn exchange_kanidm_code(
     code: &str,
     redirect_uri: &str,
     token_url: &str,
+    code_verifier: &str,
 ) -> Result<UpstreamTokens, UpstreamError> {
     let body = [
         ("grant_type", "authorization_code"),
         ("code", code),
         ("redirect_uri", redirect_uri),
+        ("code_verifier", code_verifier),
     ];
     let resp = http
         .post(token_url)

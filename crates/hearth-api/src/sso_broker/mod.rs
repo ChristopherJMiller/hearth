@@ -3,6 +3,7 @@ pub mod config;
 pub mod handlers;
 pub mod kanidm_upstream;
 pub mod keys;
+pub mod pkce;
 pub mod sessions;
 
 use crate::AppState;
